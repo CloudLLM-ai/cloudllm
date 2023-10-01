@@ -1,4 +1,5 @@
-![image](https://github.com/CloudLLM-ai/cloudllm/assets/163977/4deabd8c-767e-46de-bb36-17123dd8d6a7)
+
+![cloud-llm-logo-white-bg](https://github.com/CloudLLM-ai/cloudllm/assets/163977/705e28d4-c555-4d6e-bcb8-3242b0b617f4)
 
 # CloudLLM
 
