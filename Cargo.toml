@@ -1,0 +1,11 @@
+[package]
+name = "cloudllm"
+version = "0.1.0"
+authors = ["Angel Leon <gubatron@gmail.com>"]
+edition = "2018"
+description = "A Rust library for bridging applications with remote LLMs across various platforms."
+repository = "https://github.com/CloudLLM-ai/cloudllm" # Update this with the actual repository link.
+
+[dependencies]
+tokio = { version = "1.32.0", features = ["full"] }
+openai-rust = "0.5.1"
