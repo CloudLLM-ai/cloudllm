@@ -34,12 +34,9 @@ pub struct Message {
 #[async_trait]
 pub trait ClientWrapper {
     /// Send a message to the LLM and get a response.
-    ///
-    /// - `model`: The specific model or endpoint to interact with.
     /// - `messages`: The messages to send in the request.
     async fn send_message(
         &self,
-        model: &str,
         messages: Vec<Message>,
     ) -> Result<Message, Box<dyn Error>>;
 }

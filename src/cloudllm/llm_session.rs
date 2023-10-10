@@ -22,7 +22,7 @@ impl<T: ClientWrapper> LLMSession<T> {
 
     /// Send a message to the LLM, add it to the conversation history.
     /// Returns the last response from the LLM
-    pub async fn send_message(&mut self, model: &str, role: Role, content: String) -> Result<Message, Box<dyn std::error::Error>> {
+    pub async fn send_message(&mut self, role: Role, content: String) -> Result<Message, Box<dyn std::error::Error>> {
         let message = Message {
             role,
             content,
@@ -33,7 +33,7 @@ impl<T: ClientWrapper> LLMSession<T> {
 
         // Handle token limit or any other constraints by possibly truncating older parts of the conversation history if needed
 
-        let response = self.client.send_message(model, self.conversation_history.clone()).await?;
+        let response = self.client.send_message(self.conversation_history.clone()).await.unwrap();
         self.conversation_history.push(response.clone());
 
         // Add the LLM's responses to the conversation history

@@ -8,12 +8,14 @@ use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 
 pub struct OpenAIClient {
     client: openai_rust::Client,
+    model: String,
 }
 
 impl OpenAIClient {
-    pub fn new(secret_key: &str) -> Self {
+    pub fn new(secret_key: &str, model_name: &str) -> Self {
         OpenAIClient {
-            client: openai_rust::Client::new(secret_key)
+            client: openai_rust::Client::new(secret_key),
+            model: model_name.to_string(),
         }
     }
 }
@@ -22,7 +24,6 @@ impl OpenAIClient {
 impl ClientWrapper for OpenAIClient {
     async fn send_message(
         &self,
-        model: &str,
         messages: Vec<Message>,
     ) -> Result<Message, Box<dyn Error>> {
 
@@ -40,7 +41,7 @@ impl ClientWrapper for OpenAIClient {
             })
             .collect();
 
-        let args = chat::ChatArguments::new(model, formatted_messages);
+        let args = chat::ChatArguments::new(&self.model, formatted_messages);
         let res = self.client.create_chat(args).await?;
         Ok(Message {
             role: Role::Assistant,
