@@ -9,3 +9,4 @@ repository = "https://github.com/CloudLLM-ai/cloudllm" # Update this with the ac
 [dependencies]
 tokio = { version = "1.32.0", features = ["full"] }
 openai-rust = "0.5.1"
+async-trait = "0.1.73"
