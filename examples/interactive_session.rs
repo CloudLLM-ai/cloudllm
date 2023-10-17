@@ -4,9 +4,9 @@ use std::io::{self, Write};
 use tokio::sync::watch;
 use tokio::time::{Duration, sleep};
 
-use cloudllm::cloudllm::client_wrapper::Role;
-use cloudllm::cloudllm::clients::openai::OpenAIClient;
-use cloudllm::cloudllm::llm_session::LLMSession;
+use cloudllm::client_wrapper::Role;
+use cloudllm::clients::openai::OpenAIClient;
+use cloudllm::LLMSession;
 
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session
