@@ -11,7 +11,48 @@
 /// such as `set_system_prompt`, offer ways to guide or pivot the direction of the conversation. In essence,
 /// this module is the bridge between user inputs and sophisticated model responses, serving as the orchestrator 
 /// for intelligent and coherent dialogues with the LLM.
-
+/// `LLMSession` maintains a conversation history while interacting with the LLM (Language Learning Model).
+/// To use an OpenAI client wrapper as the client for this session, follow these steps:
+///
+/// ## An example
+///
+/// `LLMSession` maintains a conversation history while interacting with the LLM (Language Learning Model).
+/// To use an OpenAI client wrapper as the client for a session, follow these steps:
+///
+/// 1. **Instantiation of OpenAIClient**: 
+/// Before creating an LLMSession, you first need an instance of `OpenAIClient`. 
+/// This requires your OpenAI secret key and the model name you want to utilize (e.g., "gpt-4").
+///
+/// ```rust
+/// use crate::cloudllm::clients::openai::OpenAIClient;
+/// let secret_key = "YOUR_OPENAI_SECRET_KEY";
+/// let model_name = "gpt-4";
+/// let openai_client = OpenAIClient::new(secret_key, model_name);
+/// ```
+///
+/// 2. **Creating an LLMSession with OpenAIClient**: 
+/// Now, you can create an `LLMSession` by providing the `OpenAIClient` instance and a system prompt to set the context.
+///
+/// ```rust
+/// use crate::cloudllm::llm_session::LLMSession;
+/// let system_prompt = "You are an AI assistant.";
+/// let session = LLMSession::new(openai_client, system_prompt.to_string());
+/// ```
+///
+/// 3. **Using the Session**: 
+/// With the session set up, you can send messages and maintain a conversation history. Each message sent 
+/// to the LLM via `send_message` gets appended to the session's history. This ensures a consistent and coherent 
+/// interaction over multiple message exchanges.
+///
+/// ```rust
+/// let user_message = "Hello, World!";
+/// let response = session.send_message(Role::User, user_message.to_string()).await.unwrap();
+/// println!("Assistant: {}", response.content);
+/// ```
+///
+/// Keep in mind that the session's history grows with each interaction. Ensure to handle token limits or other 
+/// constraints by potentially truncating older parts of the conversation if required.
+///
 use std::sync::Arc;
 
 // src/llm_session.rs

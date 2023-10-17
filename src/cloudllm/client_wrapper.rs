@@ -1,14 +1,12 @@
-// src/client_wrapper
-
-use std::error::Error;
-
-use async_trait::async_trait;
-
 /// A ClientWrapper is a wrapper around a specific cloud LLM service.
 /// It provides a common interface to interact with the LLMs.
 /// It does not keep track of the conversation/session, for that we use an LLMSession
 /// which keeps track of the conversation history and other session-specific data
 /// and uses a ClientWrapper to interact with the LLM.
+// src/client_wrapper
+use std::error::Error;
+
+use async_trait::async_trait;
 
 /// Represents the possible roles for a message.
 #[derive(Clone)]

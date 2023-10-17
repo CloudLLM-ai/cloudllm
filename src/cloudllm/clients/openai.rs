@@ -1,3 +1,27 @@
+/// The `OpenAIClient` struct provides an implementation of the `ClientWrapper` trait for OpenAI's ChatGPT.
+/// This allows interactions with the OpenAI ChatGPT LLM REST API, abstracting the underlying details and 
+/// providing a consistent interface for sending and receiving messages.
+///
+/// # Example
+///
+/// ```rust
+/// use crate::cloudllm::clients::openai::OpenAIClient;
+/// use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+///
+/// let secret_key = "YOUR_OPENAI_SECRET_KEY";
+/// let model_name = "gpt-4";
+///
+/// let client = OpenAIClient::new(secret_key, model_name);
+/// let system_prompt = "You are an AI assistant.";
+/// let msg = Message { role: Role::User, content: "Hello, World!".to_string() };
+/// 
+/// let response = client.send_message(vec![Message { role: Role::System, content: system_prompt.to_string() }, msg]).await.unwrap();
+/// println!("Assistant: {}", response.content);
+/// ```
+///
+/// # Note
+/// You will need to have the OpenAI API key and the desired model name (e.g., "gpt-4") to instantiate and use the client.
+///
 use std::error::Error;
 
 use async_trait::async_trait;
