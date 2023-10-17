@@ -1,11 +1,12 @@
 [package]
 name = "cloudllm"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A Rust library for bridging applications with remote LLMs across various platforms."
 repository = "https://github.com/CloudLLM-ai/cloudllm" # Update this with the actual repository link.
 license = "MIT"
+documentation = "https://docs.rs/cloudllm/latest/cloudllm/"
 
 [dependencies]
 tokio = { version = "1.32.0", features = ["full"] }
