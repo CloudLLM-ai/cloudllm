@@ -1,3 +1,17 @@
+/// The `llm_session` module encapsulates a conversational session with a Language Learning Model (LLM). 
+/// It provides the foundational tools necessary for real-time, back-and-forth interactions with the LLM,
+/// ensuring that both the user's queries and the LLM's responses are managed and tracked efficiently.
+/// 
+/// At its core is the `LLMSession` structure, which is responsible for maintaining a running dialogue history,
+/// allowing for contextualized exchanges that build upon previous interactions. This session-centric design 
+/// means developers can harness it for applications that require dynamic conversations, such as chatbots,
+/// virtual assistants, or interactive teaching tools.
+/// 
+/// With methods like `send_message`, users can seamlessly communicate with the LLM, while other utilities, 
+/// such as `set_system_prompt`, offer ways to guide or pivot the direction of the conversation. In essence,
+/// this module is the bridge between user inputs and sophisticated model responses, serving as the orchestrator 
+/// for intelligent and coherent dialogues with the LLM.
+
 use std::sync::Arc;
 
 // src/llm_session.rs
