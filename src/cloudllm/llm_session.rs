@@ -24,7 +24,7 @@
 //! This requires your OpenAI secret key and the model name you want to utilize (e.g., "gpt-4").
 //!
 //! ```rust
-//! use crate::cloudllm::clients::openai::OpenAIClient;
+//! use cloudllm::clients::openai::OpenAIClient;
 //! let secret_key = "YOUR_OPENAI_SECRET_KEY";
 //! let model_name = "gpt-4";
 //! let openai_client = OpenAIClient::new(secret_key, model_name);
@@ -34,7 +34,7 @@
 //! Now, you can create an `LLMSession` by providing the `OpenAIClient` instance and a system prompt to set the context.
 //!
 //! ```rust
-//! use crate::cloudllm::llm_session::LLMSession;
+//! use cloudllm::LLMSession;
 //! let system_prompt = "You are an AI assistant.";
 //! let session = LLMSession::new(openai_client, system_prompt.to_string());
 //! ```

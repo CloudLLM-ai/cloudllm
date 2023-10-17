@@ -5,8 +5,8 @@
 /// # Example
 ///
 /// ```rust
-/// use crate::cloudllm::clients::openai::OpenAIClient;
-/// use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+/// use cloudllm::clients::openai::OpenAIClient;
+/// use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 ///
 /// let secret_key = "YOUR_OPENAI_SECRET_KEY";
 /// let model_name = "gpt-4";
