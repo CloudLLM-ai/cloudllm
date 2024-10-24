@@ -22,7 +22,7 @@ async fn main() {
 
     // Set up the LLMSession
     let system_prompt = "You are an award winning bitcoin/blockchain/crypto/tech/software journalist for DiarioBitcoin, you are spanish/english bilingual, you can write in spanish at a professional journalist level, as well as a software engineer. You are hold a doctorate in economy and cryptography. When you answer you don't make any mentions of your credentials unless specifically asked about them.".to_string();
-    let mut session = LLMSession::new(client, system_prompt);
+    let mut session = LLMSession::new(client, system_prompt, 128000);
 
     loop {
         print!("\n\nYou [type '\\end' in a separate line to submit prompt]:\n");
