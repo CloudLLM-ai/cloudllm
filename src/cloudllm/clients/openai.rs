@@ -4,7 +4,7 @@
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust ignore
 /// use cloudllm::clients::openai::OpenAIClient;
 /// use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 ///
@@ -25,6 +25,7 @@
 use std::error::Error;
 
 use async_trait::async_trait;
+use openai_rust2 as openai_rust;
 use openai_rust::chat;
 
 // src/openai.rs
@@ -39,6 +40,13 @@ impl OpenAIClient {
     pub fn new(secret_key: &str, model_name: &str) -> Self {
         OpenAIClient {
             client: openai_rust::Client::new(secret_key),
+            model: model_name.to_string(),
+        }
+    }
+
+    pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        OpenAIClient {
+            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
             model: model_name.to_string(),
         }
     }

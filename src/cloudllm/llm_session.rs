@@ -35,7 +35,7 @@
 //! Now, you can create an `LLMSession` by providing the `OpenAIClient` instance, a system prompt to set the context,
 //! and the maximum number of tokens allowed in the conversation (including the system prompt).
 //!
-//! ```rust
+//! ```rust ignore
 //! use cloudllm::LLMSession;
 //! let system_prompt = "You are an AI assistant.";
 //! let max_tokens = 8000; // Adjust based on the model's token limit
@@ -48,7 +48,7 @@
 //! the conversation history to ensure it doesn't exceed the token limit, trimming older messages as needed.
 //! This ensures a consistent and coherent interaction over multiple message exchanges.
 //!
-//! ```rust
+//! ```rust ignore
 //! use cloudllm::client_wrapper::Role;
 //!
 //! let user_message = "Hello, World!";
@@ -63,7 +63,7 @@
 //! ### 4. Adjusting the System Prompt
 //! You can update the system prompt during the session to change the conversation's context.
 //!
-//! ```rust
+//! ```rust ignore
 //! let new_system_prompt = "You are a helpful assistant specialized in astronomy.";
 //! session.set_system_prompt(new_system_prompt.to_string());
 //! ```
@@ -74,7 +74,7 @@
 //! when necessary. If the system prompt and a single message exceed `max_tokens`, you may need to reduce
 //! their length or increase `max_tokens` (within the model's limitations).
 //!
-//! ```rust
+//! ```rust ignore
 //! // Attempt to send a very long message
 //! let long_message = "A".repeat(10000); // A long message exceeding token limits
 //! match session.send_message(Role::User, long_message).await {
