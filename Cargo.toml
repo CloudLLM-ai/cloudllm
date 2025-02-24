@@ -1,6 +1,6 @@
 [package]
 name = "cloudllm"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A Rust library for bridging applications with remote LLMs across various platforms."
@@ -16,3 +16,5 @@ tokio = { version = "1.41.0", features = ["full"] }
 openai-rust2 = { version = "1.5.5" }
 
 async-trait = "0.1.83"
+log = "0.4.20"
+env_logger = "0.11.6"
