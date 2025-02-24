@@ -5,8 +5,6 @@
 
 CloudLLM is a Rust library designed to seamlessly bridge applications with remote Language Learning Models (LLMs) across various platforms. With CloudLLM, you can integrate pay-as-you-go LLM APIs like OpenAI's and more, all under one unified abstraction for your app.
 
-CloudLLM is initially implemented for Rust, but we'll provide wrappers for most popular programming languages in the near future.
-
 ## Features
 
 - **Unified Interface**: Interact with multiple LLMs using a single, consistent API.
@@ -26,12 +24,14 @@ Add CloudLLM to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloudllm = "0.1.0" # Use the latest version
+cloudllm = "0.1.6" # Use the latest version
 ```
 
 ## Supported LLM Platforms
 
 - OpenAI
+- Grok
+- Gemini (Coming Soon)
 - Claude (Coming Soon)
 - AWS Bedrock (Coming Soon)
 - ... and more to come!
