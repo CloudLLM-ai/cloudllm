@@ -28,15 +28,19 @@
 //! use cloudllm::clients::openai::OpenAIClient;
 //! let secret_key = "YOUR_OPENAI_SECRET_KEY";
 //! let model_name = "gpt-4";
-//! let openai_client = OpenAIClient::new(secret_key, model_name);
+//! let openai_client = OpenAIClient::new_with_model_string(secret_key, model_name);
 //! ```
 //!
 //! ### 2. Creating an LLMSession with OpenAIClient
 //! Now, you can create an `LLMSession` by providing the `OpenAIClient` instance, a system prompt to set the context,
 //! and the maximum number of tokens allowed in the conversation (including the system prompt).
 //!
-//! ```rust ignore
+//! ```rust
+//! use cloudllm::clients::openai::OpenAIClient;
 //! use cloudllm::LLMSession;
+//! let secret_key = "YOUR_OPENAI_SECRET_KEY";
+//! let model_name = "gpt-4";
+//! let openai_client = OpenAIClient::new_with_model_string(secret_key, model_name);
 //! let system_prompt = "You are an AI assistant.";
 //! let max_tokens = 8000; // Adjust based on the model's token limit
 //! let mut session = LLMSession::new(openai_client, system_prompt.to_string(), max_tokens);
@@ -50,9 +54,16 @@
 //!
 //! ```rust ignore
 //! use cloudllm::client_wrapper::Role;
-//!
+//! use cloudllm::clients::openai::OpenAIClient;
+//! use cloudllm::LLMSession;
+//! let secret_key = "YOUR_OPENAI_SECRET_KEY";
+//! let model_name = "gpt-4";
+//! let openai_client = OpenAIClient::new_with_model_string(secret_key, model_name);
+//! let system_prompt = "You are an AI assistant.";
+//! let max_tokens = 8000; // Adjust based on the model's token limit
+//! let mut session = LLMSession::new(openai_client, system_prompt.to_string(), max_tokens);
 //! let user_message = "Hello, World!";
-//! let response = session.send_message(Role::User, user_message.to_string()).await.unwrap();
+//! let response = session.send_message(Role::User, user_message.to_string(), None).await.unwrap();
 //! println!("Assistant: {}", response.content);
 //! ```
 //!
@@ -77,7 +88,7 @@
 //! ```rust ignore
 //! // Attempt to send a very long message
 //! let long_message = "A".repeat(10000); // A long message exceeding token limits
-//! match session.send_message(Role::User, long_message).await {
+//! match session.send_message(Role::User, long_message, None).await {
 //!     Ok(response) => println!("Assistant: {}", response.content),
 //!     Err(e) => eprintln!("Error: {}", e),
 //! }
@@ -157,6 +168,8 @@ impl<T: ClientWrapper> LLMSession<T> {
     /// Sends a message to the LLM and updates the conversation history.
     /// Maintains the conversation history within the specified token limit.
     /// Returns the response from the LLM.
+    /// The `option_url_path` parameter allows for specifying a custom URL path for the request, this
+    /// is needed for example in the GeminiClient implementation
     pub async fn send_message(
         &mut self,
         role: Role,
