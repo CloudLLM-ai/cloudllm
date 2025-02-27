@@ -33,6 +33,7 @@ use openai_rust2 as openai_rust;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 
 pub enum Model {
+    GPT45Preview,
     GPT4o,
     ChatGPT4oLatest, // latest used in ChatGPT
     GPt4oMini,
@@ -47,6 +48,7 @@ pub enum Model {
 
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT45Preview => "gpt-4.5-preview".to_string(),
         Model::GPT4o => "gpt-4o".to_string(),
         Model::ChatGPT4oLatest => "chatgpt-4o-latest".to_string(),
         Model::GPt4oMini => "gpt-4o-mini".to_string(),
