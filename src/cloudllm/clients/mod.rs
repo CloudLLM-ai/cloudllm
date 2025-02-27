@@ -1,4 +1,4 @@
 // src/clients/mod.rs
-pub mod openai;
+pub mod gemini;
 pub mod grok;
-
+pub mod openai;

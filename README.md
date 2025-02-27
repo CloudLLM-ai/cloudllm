@@ -24,14 +24,14 @@ Add CloudLLM to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloudllm = "0.1.6" # Use the latest version
+cloudllm = "0.1.7" # Use the latest version
 ```
 
 ## Supported LLM Platforms
 
 - OpenAI
 - Grok
-- Gemini (Coming Soon)
+- Gemini
 - Claude (Coming Soon)
 - AWS Bedrock (Coming Soon)
 - ... and more to come!

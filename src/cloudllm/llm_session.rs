@@ -161,6 +161,7 @@ impl<T: ClientWrapper> LLMSession<T> {
         &mut self,
         role: Role,
         content: String,
+        option_url_path: Option<String>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let message = Message { role, content };
 
@@ -177,10 +178,14 @@ impl<T: ClientWrapper> LLMSession<T> {
         self.trim_conversation_history();
 
         // Temporarily add the system prompt to the start of the conversation history
-        self.conversation_history.insert(0, self.system_prompt.clone());
+        self.conversation_history
+            .insert(0, self.system_prompt.clone());
 
         // Send the messages to the LLM
-        let response = self.client.send_message(self.conversation_history.clone()).await?;
+        let response = self
+            .client
+            .send_message(self.conversation_history.clone(), option_url_path)
+            .await?;
 
         // Remove the system prompt from the conversation history
         self.conversation_history.remove(0);

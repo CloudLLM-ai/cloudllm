@@ -16,7 +16,7 @@ pub enum Role {
     User,
     // a message sent by a human user (or app user)
     Assistant, // lets the model know the content was generated as a response to a user message
-    // Add other roles as needed
+               // Add other roles as needed
 }
 
 /// Represents a generic message to be sent to an LLM.
@@ -36,5 +36,6 @@ pub trait ClientWrapper {
     async fn send_message(
         &self,
         messages: Vec<Message>,
+        opt_url_path: Option<String>,
     ) -> Result<Message, Box<dyn Error>>;
 }

@@ -2,10 +2,12 @@ use std::env;
 use std::io::{self, Write};
 
 use tokio::sync::watch;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
+use cloudllm::clients::openai::Model::GPT4o;
 use cloudllm::clients::openai::OpenAIClient;
+use cloudllm::clients::openai::{model_to_string, Model};
 use cloudllm::LLMSession;
 
 // Run from the root folder of the repo as follows:
@@ -14,11 +16,14 @@ use cloudllm::LLMSession;
 #[tokio::main]
 async fn main() {
     // Read OPENAI_AI_SECRET from environment variable
-    let secret_key = env::var("OPEN_AI_SECRET")
-        .expect("Please set the OPEN_AI_SECRET environment variable!");
+    let secret_key =
+        env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
 
     // Instantiate the OpenAI client
-    let client = OpenAIClient::new(&secret_key, "gpt-4o");
+    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPt4oMini);
+    //let client = OpenAIClient::new_with_model_string(&secret_key, "gpt-4o"); // hardcode the string
+    //let client = OpenAIClient::new_with_model_string(&secret_key, &model_to_string(GPT4o)); // use one of the enums available
+    //let client = OpenAIClient::new_with_model_enum(&secret_key, GPT4o);
 
     // Set up the LLMSession
     let system_prompt = "You are an award winning bitcoin/blockchain/crypto/tech/software journalist for DiarioBitcoin, you are spanish/english bilingual, you can write in spanish at a professional journalist level, as well as a software engineer. You are hold a doctorate in economy and cryptography. When you answer you don't make any mentions of your credentials unless specifically asked about them.".to_string();
@@ -31,7 +36,9 @@ async fn main() {
         let mut user_input = String::new();
         loop {
             let mut line = String::new();
-            io::stdin().read_line(&mut line).expect("Failed to read line");
+            io::stdin()
+                .read_line(&mut line)
+                .expect("Failed to read line");
 
             // Check for the end sequence in the line
             if line.trim() == "\\end" {
@@ -51,7 +58,10 @@ async fn main() {
         let (tx, rx) = watch::channel(true);
         tokio::spawn(display_waiting_dots(rx, 3));
 
-        let response = session.send_message(Role::User, user_input.to_string()).await.unwrap();
+        let response = session
+            .send_message(Role::User, user_input.to_string(), None)
+            .await
+            .unwrap();
         tx.send(false).unwrap();
 
         // Print the assistant's response
