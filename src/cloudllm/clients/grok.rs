@@ -41,12 +41,8 @@ impl GrokClient {
 
 #[async_trait]
 impl ClientWrapper for GrokClient {
-    async fn send_message(
-        &self,
-        messages: Vec<Message>,
-        opt_url_path: Option<String>,
-    ) -> Result<Message, Box<dyn Error>> {
-        self.client.send_message(messages, opt_url_path).await
+    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
+        self.client.send_message(messages).await
     }
 }
 
@@ -68,7 +64,6 @@ pub fn test_grok_client() {
             .send_message(
                 Role::User,
                 "What is the square root of 16? What does the square of a root mean?".to_string(),
-                None,
             )
             .await;
 

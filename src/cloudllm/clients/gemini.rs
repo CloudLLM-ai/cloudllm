@@ -2,12 +2,14 @@ use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;
 use log::{error, info};
+use openai_rust::chat;
+use openai_rust2 as openai_rust;
 use std::env;
 use std::error::Error;
 use tokio::runtime::Runtime;
 
 pub struct GeminiClient {
-    client: OpenAIClient,
+    client: openai_rust::Client,
     model: String,
 }
 
@@ -141,9 +143,8 @@ impl GeminiClient {
 
     pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
         GeminiClient {
-            client: OpenAIClient::new_with_base_url(
+            client: openai_rust::Client::new_with_base_url(
                 secret_key,
-                model_name,
                 "https://generativelanguage.googleapis.com/v1beta/",
             ),
             model: model_name.to_string(),
@@ -153,12 +154,37 @@ impl GeminiClient {
 
 #[async_trait]
 impl ClientWrapper for GeminiClient {
-    async fn send_message(
-        &self,
-        messages: Vec<Message>,
-        opt_url_path: Option<String>,
-    ) -> Result<Message, Box<dyn Error>> {
-        self.client.send_message(messages, opt_url_path).await
+    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
+        // Convert the provided messages into the format expected by openai_rust
+        let formatted_messages = messages
+            .into_iter()
+            .map(|msg| chat::Message {
+                role: match msg.role {
+                    Role::System => "system".to_owned(),
+                    Role::User => "user".to_owned(),
+                    Role::Assistant => "assistant".to_owned(),
+                    // Extend this match as new roles are added to the Role enum
+                },
+                content: msg.content,
+            })
+            .collect();
+
+        let args = chat::ChatArguments::new(&self.model, formatted_messages);
+
+        let res = self
+            .client
+            .create_chat(args, Some("/v1beta/chat/completions".to_string()))
+            .await;
+        match res {
+            Ok(response) => Ok(Message {
+                role: Role::Assistant,
+                content: response.choices[0].message.content.clone(),
+            }),
+            Err(err) => {
+                error!("OpenAI API Error: {}", err); // Log the entire error
+                Err(err.into()) // Convert the error to Box<dyn Error>
+            }
+        }
     }
 }
 
@@ -179,11 +205,7 @@ pub fn test_gemini_client() {
 
     let response_message: Message = rt.block_on(async {
         let s = llm_session
-            .send_message(
-                Role::User,
-                "What is the square root of 16?".to_string(),
-                Some("/v1beta/chat/completions".to_string()),
-            )
+            .send_message(Role::User, "What is the square root of 16?".to_string())
             .await;
 
         match s {

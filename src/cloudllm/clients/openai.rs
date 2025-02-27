@@ -87,11 +87,7 @@ impl OpenAIClient {
 
 #[async_trait]
 impl ClientWrapper for OpenAIClient {
-    async fn send_message(
-        &self,
-        messages: Vec<Message>,
-        opt_url_path: Option<String>,
-    ) -> Result<Message, Box<dyn Error>> {
+    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
         let formatted_messages = messages
             .into_iter()
@@ -107,12 +103,9 @@ impl ClientWrapper for OpenAIClient {
             .collect();
 
         let args = chat::ChatArguments::new(&self.model, formatted_messages);
-        let opt_url_path_string =
-            opt_url_path.unwrap_or_else(|| "/v1/chat/completions".to_string());
-        let res = self
-            .client
-            .create_chat(args, Some(opt_url_path_string))
-            .await;
+        let url_path_string = "/v1/chat/completions".to_string();
+
+        let res = self.client.create_chat(args, Some(url_path_string)).await;
         match res {
             Ok(response) => Ok(Message {
                 role: Role::Assistant,

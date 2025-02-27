@@ -36,6 +36,5 @@ pub trait ClientWrapper {
     async fn send_message(
         &self,
         messages: Vec<Message>,
-        opt_url_path: Option<String>,
     ) -> Result<Message, Box<dyn Error>>;
 }

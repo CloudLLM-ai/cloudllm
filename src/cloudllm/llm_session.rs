@@ -63,7 +63,7 @@
 //! let max_tokens = 8000; // Adjust based on the model's token limit
 //! let mut session = LLMSession::new(openai_client, system_prompt.to_string(), max_tokens);
 //! let user_message = "Hello, World!";
-//! let response = session.send_message(Role::User, user_message.to_string(), None).await.unwrap();
+//! let response = session.send_message(Role::User, user_message.to_string()).await.unwrap();
 //! println!("Assistant: {}", response.content);
 //! ```
 //!
@@ -88,7 +88,7 @@
 //! ```rust ignore
 //! // Attempt to send a very long message
 //! let long_message = "A".repeat(10000); // A long message exceeding token limits
-//! match session.send_message(Role::User, long_message, None).await {
+//! match session.send_message(Role::User, long_message).await {
 //!     Ok(response) => println!("Assistant: {}", response.content),
 //!     Err(e) => eprintln!("Error: {}", e),
 //! }
@@ -173,8 +173,7 @@ impl<T: ClientWrapper> LLMSession<T> {
     pub async fn send_message(
         &mut self,
         role: Role,
-        content: String,
-        option_url_path: Option<String>,
+        content: String
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let message = Message { role, content };
 
@@ -197,7 +196,7 @@ impl<T: ClientWrapper> LLMSession<T> {
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(self.conversation_history.clone(), option_url_path)
+            .send_message(self.conversation_history.clone())
             .await?;
 
         // Remove the system prompt from the conversation history
