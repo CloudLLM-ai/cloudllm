@@ -24,7 +24,7 @@ Add CloudLLM to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloudllm = "0.1.7" # Use the latest version
+cloudllm = "0.2.1" # Use the latest version
 ```
 
 ## Supported LLM Platforms
