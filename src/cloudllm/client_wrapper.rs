@@ -33,8 +33,5 @@ pub struct Message {
 pub trait ClientWrapper {
     /// Send a message to the LLM and get a response.
     /// - `messages`: The messages to send in the request.
-    async fn send_message(
-        &self,
-        messages: Vec<Message>,
-    ) -> Result<Message, Box<dyn Error>>;
+    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>>;
 }

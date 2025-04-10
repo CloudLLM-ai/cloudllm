@@ -9,12 +9,12 @@ license = "MIT"
 documentation = "https://docs.rs/cloudllm/latest/cloudllm/"
 
 [dependencies]
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.44.2", features = ["full"] }
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
 # https://github.com/gubatron/openai-rust
 openai-rust2 = { version = "1.5.8" }
 
-async-trait = "0.1.86"
-log = "0.4.26"
-env_logger = "0.11.6"
+async-trait = "0.1.88"
+log = "0.4.27"
+env_logger = "0.11.8"

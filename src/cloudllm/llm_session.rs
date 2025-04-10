@@ -173,7 +173,7 @@ impl<T: ClientWrapper> LLMSession<T> {
     pub async fn send_message(
         &mut self,
         role: Role,
-        content: String
+        content: String,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let message = Message { role, content };
 
