@@ -1,0 +1,40 @@
+0.2.2
+- New Grok3 enums for the grokclient available
+- Dependencies updated, cargo formatted
+
+0.2.1
+- Added new enums for O4Mini, O4MiniHigh and O3
+- New enum for gpt-4.5-preview for the OpenAIClient
+
+0.1.9 - feb.26.2025
+- Update dependencies: tokio to 1.43.0, async-trait to 0.1.86, log to 0.4.26
+- Refactor send_message in ClientWrapper to remove opt_url_path parameter
+- Update GeminiClient to use openai_rust::Client and handle Gemini API directly
+- Adjust OpenAIClient, GrokClient, LLMSession, and examples to new send_message signature
+
+0.1.8 - feb.26.2025
+- documentation updates
+
+0.1.7 - feb.26.2025
+- Update README.md to reflect support for Gemini
+- Introduce Model enum in openai.rs for OpenAI models with model_to_string function
+- Modify ClientWrapper trait to include optional URL path for API requests
+- Update GeminiClient to use new ClientWrapper signature and set base URL to 'https://generativelanguage.googleapis.com/v1beta/'
+- Adjust GrokClient to align with updated ClientWrapper signature
+- Enhance OpenAIClient with Model enum support and optional URL paths in send_message
+- Update LLMSession to pass optional URL path to client in send_message
+- Revise examples/interactive_session.rs to use Model enum and new client methods
+- Increment openai-rust2 dependency to version 1.5.8
+- Fix minor formatting and improve error logging in clients
+
+0.1.6 - feb.23.2025
+- Introduced GrokClient in src/cloudllm/clients/grok.rs with support for multiple Grok models.
+- Implemented the ClientWrapper trait for GrokClient to enable message sending via OpenAIClient.
+- Added a test (test_grok_client) demonstrating basic usage and integration.
+- Updated src/cloudllm/clients/mod.rs to include the new grok module.
+
+0.1.5 - jan.23.2025
+- Removed the original `openai-rust` dependency.
+- Added `openai-rust2` as a new dependency, pointing to your custom fork with improvements.
+- Added a new constructor `new_with_base_url` to allow specifying a custom base URL
+- Ensured all modules are properly referenced and re-exported for future scalability.
