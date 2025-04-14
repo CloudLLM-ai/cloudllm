@@ -11,11 +11,15 @@ pub struct GrokClient {
     model: String,
 }
 
-// Models returned by the API as of feb.23.2025
+// Models returned by the xAI API as of apr.14.2025
 pub enum Model {
     Grok2,
     Grok2Latest,
-    Grok21212,
+    Grok21212,         // $2/MMT input $10/MMT output
+    Grok3MiniFastBeta, // $0.60/MMT input $4.00/MMT output
+    Grok3MiniBeta,     // $0.30/MMT input $0.50/MMT output
+    Grok3FastBeta,     // $5/MMT input $25/MMT output
+    Grok3Beta,         // $3/MMT input $15/MMT output
 }
 
 fn model_to_string(model: Model) -> String {
@@ -23,6 +27,10 @@ fn model_to_string(model: Model) -> String {
         Model::Grok2 => "grok-2".to_string(),
         Model::Grok2Latest => "grok-2-latest".to_string(),
         Model::Grok21212 => "grok-2-1212".to_string(),
+        Model::Grok3MiniFastBeta => "grok-3-mini-fast-beta".to_string(),
+        Model::Grok3MiniBeta => "grok-3-mini-beta".to_string(),
+        Model::Grok3FastBeta => "grok-3-fast-beta".to_string(),
+        Model::Grok3Beta => "grok-3-beta".to_string(),
     }
 }
 
