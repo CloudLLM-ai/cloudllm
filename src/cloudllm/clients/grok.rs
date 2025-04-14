@@ -5,6 +5,7 @@ use log::{error, info};
 use std::env;
 use std::error::Error;
 use tokio::runtime::Runtime;
+use crate::clients::grok::Model::Grok3MiniFastBeta;
 
 pub struct GrokClient {
     client: OpenAIClient,
@@ -57,12 +58,12 @@ impl ClientWrapper for GrokClient {
 #[test]
 pub fn test_grok_client() {
     // initialize logger
-    env_logger::try_init().expect("");
+    crate::init_logger();
 
     let secret_key = env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
-    let client = GrokClient::new_with_model_str(&secret_key, "grok-2-1212");
-    let mut llm_session: LLMSession<GrokClient> =
-        LLMSession::new(client, "You are a math professor.".to_string(), 1048576);
+    let client = GrokClient::new_with_model_enum(&secret_key, Grok3MiniFastBeta);
+    let mut llm_session: LLMSession =
+        LLMSession::new(std::sync::Arc::new(client), "You are a math professor.".to_string(), 1048576);
 
     // Create a new Tokio runtime
     let rt = Runtime::new().unwrap();

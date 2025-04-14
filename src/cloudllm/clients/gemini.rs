@@ -191,14 +191,14 @@ impl ClientWrapper for GeminiClient {
 #[test]
 pub fn test_gemini_client() {
     // initialize logger
-    env_logger::try_init().expect("");
+    crate::init_logger();
 
     let secret_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
     let client = GeminiClient::new_with_model_enum(&secret_key, Model::Gemini20Flash);
     assert_eq!(client.model, "gemini-2.0-flash");
 
-    let mut llm_session: LLMSession<GeminiClient> =
-        LLMSession::new(client, "You are a math professor.".to_string(), 1048576);
+    let mut llm_session: LLMSession =
+        LLMSession::new(std::sync::Arc::new(client), "You are a math professor.".to_string(), 1048576);
 
     // Create a new Tokio runtime
     let rt = Runtime::new().unwrap();

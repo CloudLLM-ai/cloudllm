@@ -1,3 +1,14 @@
+0.2.3
+- Modified LLMSession to use Arc<dyn ClientWrapper> instead of generic T: ClientWrapper, enabling dynamic selection of client implementations (e.g., OpenAIClient, GrokClient, GeminiClient) at runtime.
+- Updated LLMSession::new to accept Arc<dyn ClientWrapper>, removing Arc::new wrapping inside the constructor.
+- Adjusted tests in gemini.rs and grok.rs to use Arc::new and non-generic LLMSession.
+- Updated interactive_session.rs example to wrap client in Arc::new.
+- Added init_logger function in lib.rs for thread-safe logger initialization using env_logger and Once.
+- Replaced env_logger::try_init with crate::init_logger in gemini.rs and grok.rs tests for consistency.
+- Updated GrokClient test to use Grok3MiniFastBeta enum variant.
+- Updated LLMSession documentation to reflect Arc::new usage.
+- All tests pass with the new implementation
+
 0.2.2
 - New Grok3 enums for the grokclient available
 - Dependencies updated, cargo formatted

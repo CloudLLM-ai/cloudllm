@@ -36,6 +36,7 @@
 //! and the maximum number of tokens allowed in the conversation (including the system prompt).
 //!
 //! ```rust
+//! use std::sync::Arc;
 //! use cloudllm::clients::openai::OpenAIClient;
 //! use cloudllm::LLMSession;
 //! let secret_key = "YOUR_OPENAI_SECRET_KEY";
@@ -43,7 +44,7 @@
 //! let openai_client = OpenAIClient::new_with_model_string(secret_key, model_name);
 //! let system_prompt = "You are an AI assistant.";
 //! let max_tokens = 8000; // Adjust based on the model's token limit
-//! let mut session = LLMSession::new(openai_client, system_prompt.to_string(), max_tokens);
+//! let mut session = LLMSession::new(Arc::new(openai_client), system_prompt.to_string(), max_tokens);
 //! ```
 //!
 //! ### 3. Using the Session
@@ -132,9 +133,9 @@ use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 ///
 /// * `token_count`: The current total token count of the system prompt and conversation history.
 ///
-pub struct LLMSession<T: ClientWrapper> {
+pub struct LLMSession {
     /// The client used for sending messages and communicating with the LLM.
-    client: Arc<T>,
+    client: Arc<dyn ClientWrapper>,
     /// The system prompt for the session as a `Message`.
     system_prompt: Message,
     /// A vector that keeps the conversation history excluding the system prompt.
@@ -145,10 +146,10 @@ pub struct LLMSession<T: ClientWrapper> {
     token_count: usize,
 }
 
-impl<T: ClientWrapper> LLMSession<T> {
+impl LLMSession {
     /// Creates a new `LLMSession` with the given client and system prompt.
     /// Initializes the conversation history and sets a default maximum token limit.
-    pub fn new(client: T, system_prompt: String, max_tokens: usize) -> Self {
+    pub fn new(client: Arc<dyn ClientWrapper>, system_prompt: String, max_tokens: usize) -> Self {
         // Create the system prompt message
         let system_prompt_message = Message {
             role: Role::System,
@@ -157,7 +158,7 @@ impl<T: ClientWrapper> LLMSession<T> {
         // Count tokens in the system prompt message
         let system_prompt_tokens = count_message_tokens(&system_prompt_message);
         LLMSession {
-            client: Arc::new(client),
+            client,
             system_prompt: system_prompt_message,
             conversation_history: Vec::new(),
             max_tokens,
