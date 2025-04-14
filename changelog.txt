@@ -7,6 +7,8 @@
 - Replaced env_logger::try_init with crate::init_logger in gemini.rs and grok.rs tests for consistency.
 - Updated GrokClient test to use Grok3MiniFastBeta enum variant.
 - Updated LLMSession documentation to reflect Arc::new usage.
+- Updated ClientWrapper trait to require Send + Sync, ensuring Arc<dyn ClientWrapper> is thread-safe and LLMSession can be used in async tasks (e.g., Tokio spawn).
+- Enables safe dynamic client selection in multi-threaded contexts
 - All tests pass with the new implementation
 
 0.2.2

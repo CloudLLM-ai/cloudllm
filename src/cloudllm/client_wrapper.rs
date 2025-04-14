@@ -30,7 +30,7 @@ pub struct Message {
 
 /// Trait defining the interface to interact with various LLM services.
 #[async_trait]
-pub trait ClientWrapper {
+pub trait ClientWrapper: Send + Sync {
     /// Send a message to the LLM and get a response.
     /// - `messages`: The messages to send in the request.
     async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>>;

@@ -132,7 +132,6 @@ use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 /// * `max_tokens`: The maximum number of tokens allowed in the conversation history including the system prompt.
 ///
 /// * `token_count`: The current total token count of the system prompt and conversation history.
-///
 pub struct LLMSession {
     /// The client used for sending messages and communicating with the LLM.
     client: Arc<dyn ClientWrapper>,
