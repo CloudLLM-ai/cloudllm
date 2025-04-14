@@ -126,4 +126,3 @@ impl ClientWrapper for OpenAIClient {
         }
     }
 }
-

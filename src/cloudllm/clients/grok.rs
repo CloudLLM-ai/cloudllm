@@ -1,3 +1,4 @@
+use crate::clients::grok::Model::Grok3MiniFastBeta;
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;
@@ -5,7 +6,6 @@ use log::{error, info};
 use std::env;
 use std::error::Error;
 use tokio::runtime::Runtime;
-use crate::clients::grok::Model::Grok3MiniFastBeta;
 
 pub struct GrokClient {
     client: OpenAIClient,
@@ -62,8 +62,11 @@ pub fn test_grok_client() {
 
     let secret_key = env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
     let client = GrokClient::new_with_model_enum(&secret_key, Grok3MiniFastBeta);
-    let mut llm_session: LLMSession =
-        LLMSession::new(std::sync::Arc::new(client), "You are a math professor.".to_string(), 1048576);
+    let mut llm_session: LLMSession = LLMSession::new(
+        std::sync::Arc::new(client),
+        "You are a math professor.".to_string(),
+        1048576,
+    );
 
     // Create a new Tokio runtime
     let rt = Runtime::new().unwrap();
