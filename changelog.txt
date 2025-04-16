@@ -1,3 +1,7 @@
+0.2.4
+- New enums for OpenAI client: gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
+- example in interactive_session.rs now uses gpt-4.1-mini
+
 0.2.3
 - Modified LLMSession to use Arc<dyn ClientWrapper> instead of generic T: ClientWrapper, enabling dynamic selection of client implementations (e.g., OpenAIClient, GrokClient, GeminiClient) at runtime.
 - Updated LLMSession::new to accept Arc<dyn ClientWrapper>, removing Arc::new wrapping inside the constructor.

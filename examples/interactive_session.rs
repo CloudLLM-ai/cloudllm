@@ -20,7 +20,7 @@ async fn main() {
         env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
 
     // Instantiate the OpenAI client
-    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPt4oMini);
+    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
     //let client = OpenAIClient::new_with_model_string(&secret_key, "gpt-4o"); // hardcode the string
     //let client = OpenAIClient::new_with_model_string(&secret_key, &model_to_string(GPT4o)); // use one of the enums available
     //let client = OpenAIClient::new_with_model_enum(&secret_key, GPT4o);

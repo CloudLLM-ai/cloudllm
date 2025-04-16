@@ -33,8 +33,7 @@ use openai_rust2 as openai_rust;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 
 pub enum Model {
-    GPT45Preview,
-    GPT4o,
+    GPT4o, // input $2.5/1M tokens, cached input $1.25/1M tokens, output $10/1M tokens
     ChatGPT4oLatest, // latest used in ChatGPT
     GPt4oMini,
     O1,
@@ -47,11 +46,15 @@ pub enum Model {
     GPT4oRealtimePreview,
     GPT4oMiniRealtimePreview,
     GPT4oAudioPreview,
+    GPT45Preview, // input $75/1M tokens, cached input $37.5/1M tokens, output $150/1M tokens
+    GPT41, // input $2/1M tokens, cached input $0.5/1M tokens, output $8/1M tokens
+    GPT41Mini, // input $0.4/1M tokens, cached input $0.1/1M tokens, output $1.6/1M tokens
+    GPT41Nano, // input $0.1/1M tokens, cached input $0.025/1M tokens, output $0.4/1M tokens
+
 }
 
 pub fn model_to_string(model: Model) -> String {
     match model {
-        Model::GPT45Preview => "gpt-4.5-preview".to_string(),
         Model::GPT4o => "gpt-4o".to_string(),
         Model::ChatGPT4oLatest => "chatgpt-4o-latest".to_string(),
         Model::GPt4oMini => "gpt-4o-mini".to_string(),
@@ -65,6 +68,10 @@ pub fn model_to_string(model: Model) -> String {
         Model::GPT4oRealtimePreview => "gpt-4o-realtime-preview".to_string(),
         Model::GPT4oMiniRealtimePreview => "gpt-4o-mini-realtime-preview".to_string(),
         Model::GPT4oAudioPreview => "gpt-4o-audio-preview".to_string(),
+        Model::GPT45Preview => "gpt-4.5-preview".to_string(),
+        Model::GPT41 => "gpt-4.1".to_string(),
+        Model::GPT41Mini => "gpt-4.1-mini".to_string(),
+        Model::GPT41Nano => "gpt-4.1-nano".to_string(),
     }
 }
 
