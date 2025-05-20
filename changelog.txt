@@ -1,3 +1,7 @@
+0.2.5
+- Bumped tokio from 1.44.2 to 1.44.5
+- Updated openai-rust2 from 1.5.8 to 1.5.9, with updated support for image generation models
+
 0.2.4
 - New enums for OpenAI client: gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
 - example in interactive_session.rs now uses gpt-4.1-mini
