@@ -1,3 +1,7 @@
+0.2.6
+- Implemented token usage tracking in LLMSession and ClientWrapper trait.
+- Added token usage tracking to OpenAIClient.
+
 0.2.5
 - Bumped tokio from 1.44.2 to 1.44.5
 - Updated openai-rust2 from 1.5.8 to 1.5.9, with updated support for image generation models

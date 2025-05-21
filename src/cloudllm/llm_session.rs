@@ -120,9 +120,9 @@ impl LLMSession {
 
         if let Some(usage) = self.client.get_last_usage() {
             // Update the total token counts based on the usage
-            self.total_input_tokens += usage.input_tokens;
-            self.total_output_tokens += usage.output_tokens;
-            self.total_token_count += usage.total_tokens;
+            self.total_input_tokens = usage.input_tokens;
+            self.total_output_tokens = usage.output_tokens;
+            self.total_token_count = usage.total_tokens;
 
             // Trim the conversation history again after adding the response
             if self.total_token_count > self.max_tokens {
@@ -162,4 +162,7 @@ impl LLMSession {
         }
     }
 
+    pub fn get_max_tokens(&self) -> usize {
+        self.max_tokens
+    }
 }

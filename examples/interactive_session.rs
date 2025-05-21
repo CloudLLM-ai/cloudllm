@@ -5,9 +5,8 @@ use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
-use cloudllm::clients::openai::Model::GPT4o;
 use cloudllm::clients::openai::OpenAIClient;
-use cloudllm::clients::openai::{model_to_string, Model};
+use cloudllm::clients::openai::Model;
 use cloudllm::LLMSession;
 
 // Run from the root folder of the repo as follows:
@@ -27,7 +26,8 @@ async fn main() {
 
     // Set up the LLMSession
     let system_prompt = "You are an award winning bitcoin/blockchain/crypto/tech/software journalist for DiarioBitcoin, you are spanish/english bilingual, you can write in spanish at a professional journalist level, as well as a software engineer. You are hold a doctorate in economy and cryptography. When you answer you don't make any mentions of your credentials unless specifically asked about them.".to_string();
-    let mut session = LLMSession::new(std::sync::Arc::new(client), system_prompt, 128000);
+    let max_tokens = 1024; // Set a small context window for testing conversation history pruning
+    let mut session = LLMSession::new(std::sync::Arc::new(client), system_prompt, max_tokens);
 
     loop {
         print!("\n\nYou [type '\\end' in a separate line to submit prompt]:\n");
@@ -64,8 +64,17 @@ async fn main() {
             .unwrap();
         tx.send(false).unwrap();
 
+        let token_usage = session.token_usage();
+
         // Print the assistant's response
-        println!("\nAssistant:\n{}\n", response.content);
+        println!(
+            "\nToken Usage: <input tokens:{}, output tokens:{}, total tokens:{}, max tokens: {}>\nAssistant:\n{}\n",
+            token_usage.input_tokens,
+            token_usage.output_tokens,
+            token_usage.total_tokens,
+            session.get_max_tokens(),
+            response.content
+        );
     }
 }
 
