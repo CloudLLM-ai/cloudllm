@@ -1,36 +1,55 @@
-/// The `OpenAIClient` struct provides an implementation of the `ClientWrapper` trait for OpenAI's ChatGPT.
-/// This allows interactions with the OpenAI ChatGPT LLM REST API, abstracting the underlying details and
-/// providing a consistent interface for sending and receiving messages.
-///
-/// # Example
-///
-/// ```rust ignore
-/// use cloudllm::clients::openai::OpenAIClient;
-/// use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
-///
-/// let secret_key = "YOUR_OPENAI_SECRET_KEY";
-/// let model_name = "gpt-4";
-///
-/// let client = OpenAIClient::new(secret_key, model_name);
-/// let system_prompt = "You are an AI assistant.";
-/// let msg = Message { role: Role::User, content: "Hello, World!".to_string() };
-///
-/// let response = client.send_message(vec![Message { role: Role::System, content: system_prompt.to_string() }, msg]).await.unwrap();
-/// println!("Assistant: {}", response.content);
-/// ```
-///
-/// # Note
-/// You will need to have the OpenAI API key and the desired model name (e.g., "gpt-4") to instantiate and use the client.
-///
+//! The `OpenAIClient` struct implements `ClientWrapper` for OpenAI’s Chat API,
+//! capturing both the assistant response and detailed token usage (input vs output)
+//! for cost tracking.
+//!
+//! # Key Features
+//!
+//! - **send_message(...)**: unchanged signature; returns a `Message` as before.
+//! - **Automatic Usage Capture**: stores the latest `TokenUsage` (input_tokens, output_tokens, total_tokens) internally.
+//! - **Inspect Usage**: call `get_last_usage()` after `send_message()` to retrieve actual usage stats.
+//!
+//! # Example
+//!
+//! ```rust
+//! use cloudllm::clients::openai::{OpenAIClient, Model};
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     // Initialize with your API key and model enum.
+//!     let client = OpenAIClient::new_with_model_enum("YOUR_OPENAI_KEY", Model::GPT41Nano);
+//!
+//!     // Send system + user messages.
+//!     let resp = client.send_message(vec![
+//!         Message { role: Role::System,    content: "You are an assistant.".into() },
+//!         Message { role: Role::User,      content: "Hello!".into() },
+//!     ]).await.unwrap();
+//!     println!("Assistant: {}", resp.content);
+//!
+//!     // Then pull the real token usage.
+//!     if let Some(usage) = client.get_last_usage() {
+//!         println!(
+//!             "Tokens — input: {}, output: {}, total: {}",
+//!             usage.input_tokens, usage.output_tokens, usage.total_tokens
+//!         );
+//!     }
+//! }
+//! ```
+//!
+//! # Note
+//!
+//! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
 use std::error::Error;
+
 
 use async_trait::async_trait;
 use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
-// src/openai.rs
+use crate::client_wrapper::TokenUsage;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+use std::sync::Mutex;
 
 pub enum Model {
     GPT4o,           // input $2.5/1M tokens, cached input $1.25/1M tokens, output $10/1M tokens
@@ -77,6 +96,7 @@ pub fn model_to_string(model: Model) -> String {
 pub struct OpenAIClient {
     client: openai_rust::Client,
     model: String,
+    token_usage: Mutex<Option<TokenUsage>>,
 }
 
 impl OpenAIClient {
@@ -84,6 +104,15 @@ impl OpenAIClient {
         OpenAIClient {
             client: openai_rust::Client::new(secret_key),
             model: model_name.to_string(),
+            token_usage: Mutex::new(None),
+        }
+    }
+
+    pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        OpenAIClient {
+            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
+            model: model_name.to_string(),
+            token_usage: Mutex::new(None),
         }
     }
 
@@ -91,11 +120,12 @@ impl OpenAIClient {
         Self::new_with_model_string(secret_key, &model_to_string(model))
     }
 
-    pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
-        OpenAIClient {
-            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
-            model: model_name.to_string(),
-        }
+    pub fn new_with_base_url_and_model_enum(
+        secret_key: &str,
+        model: Model,
+        base_url: &str,
+    ) -> Self {
+        Self::new_with_base_url(secret_key, &model_to_string(model), base_url)
     }
 }
 
@@ -121,13 +151,37 @@ impl ClientWrapper for OpenAIClient {
 
         let res = self.client.create_chat(args, Some(url_path_string)).await;
         match res {
-            Ok(response) => Ok(Message {
-                role: Role::Assistant,
-                content: response.choices[0].message.content.clone(),
-            }),
+            Ok(response) => {
+                let usage = TokenUsage {
+                    input_tokens: response.usage.prompt_tokens as usize,
+                    output_tokens: response.usage.completion_tokens as usize,
+                    total_tokens: response.usage.total_tokens as usize,
+                };
+
+                // This way get to modify what's inside the Mutex without needing to lock it
+                // since it's supposed to be `Sync` and `Send`, therefore immutable while calling
+                // this the async send_message function
+                // which is why we don't just have a simple self.token_usage : TokenUsage
+                *self.token_usage.lock().unwrap() = Some(usage);
+
+                Ok(Message {
+                    role: Role::Assistant,
+                    content: response.choices[0].message.content.clone(),
+                })
+            }
             Err(err) => {
                 error!("OpenAI API Error: {}", err); // Log the entire error
                 Err(err.into()) // Convert the error to Box<dyn Error>
+            }
+        }
+    }
+
+    fn get_last_usage(&self) -> Option<TokenUsage> {
+        match self.token_usage.lock() {
+            Ok(usage) => usage.clone(),
+            Err(_) => {
+                error!("OpenAIClient::get_last_usage: Failed to acquire lock on token usage");
+                None
             }
         }
     }

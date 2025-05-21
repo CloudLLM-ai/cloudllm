@@ -1,4 +1,3 @@
-use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;
 use log::{error, info};
@@ -7,6 +6,7 @@ use openai_rust2 as openai_rust;
 use std::env;
 use std::error::Error;
 use tokio::runtime::Runtime;
+use crate::client_wrapper::TokenUsage;
 
 pub struct GeminiClient {
     client: openai_rust::Client,
@@ -185,6 +185,11 @@ impl ClientWrapper for GeminiClient {
                 Err(err.into()) // Convert the error to Box<dyn Error>
             }
         }
+    }
+
+    fn get_last_usage(&self) -> Option<TokenUsage> {
+        // todo! implement get_last_usage for GrokClient
+        None
     }
 }
 

@@ -6,6 +6,7 @@ use log::{error, info};
 use std::env;
 use std::error::Error;
 use tokio::runtime::Runtime;
+use crate::client_wrapper::TokenUsage;
 
 pub struct GrokClient {
     client: OpenAIClient,
@@ -52,6 +53,11 @@ impl GrokClient {
 impl ClientWrapper for GrokClient {
     async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
         self.client.send_message(messages).await
+    }
+
+    fn get_last_usage(&self) -> Option<TokenUsage> {
+        // todo! implement get_last_usage for GrokClient
+        None
     }
 }
 
