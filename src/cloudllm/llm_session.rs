@@ -126,7 +126,15 @@ impl LLMSession {
 
             // Trim the conversation history again after adding the response
             if self.total_token_count > self.max_tokens {
-                self.trim_oldest_message_from_history();
+                // How many tokens we're over by
+                let mut excess = self.total_token_count - self.max_tokens;
+
+                // Remove the oldest messages until we've cleared at least `excess` tokens
+                while excess > 0 && !self.conversation_history.is_empty() {
+                    let msg = self.conversation_history.remove(0);
+                    let removed = estimate_message_token_count(&msg);
+                    excess = excess.saturating_sub(removed);
+                }
             }
         }
 
@@ -165,4 +173,18 @@ impl LLMSession {
     pub fn get_max_tokens(&self) -> usize {
         self.max_tokens
     }
+}
+
+/// Estimates the number of tokens in a string.
+/// Uses an approximate formula: one token per 4 characters.
+fn estimate_token_count(text: &str) -> usize {
+    (text.len() / 4).max(1)
+}
+
+/// Estimates the number of tokens in a Message, including role annotations.
+fn estimate_message_token_count(message: &Message) -> usize {
+    // Assuming the role adds some fixed number of tokens, e.g., 1 token
+    let role_token_count = 1;
+    let content_token_count = estimate_token_count(&message.content);
+    role_token_count + content_token_count
 }
