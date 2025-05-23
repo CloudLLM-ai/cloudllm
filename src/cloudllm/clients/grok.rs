@@ -1,3 +1,4 @@
+use crate::client_wrapper::TokenUsage;
 use crate::clients::grok::Model::Grok3MiniFastBeta;
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
@@ -5,12 +6,13 @@ use async_trait::async_trait;
 use log::{error, info};
 use std::env;
 use std::error::Error;
+use std::sync::Mutex;
 use tokio::runtime::Runtime;
-use crate::client_wrapper::TokenUsage;
 
 pub struct GrokClient {
-    client: OpenAIClient,
+    delegate_client: OpenAIClient,
     model: String,
+    token_usage: Mutex<Option<TokenUsage>>,
 }
 
 // Models returned by the xAI API as of apr.14.2025
@@ -30,7 +32,7 @@ fn model_to_string(model: Model) -> String {
         Model::Grok2Latest => "grok-2-latest".to_string(),
         Model::Grok21212 => "grok-2-1212".to_string(),
         Model::Grok3MiniFastBeta => "grok-3-mini-fast-beta".to_string(),
-        Model::Grok3MiniBeta => "grok-3-mini-beta".to_string(),
+        Model::Grok3MiniBeta => "grok-3-mini-beta".to_string(), // cheapest model
         Model::Grok3FastBeta => "grok-3-fast-beta".to_string(),
         Model::Grok3Beta => "grok-3-beta".to_string(),
     }
@@ -43,21 +45,38 @@ impl GrokClient {
 
     pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
         GrokClient {
-            client: OpenAIClient::new_with_base_url(secret_key, model_name, "https://api.x.ai/v1"),
+            // we reuse the OpenAIClient for Grok and delegate the calls to it
+            delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, "https://api.x.ai/v1"),
             model: model_name.to_string(),
+            token_usage: Mutex::new(None),
         }
+    }
+
+    pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        GrokClient {
+            delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, base_url),
+            model: model_name.to_string(),
+            token_usage: Mutex::new(None),
+        }
+    }
+
+    pub fn new_with_base_url_and_model_enum(
+        secret_key: &str,
+        model: Model,
+        base_url: &str,
+    ) -> Self {
+        Self::new_with_base_url(secret_key, &model_to_string(model), base_url)
     }
 }
 
 #[async_trait]
 impl ClientWrapper for GrokClient {
     async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
-        self.client.send_message(messages).await
+        self.delegate_client.send_message(messages).await
     }
 
-    fn get_last_usage(&self) -> Option<TokenUsage> {
-        // todo! implement get_last_usage for GrokClient
-        None
+    fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
+        self.delegate_client.usage_slot()
     }
 }
 

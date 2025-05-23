@@ -100,6 +100,10 @@ pub struct OpenAIClient {
 }
 
 impl OpenAIClient {
+    pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
+        Self::new_with_model_string(secret_key, &model_to_string(model))
+    }
+
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
         OpenAIClient {
             client: openai_rust::Client::new(secret_key),
@@ -114,10 +118,6 @@ impl OpenAIClient {
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }
-    }
-
-    pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
-        Self::new_with_model_string(secret_key, &model_to_string(model))
     }
 
     pub fn new_with_base_url_and_model_enum(
@@ -175,14 +175,4 @@ impl ClientWrapper for OpenAIClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }
-
-    // fn get_last_usage(&self) -> Option<TokenUsage> {
-    //     match self.token_usage.lock() {
-    //         Ok(usage) => usage.clone(),
-    //         Err(_) => {
-    //             error!("OpenAIClient::get_last_usage: Failed to acquire lock on token usage");
-    //             None
-    //         }
-    //     }
-    // }
 }

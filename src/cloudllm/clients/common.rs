@@ -16,8 +16,6 @@ pub async fn send_and_track(
 
     match response {
         Ok(response) => {
-            // Log the response
-            // Pull out the usage
             let usage = TokenUsage {
                 input_tokens:  response.usage.prompt_tokens     as usize,
                 output_tokens: response.usage.completion_tokens as usize,

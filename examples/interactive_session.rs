@@ -5,11 +5,8 @@ use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
-use cloudllm::clients::gemini::GeminiClient;
-use cloudllm::clients::gemini::Model::Gemini20Flash;
-use cloudllm::clients::openai::OpenAIClient;
-use cloudllm::clients::openai::Model;
-use cloudllm::LLMSession;
+use cloudllm::clients::grok::GrokClient;
+use cloudllm::{clients, LLMSession};
 
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session
@@ -20,10 +17,13 @@ async fn main() {
     // let secret_key =
     //     env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
 
-
     // Read GEMINI_API_KEY from environment variable
+    // let secret_key =
+    //     env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
+
+    // Read the XAI_API_KEY from environment variable
     let secret_key =
-        env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
+        env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
 
     // Instantiate the OpenAI client
     //let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
@@ -32,7 +32,10 @@ async fn main() {
     //let client = OpenAIClient::new_with_model_enum(&secret_key, GPT4o);
 
     // Instantiate the Gemini client
-    let client = GeminiClient::new_with_model_enum(&secret_key, Gemini20Flash);
+    //let client = GeminiClient::new_with_model_enum(&secret_key, Gemini20Flash);
+
+    // Instantiate the Grok client
+    let client = GrokClient::new_with_model_enum(&secret_key, clients::grok::Model::Grok3MiniBeta);
 
     // Set up the LLMSession
     let system_prompt = "You are an award winning bitcoin/blockchain/crypto/tech/software journalist for DiarioBitcoin, you are spanish/english bilingual, you can write in spanish at a professional journalist level, as well as a software engineer. You are hold a doctorate in economy and cryptography. When you answer you don't make any mentions of your credentials unless specifically asked about them.".to_string();
