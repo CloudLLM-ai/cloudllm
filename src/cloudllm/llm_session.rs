@@ -53,7 +53,8 @@ use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 /// - `max_tokens`: your configured context window size.
 /// - `total_input_tokens`: sum of all prompt tokens sent so far.
 /// - `total_output_tokens`: sum of all completion tokens received so far.
-/// - `total_token_count`: shortcut for input + output totals.
+/// - `total_context_tokens`: shortcut for input + output totals.
+/// - `total_token_count`: total tokens used in the current session.
 pub struct LLMSession {
     client: Arc<dyn ClientWrapper>,
     system_prompt: Message,

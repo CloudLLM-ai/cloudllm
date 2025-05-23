@@ -41,13 +41,13 @@
 //! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
 use std::error::Error;
 
-
 use async_trait::async_trait;
 use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
 use crate::client_wrapper::TokenUsage;
+use crate::clients::common::send_and_track;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use std::sync::Mutex;
 
@@ -146,43 +146,43 @@ impl ClientWrapper for OpenAIClient {
             })
             .collect();
 
-        let args = chat::ChatArguments::new(&self.model, formatted_messages);
         let url_path_string = "/v1/chat/completions".to_string();
 
-        let res = self.client.create_chat(args, Some(url_path_string)).await;
-        match res {
-            Ok(response) => {
-                let usage = TokenUsage {
-                    input_tokens: response.usage.prompt_tokens as usize,
-                    output_tokens: response.usage.completion_tokens as usize,
-                    total_tokens: response.usage.total_tokens as usize,
-                };
+        let result = send_and_track(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            Some(url_path_string),
+            &self.token_usage,
+        )
+        .await;
 
-                // This way get to modify what's inside the Mutex without needing to lock it
-                // since it's supposed to be `Sync` and `Send`, therefore immutable while calling
-                // this the async send_message function
-                // which is why we don't just have a simple self.token_usage : TokenUsage
-                *self.token_usage.lock().unwrap() = Some(usage);
-
-                Ok(Message {
-                    role: Role::Assistant,
-                    content: response.choices[0].message.content.clone(),
-                })
-            }
-            Err(err) => {
-                error!("OpenAI API Error: {}", err); // Log the entire error
-                Err(err.into()) // Convert the error to Box<dyn Error>
-            }
-        }
-    }
-
-    fn get_last_usage(&self) -> Option<TokenUsage> {
-        match self.token_usage.lock() {
-            Ok(usage) => usage.clone(),
+        match result {
+            Ok(c) => Ok(Message {
+                role: Role::Assistant,
+                content: c,
+            }),
             Err(_) => {
-                error!("OpenAIClient::get_last_usage: Failed to acquire lock on token usage");
-                None
+                error!(
+                    "OpenAIClient::send_message(...): OpenAI API Error: {}",
+                    "Error occurred while sending message"
+                );
+                Err("Error occurred while sending message".into())
             }
         }
     }
+
+    fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
+        Some(&self.token_usage)
+    }
+
+    // fn get_last_usage(&self) -> Option<TokenUsage> {
+    //     match self.token_usage.lock() {
+    //         Ok(usage) => usage.clone(),
+    //         Err(_) => {
+    //             error!("OpenAIClient::get_last_usage: Failed to acquire lock on token usage");
+    //             None
+    //         }
+    //     }
+    // }
 }

@@ -5,12 +5,16 @@ use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use std::env;
 use std::error::Error;
+use std::sync::Mutex;
 use tokio::runtime::Runtime;
 use crate::client_wrapper::TokenUsage;
+use crate::clients::common::send_and_track;
+use crate::clients::openai::OpenAIClient;
 
 pub struct GeminiClient {
     client: openai_rust::Client,
     model: String,
+    token_usage: Mutex<Option<TokenUsage>>,
 }
 
 // Models returned by the API as of feb.23.2025
@@ -137,59 +141,116 @@ pub fn model_to_string(model: Model) -> String {
 }
 
 impl GeminiClient {
-    pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
-        Self::new_with_model_str(secret_key, &model_to_string(model))
-    }
-
-    pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
+    pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
         GeminiClient {
             client: openai_rust::Client::new_with_base_url(
                 secret_key,
                 "https://generativelanguage.googleapis.com/v1beta/",
             ),
             model: model_name.to_string(),
+            token_usage: Mutex::new(None),
         }
+    }
+
+    pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
+        Self::new_with_model_string(secret_key, &model_to_string(model))
+    }
+
+    /// This function is used to create a GeminiClient with a custom base URL
+    /// The default base URL is "https://generativelanguage.googleapis.com/v1beta/"
+    pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        GeminiClient {
+            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
+            model: model_name.to_string(),
+            token_usage: Mutex::new(None),
+        }
+    }
+
+    pub fn new_with_base_url_and_model_enum(
+        secret_key: &str,
+        model: Model,
+        base_url: &str,
+    ) -> Self {
+        Self::new_with_base_url(secret_key, &model_to_string(model), base_url)
     }
 }
 
 #[async_trait]
 impl ClientWrapper for GeminiClient {
-    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
-        // Convert the provided messages into the format expected by openai_rust
+    // async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
+    //     // Convert the provided messages into the format expected by openai_rust
+    //     let formatted_messages = messages
+    //         .into_iter()
+    //         .map(|msg| chat::Message {
+    //             role: match msg.role {
+    //                 Role::System => "system".to_owned(),
+    //                 Role::User => "user".to_owned(),
+    //                 Role::Assistant => "assistant".to_owned(),
+    //                 // Extend this match as new roles are added to the Role enum
+    //             },
+    //             content: msg.content,
+    //         })
+    //         .collect();
+    //
+    //     let args = chat::ChatArguments::new(&self.model, formatted_messages);
+    //
+    //     let res = self
+    //         .client
+    //         .create_chat(args, Some("/v1beta/chat/completions".to_string()))
+    //         .await;
+    //     match res {
+    //         Ok(response) => Ok(Message {
+    //             role: Role::Assistant,
+    //             content: response.choices[0].message.content.clone(),
+    //         }),
+    //         Err(err) => {
+    //             error!("OpenAI API Error: {}", err); // Log the entire error
+    //             Err(err.into()) // Convert the error to Box<dyn Error>
+    //         }
+    //     }
+    // }
+
+    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn std::error::Error>> {
+        // Convert to openai_rust chat::Message
         let formatted_messages = messages
             .into_iter()
             .map(|msg| chat::Message {
                 role: match msg.role {
-                    Role::System => "system".to_owned(),
-                    Role::User => "user".to_owned(),
+                    Role::System    => "system".to_owned(),
+                    Role::User      => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
-                    // Extend this match as new roles are added to the Role enum
                 },
                 content: msg.content,
             })
             .collect();
 
-        let args = chat::ChatArguments::new(&self.model, formatted_messages);
-
-        let res = self
-            .client
-            .create_chat(args, Some("/v1beta/chat/completions".to_string()))
+        // Use the shared helper to send & track usage
+        let url_path = Some("/v1beta/chat/completions".to_string());
+        let result = send_and_track(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            url_path,
+            &self.token_usage,
+        )
             .await;
-        match res {
-            Ok(response) => Ok(Message {
+
+        match result {
+            Ok(content) => Ok(Message {
                 role: Role::Assistant,
-                content: response.choices[0].message.content.clone(),
+                content,
             }),
             Err(err) => {
-                error!("OpenAI API Error: {}", err); // Log the entire error
-                Err(err.into()) // Convert the error to Box<dyn Error>
+                error!("GeminiClient::send_message error: {}", err);
+                Err(err)
             }
         }
     }
 
-    fn get_last_usage(&self) -> Option<TokenUsage> {
-        // todo! implement get_last_usage for GrokClient
-        None
+    /// This function is used to get the token usage for the last request, otherwise there will be no tracking for token usage available
+    /// because default trait implementation of `usage_slot()` returns `None`
+    fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
+        Some(&self.token_usage)
     }
 }
 

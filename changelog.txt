@@ -1,5 +1,6 @@
 0.2.6
 - Implemented token usage tracking in LLMSession and ClientWrapper trait.
+- More precise conversation history length management based on actual token usage as reported by LLM on every response.
 - Added token usage tracking to OpenAIClient.
 
 0.2.5

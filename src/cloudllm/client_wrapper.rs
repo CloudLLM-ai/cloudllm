@@ -5,8 +5,7 @@
 /// and uses a ClientWrapper to interact with the LLM.
 // src/client_wrapper
 use std::error::Error;
-
-
+use std::sync::Mutex;
 use async_trait::async_trait;
 
 /// Represents the possible roles for a message.
@@ -46,5 +45,13 @@ pub trait ClientWrapper: Send + Sync {
 
     /// Hook to retrieve usage from the *last* send_message() call.
     /// Default impl returns None so existing wrappers don’t break.
-    fn get_last_usage(&self) -> Option<TokenUsage>;
+    fn get_last_usage(&self) -> Option<TokenUsage> {
+        self.usage_slot()
+            .and_then(|slot| slot.lock().ok().and_then(|u| u.clone()))
+    }
+
+    fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
+        // ClientWrapper implementations supporting TokenUsage tracking should return a Mutex<Option<TokenUsage>> by overriding this method.
+        None
+    }
 }
