@@ -1,3 +1,6 @@
+use crate::client_wrapper::TokenUsage;
+use crate::clients::common::send_and_track;
+use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;
 use log::{error, info};
@@ -7,9 +10,6 @@ use std::env;
 use std::error::Error;
 use std::sync::Mutex;
 use tokio::runtime::Runtime;
-use crate::client_wrapper::TokenUsage;
-use crate::clients::common::send_and_track;
-use crate::clients::openai::OpenAIClient;
 
 pub struct GeminiClient {
     client: openai_rust::Client,
@@ -75,6 +75,8 @@ pub enum Model {
     Imagen30Generate002Exp,
     ImageVerification001,
     Veo20Generate001,
+    Gemini25FlashPreview0520,
+    Gemini25ProPreview0506,
 }
 
 pub fn model_to_string(model: Model) -> String {
@@ -137,6 +139,8 @@ pub fn model_to_string(model: Model) -> String {
         Model::Imagen30Generate002Exp => "imagen-3.0-generate-002-exp".to_string(),
         Model::ImageVerification001 => "image-verification-001".to_string(),
         Model::Veo20Generate001 => "veo-2.0-generate-001".to_string(),
+        Model::Gemini25FlashPreview0520 => "gemini-2.5-flash-preview-05-20".to_string(),
+        Model::Gemini25ProPreview0506 => "gemini-2.5-pro-preview-05-06".to_string(),
     }
 }
 
@@ -177,39 +181,6 @@ impl GeminiClient {
 
 #[async_trait]
 impl ClientWrapper for GeminiClient {
-    // async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
-    //     // Convert the provided messages into the format expected by openai_rust
-    //     let formatted_messages = messages
-    //         .into_iter()
-    //         .map(|msg| chat::Message {
-    //             role: match msg.role {
-    //                 Role::System => "system".to_owned(),
-    //                 Role::User => "user".to_owned(),
-    //                 Role::Assistant => "assistant".to_owned(),
-    //                 // Extend this match as new roles are added to the Role enum
-    //             },
-    //             content: msg.content,
-    //         })
-    //         .collect();
-    //
-    //     let args = chat::ChatArguments::new(&self.model, formatted_messages);
-    //
-    //     let res = self
-    //         .client
-    //         .create_chat(args, Some("/v1beta/chat/completions".to_string()))
-    //         .await;
-    //     match res {
-    //         Ok(response) => Ok(Message {
-    //             role: Role::Assistant,
-    //             content: response.choices[0].message.content.clone(),
-    //         }),
-    //         Err(err) => {
-    //             error!("OpenAI API Error: {}", err); // Log the entire error
-    //             Err(err.into()) // Convert the error to Box<dyn Error>
-    //         }
-    //     }
-    // }
-
     async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
         let formatted_messages = messages
