@@ -1,8 +1,8 @@
-use std::sync::Mutex;
-use openai_rust2 as openai_rust;
-use openai_rust::chat;
 use crate::client_wrapper::TokenUsage;
+use openai_rust::chat;
+use openai_rust2 as openai_rust;
 use std::error::Error;
+use std::sync::Mutex;
 
 /// Send a chat request, record its usage, and return the assistant’s content.
 pub async fn send_and_track(
@@ -12,14 +12,16 @@ pub async fn send_and_track(
     url_path: Option<String>,
     usage_slot: &Mutex<Option<TokenUsage>>,
 ) -> Result<String, Box<dyn Error>> {
-    let response = api.create_chat(chat::ChatArguments::new(model, formatted_msgs), url_path).await;
+    let response = api
+        .create_chat(chat::ChatArguments::new(model, formatted_msgs), url_path)
+        .await;
 
     match response {
         Ok(response) => {
             let usage = TokenUsage {
-                input_tokens:  response.usage.prompt_tokens     as usize,
+                input_tokens: response.usage.prompt_tokens as usize,
                 output_tokens: response.usage.completion_tokens as usize,
-                total_tokens:  response.usage.total_tokens      as usize,
+                total_tokens: response.usage.total_tokens as usize,
             };
 
             // Store it for get_last_usage()
@@ -29,7 +31,10 @@ pub async fn send_and_track(
             Ok(response.choices[0].message.content.clone())
         }
         Err(err) => {
-            log::error!("cloudllm::clients::common::send_and_track(...): OpenAI API Error: {}", err); // Log the entire error
+            log::error!(
+                "cloudllm::clients::common::send_and_track(...): OpenAI API Error: {}",
+                err
+            ); // Log the entire error
             Err(err.into()) // Convert the error to Box<dyn Error>
         }
     }

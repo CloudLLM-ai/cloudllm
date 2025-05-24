@@ -46,7 +46,11 @@ impl GrokClient {
     pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
         GrokClient {
             // we reuse the OpenAIClient for Grok and delegate the calls to it
-            delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, "https://api.x.ai/v1"),
+            delegate_client: OpenAIClient::new_with_base_url(
+                secret_key,
+                model_name,
+                "https://api.x.ai/v1",
+            ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }

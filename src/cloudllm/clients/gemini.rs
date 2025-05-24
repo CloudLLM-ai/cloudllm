@@ -181,14 +181,17 @@ impl GeminiClient {
 
 #[async_trait]
 impl ClientWrapper for GeminiClient {
-    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn std::error::Error>> {
+    async fn send_message(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
         let formatted_messages = messages
             .into_iter()
             .map(|msg| chat::Message {
                 role: match msg.role {
-                    Role::System    => "system".to_owned(),
-                    Role::User      => "user".to_owned(),
+                    Role::System => "system".to_owned(),
+                    Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
                 },
                 content: msg.content,
@@ -204,7 +207,7 @@ impl ClientWrapper for GeminiClient {
             url_path,
             &self.token_usage,
         )
-            .await;
+        .await;
 
         match result {
             Ok(content) => Ok(Message {

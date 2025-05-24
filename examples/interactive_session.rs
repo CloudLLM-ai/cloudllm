@@ -19,7 +19,7 @@ async fn main() {
 
     // Read GEMINI_API_KEY from environment variable
     let secret_key =
-         env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
+        env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
 
     // Read the XAI_API_KEY from environment variable
     //let secret_key =

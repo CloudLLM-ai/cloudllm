@@ -38,10 +38,8 @@
 //!
 //! The session automatically prunes oldest messages when cumulative tokens exceed the configured window.
 
-
-
-use std::sync::Arc;
 use crate::client_wrapper;
+use std::sync::Arc;
 // src/llm_session.rs
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 

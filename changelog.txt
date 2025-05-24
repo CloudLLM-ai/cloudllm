@@ -1,7 +1,29 @@
 0.2.6
-- Implemented token usage tracking in LLMSession and ClientWrapper trait.
-- More precise conversation history length management based on actual token usage as reported by LLM on every response.
-- Added token usage tracking to OpenAIClient.
+- Implemented token usage tracking across the LLMSession and ClientWrapper trait, including:
+  - New TokenUsage struct for standardized tracking of input, output, and total tokens.
+  - LLMSession now accumulates actual token usage after each message.
+  - LLMSession::token_usage() method added for external inspection.
+  - ClientWrapper trait extended with get_last_usage() (default: None) and new usage_slot() hook.
+- Refactored token usage handling in OpenAIClient and GeminiClient:
+  - Introduced a common send_and_track helper in clients/common.rs to centralize usage capture logic.
+  - OpenAIClient and GeminiClient now store usage in an internal Mutex<Option<TokenUsage>>.
+  - Redundant get_last_usage() implementations removed; only usage_slot() is overridden.
+  - Added multiple constructors to GeminiClient: support for model strings, enums, and base URL configuration.
+- Improved LLMSession context management:
+  - Added max_tokens field with get_max_tokens() accessor.
+  - Prunes conversation history using estimated token count per message.
+  - Precise control over total_context_tokens and total_token_count.
+- Example interactive_session.rs refactored to:
+  - Demonstrate integration with both OpenAIClient, GrokClient, and GeminiClient.
+  - Show token usage in real-time after each LLM response.
+  - Test max_tokens pruning logic with visible metrics.
+- Added model variants to GeminiClient enum:
+  - Gemini25FlashPreview0520
+  - Gemini25ProPreview0506
+- Cleaned up and reorganized internal code:
+  - Moved constructors and imports for clarity.
+  - Removed redundant comments and unused stub code.
+- Updated README example (interactive_session.md) with new usage patterns.
 
 0.2.5
 - Bumped tokio from 1.44.2 to 1.44.5
