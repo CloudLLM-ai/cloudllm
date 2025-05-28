@@ -42,6 +42,7 @@ use crate::client_wrapper;
 use std::sync::Arc;
 // src/llm_session.rs
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+use openai_rust2 as openai_rust;
 
 /// A conversation session with an LLM, including:
 ///
@@ -98,6 +99,7 @@ impl LLMSession {
         &mut self,
         role: Role,
         content: String,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let message = Message { role, content };
 
@@ -111,7 +113,10 @@ impl LLMSession {
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(self.conversation_history.clone())
+            .send_message(
+                self.conversation_history.clone(),
+                optional_search_parameters,
+            )
             .await?;
 
         // Remove the system prompt from the conversation history

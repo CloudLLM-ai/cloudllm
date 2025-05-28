@@ -1,9 +1,11 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::grok::Model::Grok3MiniFastBeta;
+use crate::clients::grok::Model::{Grok3Latest, Grok3MiniFastBeta};
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;
 use log::{error, info};
+use openai_rust2 as openai_rust;
+use openai_rust2::chat::SearchMode;
 use std::env;
 use std::error::Error;
 use std::sync::Mutex;
@@ -24,6 +26,7 @@ pub enum Model {
     Grok3MiniBeta,     // $0.30/MMT input $0.50/MMT output
     Grok3FastBeta,     // $5/MMT input $25/MMT output
     Grok3Beta,         // $3/MMT input $15/MMT output
+    Grok3Latest,       // $3/MMT input $15/MMT output
 }
 
 fn model_to_string(model: Model) -> String {
@@ -35,6 +38,7 @@ fn model_to_string(model: Model) -> String {
         Model::Grok3MiniBeta => "grok-3-mini-beta".to_string(), // cheapest model
         Model::Grok3FastBeta => "grok-3-fast-beta".to_string(),
         Model::Grok3Beta => "grok-3-beta".to_string(),
+        Model::Grok3Latest => "grok-3-latest".to_string(),
     }
 }
 
@@ -75,8 +79,14 @@ impl GrokClient {
 
 #[async_trait]
 impl ClientWrapper for GrokClient {
-    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
-        self.delegate_client.send_message(messages).await
+    async fn send_message(
+        &self,
+        messages: Vec<Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Message, Box<dyn Error>> {
+        self.delegate_client
+            .send_message(messages, optional_search_parameters)
+            .await
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
@@ -90,7 +100,7 @@ pub fn test_grok_client() {
     crate::init_logger();
 
     let secret_key = env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
-    let client = GrokClient::new_with_model_enum(&secret_key, Grok3MiniFastBeta);
+    let client = GrokClient::new_with_model_enum(&secret_key, Grok3Latest);
     let mut llm_session: LLMSession = LLMSession::new(
         std::sync::Arc::new(client),
         "You are a math professor.".to_string(),
@@ -100,11 +110,16 @@ pub fn test_grok_client() {
     // Create a new Tokio runtime
     let rt = Runtime::new().unwrap();
 
+    let search_parameters =
+        openai_rust::chat::SearchParameters::new(SearchMode::On).with_citations(true);
+
     let response_message: Message = rt.block_on(async {
         let s = llm_session
             .send_message(
                 Role::User,
-                "What is the square root of 16? What does the square of a root mean?".to_string(),
+                "Using your Live search capabilities: What's the current price of Bitcoin?"
+                    .to_string(),
+                Some(search_parameters),
             )
             .await;
 

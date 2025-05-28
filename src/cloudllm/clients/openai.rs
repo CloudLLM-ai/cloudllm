@@ -23,7 +23,7 @@
 //!     let resp = client.send_message(vec![
 //!         Message { role: Role::System,    content: "You are an assistant.".into() },
 //!         Message { role: Role::User,      content: "Hello!".into() },
-//!     ]).await.unwrap();
+//!     ], None).await.unwrap();
 //!     println!("Assistant: {}", resp.content);
 //!
 //!     // Then pull the real token usage.
@@ -131,7 +131,11 @@ impl OpenAIClient {
 
 #[async_trait]
 impl ClientWrapper for OpenAIClient {
-    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>> {
+    async fn send_message(
+        &self,
+        messages: Vec<Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
         let formatted_messages = messages
             .into_iter()
@@ -154,6 +158,7 @@ impl ClientWrapper for OpenAIClient {
             formatted_messages,
             Some(url_path_string),
             &self.token_usage,
+            optional_search_parameters,
         )
         .await;
 

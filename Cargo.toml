@@ -1,6 +1,6 @@
 [package]
 name = "cloudllm"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A Rust library for bridging applications with remote LLMs across various platforms."
@@ -13,7 +13,7 @@ tokio = { version = "1.44.5", features = ["full"] }
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
 # https://github.com/gubatron/openai-rust
-openai-rust2 = { version = "1.5.9" }
+openai-rust2 = { version = "1.6.0" }
 
 async-trait = "0.1.88"
 log = "0.4.27"

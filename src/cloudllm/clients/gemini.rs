@@ -184,6 +184,7 @@ impl ClientWrapper for GeminiClient {
     async fn send_message(
         &self,
         messages: Vec<Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
         let formatted_messages = messages
@@ -206,6 +207,7 @@ impl ClientWrapper for GeminiClient {
             formatted_messages,
             url_path,
             &self.token_usage,
+            optional_search_parameters,
         )
         .await;
 
@@ -248,7 +250,11 @@ pub fn test_gemini_client() {
 
     let response_message: Message = rt.block_on(async {
         let s = llm_session
-            .send_message(Role::User, "What is the square root of 16?".to_string())
+            .send_message(
+                Role::User,
+                "What is the square root of 16?".to_string(),
+                None,
+            )
             .await;
 
         match s {

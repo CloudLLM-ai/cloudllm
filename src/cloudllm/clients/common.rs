@@ -11,10 +11,15 @@ pub async fn send_and_track(
     formatted_msgs: Vec<chat::Message>,
     url_path: Option<String>,
     usage_slot: &Mutex<Option<TokenUsage>>,
+    optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
 ) -> Result<String, Box<dyn Error>> {
-    let response = api
-        .create_chat(chat::ChatArguments::new(model, formatted_msgs), url_path)
-        .await;
+    let mut chat_arguments = chat::ChatArguments::new(model, formatted_msgs);
+
+    if let Some(search_params) = optional_search_parameters {
+        chat_arguments = chat_arguments.with_search_parameters(search_params);
+    }
+
+    let response = api.create_chat(chat_arguments, url_path).await;
 
     match response {
         Ok(response) => {

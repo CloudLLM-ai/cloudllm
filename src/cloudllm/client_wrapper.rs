@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use openai_rust2 as openai_rust;
 /// A ClientWrapper is a wrapper around a specific cloud LLM service.
 /// It provides a common interface to interact with the LLMs.
 /// It does not keep track of the conversation/session, for that we use an LLMSession
@@ -41,7 +42,11 @@ pub struct Message {
 pub trait ClientWrapper: Send + Sync {
     /// Send a message to the LLM and get a response.
     /// - `messages`: The messages to send in the request.
-    async fn send_message(&self, messages: Vec<Message>) -> Result<Message, Box<dyn Error>>;
+    async fn send_message(
+        &self,
+        messages: Vec<Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Message, Box<dyn Error>>;
 
     /// Hook to retrieve usage from the *last* send_message() call.
     /// Default impl returns None so existing wrappers don’t break.
