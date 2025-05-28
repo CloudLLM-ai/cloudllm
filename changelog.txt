@@ -1,3 +1,17 @@
+0.2.7
+- Bumped cloudllm version to 0.2.7
+- Upgraded openai-rust2 dependency from 1.5.9 to 1.6.0
+- Extended ChatArguments and client wrappers for search and tool support:
+  - Added `SearchParameters` struct and `with_search_parameters()` builder to `openai_rust::chat::ChatArguments`
+  - Added `ToolType` enum and `Tool` struct, plus `tools` field and `with_tools()` builder (snake_case serialization)
+  - Updated `ClientWrapper::send_message` signature to accept `optional_search_parameters: Option<SearchParameters>`
+  - Modified `clients/common.rs` `send_and_track()` to take and inject `optional_search_parameters`
+  - Updated `OpenAIClient`, `GeminiClient`, and `GrokClient` to forward `optional_search_parameters` to `send_and_track`
+  - Exposed `optional_search_parameters` through `LLMSession::send_message` and its callers
+- Other updates:
+  - Added `Grok3Latest` variant to `grok::Model` enum and updated test to use it
+  - Ensured backward compatibility: all existing call sites default `optional_search_parameters` to `None`
+
 0.2.6
 - Implemented token usage tracking across the LLMSession and ClientWrapper trait, including:
   - New TokenUsage struct for standardized tracking of input, output, and total tokens.
