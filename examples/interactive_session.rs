@@ -72,7 +72,7 @@ async fn main() {
         tokio::spawn(display_waiting_dots(rx, 3));
 
         let response = session
-            .send_message(Role::User, user_input.to_string())
+            .send_message(Role::User, user_input.to_string(), None)
             .await
             .unwrap();
         tx.send(false).unwrap();
