@@ -11,6 +11,7 @@
 //!
 //! ```rust
 //! use std::sync::Arc;
+//! use tokio::runtime::Runtime;
 //! use cloudllm::client_wrapper::Role;
 //! use cloudllm::clients::openai::OpenAIClient;
 //! use cloudllm::clients::openai::Model;
@@ -25,7 +26,16 @@
 //! );
 //!
 //! // 2) Send a message
-//! let reply = session.send_message(Role::User, "Hola, ¿cómo estás?".into()).await.unwrap();
+//! let rt = Runtime::new().unwrap();
+//!
+//! let reply = rt.block_on(async {
+//!    match session.send_message(Role::User, "Hola, ¿cómo estás?".into(), None).await {
+//!        Ok(response) => response,
+//!     Err(e) => {
+//!         panic!("client error: {}", e);
+//!     }
+//!   } // await
+//! });
 //! println!("Assistant: {}", reply.content);
 //!
 //! // 3) Inspect token usage so far

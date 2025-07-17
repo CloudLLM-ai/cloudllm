@@ -1,3 +1,15 @@
+0.2.8
+ - Bumped cloudllm version to 0.2.8
+ - Upgraded tokio dependency from 1.44.5 to 1.46.1
+ - Updated Grok client model names and enums in src/cloudllm/clients/grok.rs:
+  - Renamed Grok3MiniFastBeta to Grok3MiniFast, Grok3MiniBeta to Grok3Mini, Grok3FastBeta to Grok3Fast, Grok3Beta to Grok3, and Grok3Latest to Grok4_0709
+  - Updated model_to_string function to reflect new model names
+  - Changed test client initialization to use Grok4_0709 instead of Grok3Latest
+ - Updated Gemini client model names and enums in src/cloudllm/clients/gemini.rs:
+  - Renamed Gemini25FlashPreview0520 to Gemini25Flash and Gemini25ProPreview0506 to Gemini25Pro to reflect stable releases
+  - Added new model enum Gemini25FlashLitePreview0617 for lightweight preview model
+  - Updated model_to_string function to map new enum names: gemini-2.5-flash, gemini-2.5-pro, and gemini-2.5-flash-lite-preview-06-17
+
 0.2.7
 - Bumped cloudllm version to 0.2.7
 - Upgraded openai-rust2 dependency from 1.5.9 to 1.6.0

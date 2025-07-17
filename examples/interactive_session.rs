@@ -6,7 +6,7 @@ use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
 use cloudllm::clients::gemini::GeminiClient;
-use cloudllm::clients::gemini::Model::Gemini25FlashPreview0520;
+use cloudllm::clients::gemini::Model::{Gemini25Flash};
 use cloudllm::LLMSession;
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session
@@ -32,7 +32,7 @@ async fn main() {
     //let client = OpenAIClient::new_with_model_enum(&secret_key, GPT4o);
 
     // Instantiate the Gemini client
-    let client = GeminiClient::new_with_model_enum(&secret_key, Gemini25FlashPreview0520);
+    let client = GeminiClient::new_with_model_enum(&secret_key, Gemini25Flash);
 
     // Instantiate the Grok client
     //let client = GrokClient::new_with_model_enum(&secret_key, clients::grok::Model::Grok3MiniBeta);
