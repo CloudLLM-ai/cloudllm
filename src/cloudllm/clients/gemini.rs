@@ -75,8 +75,9 @@ pub enum Model {
     Imagen30Generate002Exp,
     ImageVerification001,
     Veo20Generate001,
-    Gemini25FlashPreview0520,
-    Gemini25ProPreview0506,
+    Gemini25Flash,
+    Gemini25Pro,
+    Gemini25FlashLitePreview0617
 }
 
 pub fn model_to_string(model: Model) -> String {
@@ -139,8 +140,9 @@ pub fn model_to_string(model: Model) -> String {
         Model::Imagen30Generate002Exp => "imagen-3.0-generate-002-exp".to_string(),
         Model::ImageVerification001 => "image-verification-001".to_string(),
         Model::Veo20Generate001 => "veo-2.0-generate-001".to_string(),
-        Model::Gemini25FlashPreview0520 => "gemini-2.5-flash-preview-05-20".to_string(),
-        Model::Gemini25ProPreview0506 => "gemini-2.5-pro-preview-05-06".to_string(),
+        Model::Gemini25Flash => "gemini-2.5-flash".to_string(),
+        Model::Gemini25Pro => "gemini-2.5-pro".to_string(),
+        Model::Gemini25FlashLitePreview0617 => "gemini-2.5-flash-lite-preview-06-17".to_string(),
     }
 }
 
