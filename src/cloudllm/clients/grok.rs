@@ -1,5 +1,5 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::grok::Model::{Grok3Latest, Grok3MiniFastBeta};
+use crate::clients::grok::Model::{Grok3, Grok3MiniFast, Grok4_0709};
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;
@@ -22,11 +22,11 @@ pub enum Model {
     Grok2,
     Grok2Latest,
     Grok21212,         // $2/MMT input $10/MMT output
-    Grok3MiniFastBeta, // $0.60/MMT input $4.00/MMT output
-    Grok3MiniBeta,     // $0.30/MMT input $0.50/MMT output
-    Grok3FastBeta,     // $5/MMT input $25/MMT output
-    Grok3Beta,         // $3/MMT input $15/MMT output
-    Grok3Latest,       // $3/MMT input $15/MMT output
+    Grok3MiniFast, // $0.60/MMT input $4.00/MMT output
+    Grok3Mini,     // $0.30/MMT input $0.50/MMT output
+    Grok3Fast,     // $5/MMT input $25/MMT output
+    Grok3,         // $3/MMT input $15/MMT output
+    Grok4_0709,       // $3/MMT input $15/MMT output
 }
 
 fn model_to_string(model: Model) -> String {
@@ -34,11 +34,11 @@ fn model_to_string(model: Model) -> String {
         Model::Grok2 => "grok-2".to_string(),
         Model::Grok2Latest => "grok-2-latest".to_string(),
         Model::Grok21212 => "grok-2-1212".to_string(),
-        Model::Grok3MiniFastBeta => "grok-3-mini-fast-beta".to_string(),
-        Model::Grok3MiniBeta => "grok-3-mini-beta".to_string(), // cheapest model
-        Model::Grok3FastBeta => "grok-3-fast-beta".to_string(),
-        Model::Grok3Beta => "grok-3-beta".to_string(),
-        Model::Grok3Latest => "grok-3-latest".to_string(),
+        Model::Grok3MiniFast => "grok-3-mini-fast".to_string(),
+        Model::Grok3Mini => "grok-3-mini".to_string(), // cheapest model
+        Model::Grok3Fast => "grok-3-fast".to_string(),
+        Model::Grok3 => "grok-3".to_string(),
+        Model::Grok4_0709 => "grok-4-0709".to_string(),
     }
 }
 
@@ -100,7 +100,7 @@ pub fn test_grok_client() {
     crate::init_logger();
 
     let secret_key = env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
-    let client = GrokClient::new_with_model_enum(&secret_key, Grok3Latest);
+    let client = GrokClient::new_with_model_enum(&secret_key, Grok4_0709);
     let mut llm_session: LLMSession = LLMSession::new(
         std::sync::Arc::new(client),
         "You are a math professor.".to_string(),
