@@ -163,7 +163,7 @@ impl GeminiClient {
     }
 
     /// This function is used to create a GeminiClient with a custom base URL
-    /// The default base URL is "https://generativelanguage.googleapis.com/v1beta/"
+    /// The default base URL is "<https://generativelanguage.googleapis.com/v1beta/>"
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         GeminiClient {
             client: openai_rust::Client::new_with_base_url(secret_key, base_url),
