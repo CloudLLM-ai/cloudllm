@@ -1,5 +1,5 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::grok::Model::{Grok3, Grok3MiniFast, Grok4_0709};
+use crate::clients::grok::Model::Grok4_0709;
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;

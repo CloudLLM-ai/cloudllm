@@ -17,7 +17,8 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     // Initialize with your API key and model enum.
-//!     let client = OpenAIClient::new_with_model_enum("YOUR_OPENAI_KEY", Model::GPT41Nano);
+//!     let secret_key : String = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+//!     let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
 //!
 //!     // Send system + user messages.
 //!     let resp = client.send_message(vec![
@@ -39,10 +40,12 @@
 //! # Note
 //!
 //! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
+
+use std::env;
 use std::error::Error;
 
 use async_trait::async_trait;
-use log::error;
+use log::{error, info};
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
@@ -50,8 +53,15 @@ use crate::client_wrapper::TokenUsage;
 use crate::clients::common::send_and_track;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use std::sync::Mutex;
+use tokio::runtime::Runtime;
+use crate::clients::openai::Model::GPT5Nano;
+use crate::LLMSession;
 
 pub enum Model {
+    GPT5,            // Higher Reasoning, Medium speed, Text+Image input, Text output; input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
+    GPT5Mini,        // High Reasoning, Fast speed, Text+Image input, Text output; input $0.25/1M tokens, cached input $0.025/1M tokens, output $2/1M tokens
+    GPT5Nano,        // Average Reasoning, Very fast speed, Text+Image input, Text output; input $0.05/1M tokens, cached input $0.005/1M tokens, output $0.4/1M tokens
+    GPT5ChatLatest,  // High Reasoning, Medium speed, Text+Image input, Text output; used in ChatGPT, input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
     GPT4o,           // input $2.5/1M tokens, cached input $1.25/1M tokens, output $10/1M tokens
     ChatGPT4oLatest, // latest used in ChatGPT
     GPt4oMini,
@@ -73,6 +83,10 @@ pub enum Model {
 
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT5 => "gpt-5".to_string(),
+        Model::GPT5Mini => "gpt-5-mini".to_string(),
+        Model::GPT5Nano => "gpt-5-nano".to_string(),
+        Model::GPT5ChatLatest => "gpt-5-chat-latest".to_string(),
         Model::GPT4o => "gpt-4o".to_string(),
         Model::ChatGPT4oLatest => "chatgpt-4o-latest".to_string(),
         Model::GPt4oMini => "gpt-4o-mini".to_string(),
@@ -180,4 +194,45 @@ impl ClientWrapper for OpenAIClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }
+}
+
+#[test]
+pub fn test_openai_client() {
+    // initialize logger
+    crate::init_logger();
+
+    let secret_key = env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let client = OpenAIClient::new_with_model_enum(&secret_key, GPT5Nano);
+    let mut llm_session: LLMSession = LLMSession::new(
+        std::sync::Arc::new(client),
+        "You are a philosophy professor.".to_string(),
+        1048576,
+    );
+
+    // Create a new Tokio runtime
+    let rt = Runtime::new().unwrap();
+
+    let response_message: Message = rt.block_on(async {
+        let s = llm_session
+            .send_message(
+                Role::User,
+                "If life is a game and you are not an NPC character, what can you while you play to benefit the higher consciousness of your avatar controller?"
+                    .to_string(),
+                None,
+            )
+            .await;
+
+        match s {
+            Ok(msg) => msg,
+            Err(e) => {
+                error!("Error: {}", e);
+                Message {
+                    role: Role::System,
+                    content: format!("An error occurred: {:?}", e),
+                }
+            }
+        }
+    });
+
+    info!("test_openai_client() response: {}", response_message.content);
 }

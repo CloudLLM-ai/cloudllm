@@ -5,8 +5,7 @@ use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
-use cloudllm::clients::gemini::GeminiClient;
-use cloudllm::clients::gemini::Model::{Gemini25Flash};
+use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::LLMSession;
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session
@@ -14,25 +13,23 @@ use cloudllm::LLMSession;
 #[tokio::main]
 async fn main() {
     // Read OPENAI_AI_SECRET from environment variable
-    // let secret_key =
-    //     env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
+    let secret_key =
+         env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
 
     // Read GEMINI_API_KEY from environment variable
-    let secret_key =
-        env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
+    //let secret_key =
+    //    env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
 
     // Read the XAI_API_KEY from environment variable
     //let secret_key =
     //    env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
 
     // Instantiate the OpenAI client
-    //let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
-    //let client = OpenAIClient::new_with_model_string(&secret_key, "gpt-4o"); // hardcode the string
-    //let client = OpenAIClient::new_with_model_string(&secret_key, &model_to_string(GPT4o)); // use one of the enums available
-    //let client = OpenAIClient::new_with_model_enum(&secret_key, GPT4o);
+    let client = OpenAIClient::new_with_model_enum(&secret_key, cloudllm::clients::openai::Model::GPT5Nano);
+    //let client = OpenAIClient::new_with_model_string(&secret_key, "gpt-5-nano"); // hardcode the string
 
     // Instantiate the Gemini client
-    let client = GeminiClient::new_with_model_enum(&secret_key, Gemini25Flash);
+    //let client = cloudllm::clients::gemini::GeminiClient::new_with_model_enum(&secret_key, cloudllm::clients::gemini::Model::Gemini25Flash);
 
     // Instantiate the Grok client
     //let client = GrokClient::new_with_model_enum(&secret_key, clients::grok::Model::Grok3MiniBeta);
@@ -71,11 +68,21 @@ async fn main() {
         let (tx, rx) = watch::channel(true);
         tokio::spawn(display_waiting_dots(rx, 3));
 
-        let response = session
+        let response_result = session
             .send_message(Role::User, user_input.to_string(), None)
-            .await
-            .unwrap();
+            .await;
+
         tx.send(false).unwrap();
+
+        let response = match response_result {
+            Ok(r) => {
+                r
+            }
+            Err(err ) => {
+                println!("\n\n[Error sending message:] {}\n", err);
+                continue; // Skip to the next iteration of the loop
+            }
+        };
 
         let token_usage = session.token_usage();
 
