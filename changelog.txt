@@ -1,3 +1,9 @@
+0.2.10 - SEP/21/2025
+ - New Grok model enums added to the GrokClient:
+   - grok-4-fast-reasoning
+   - grok-4-fast-non-reasoning
+   - grok-code-fast-1
+
 0.2.9
  - New OpenAI model enums added to the OpenAIClient:
    - gpt-5
