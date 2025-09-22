@@ -94,7 +94,7 @@ pub fn test_claude_client() {
     crate::init_logger();
 
     let secret_key = env::var("CLAUDE_API_KEY").expect("CLAUDE_API_KEY not set");
-    let client = ClaudeClient::new_with_model_enum(&secret_key, Claude35Sonnet20241022);
+    let client = ClaudeClient::new_with_model_enum(&secret_key, ClaudeSonnet4);
     let mut llm_session: LLMSession = LLMSession::new(
         std::sync::Arc::new(client),
         "You are a helpful assistant.".to_string(),
