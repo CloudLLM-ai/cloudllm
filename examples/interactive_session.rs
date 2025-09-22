@@ -6,6 +6,8 @@ use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
 use cloudllm::clients::openai::OpenAIClient;
+use cloudllm::clients::grok::GrokClient;
+use cloudllm::clients::claude::ClaudeClient;
 use cloudllm::LLMSession;
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session
@@ -14,36 +16,34 @@ use cloudllm::LLMSession;
 #[tokio::main]
 async fn main() {
     // Read OPENAI_AI_SECRET from environment variable
-    let secret_key =
-         env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
-
-    // Read GEMINI_API_KEY from environment variable
-    //let secret_key =
-    //    env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
-
-    // Read the XAI_API_KEY from environment variable
-    //let secret_key =
-    //    env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
-
-    // Read CLAUDE_API_KEY from environment variable
-    //let secret_key =
-    //    env::var("CLAUDE_API_KEY").expect("Please set the CLAUDE_API_KEY environment variable!");
-
+    // let secret_key =
+    //      env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
     // Instantiate the OpenAI client
-    let client = OpenAIClient::new_with_model_enum(&secret_key, cloudllm::clients::openai::Model::GPT5Nano);
+    //let client = OpenAIClient::new_with_model_enum(&secret_key, cloudllm::clients::openai::Model::GPT5Nano);
     //let client = OpenAIClient::new_with_model_string(&secret_key, "gpt-5-nano"); // hardcode the string
 
+    // Read GEMINI_API_KEY from the environment variable
+    //let secret_key =
+    //    env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
     // Instantiate the Gemini client
     //let client = cloudllm::clients::gemini::GeminiClient::new_with_model_enum(&secret_key, cloudllm::clients::gemini::Model::Gemini25Flash);
 
-    // Instantiate the Grok client
-    //let client = GrokClient::new_with_model_enum(&secret_key, clients::grok::Model::Grok3MiniBeta);
+    // Read the XAI_API_KEY from the environment variable
+    // let secret_key =
+    //    env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
+    // // Instantiate the Grok client
+    // let client = GrokClient::new_with_model_enum(&secret_key, cloudllm::clients::grok::Model::Grok4FastReasoning);
 
+
+    // Read CLAUDE_API_KEY from the environment variable
+    let secret_key = env::var("CLAUDE_API_KEY").expect("Please set the CLAUDE_API_KEY environment variable!");
     // Instantiate the Claude client
-    //let client = cloudllm::clients::claude::ClaudeClient::new_with_model_enum(&secret_key, cloudllm::clients::claude::Model::Claude35Sonnet20241022);
+    let client = cloudllm::clients::claude::ClaudeClient::new_with_model_enum(&secret_key, cloudllm::clients::claude::Model::ClaudeSonnet4);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // Set up the LLMSession
-    let system_prompt = "You are an award winning bitcoin/blockchain/crypto/tech/software journalist for DiarioBitcoin, you are spanish/english bilingual, you can write in spanish at a professional journalist level, as well as a software engineer. You are hold a doctorate in economy and cryptography. When you answer you don't make any mentions of your credentials unless specifically asked about them.".to_string();
+    let system_prompt = "You are a socratic mentor and you will not hide your LLM Model name if asked.".to_string();
     let max_tokens = 1024; // Set a small context window for testing conversation history pruning
     let mut session = LLMSession::new(std::sync::Arc::new(client), system_prompt, max_tokens);
 
