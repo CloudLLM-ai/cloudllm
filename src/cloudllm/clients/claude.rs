@@ -1,5 +1,5 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::claude::Model::Claude35Sonnet20241022;
+use crate::clients::claude::Model::ClaudeSonnet4;
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, LLMSession, Message, Role};
 use async_trait::async_trait;
@@ -19,22 +19,20 @@ pub struct ClaudeClient {
 
 // Models available in Claude API as of jan.2025
 pub enum Model {
-    Claude35Sonnet20241022,  // Latest Claude 3.5 Sonnet
-    Claude35Haiku20241022,   // Latest Claude 3.5 Haiku
-    Claude3Opus20240229,     // Claude 3 Opus
-    Claude35Sonnet20240620,  // Previous Claude 3.5 Sonnet
-    Claude3Sonnet20240229,   // Claude 3 Sonnet
-    Claude3Haiku20240307,    // Claude 3 Haiku
+    ClaudeOpus41,
+    ClaudeOpus4,
+    ClaudeSonnet4,
+    ClaudeSonnet37,
+    ClaudeHaiku35,
 }
 
 fn model_to_string(model: Model) -> String {
     match model {
-        Model::Claude35Sonnet20241022 => "claude-3-5-sonnet-20241022".to_string(),
-        Model::Claude35Haiku20241022 => "claude-3-5-haiku-20241022".to_string(),
-        Model::Claude3Opus20240229 => "claude-3-opus-20240229".to_string(),
-        Model::Claude35Sonnet20240620 => "claude-3-5-sonnet-20240620".to_string(),
-        Model::Claude3Sonnet20240229 => "claude-3-sonnet-20240229".to_string(),
-        Model::Claude3Haiku20240307 => "claude-3-haiku-20240307".to_string(),
+        Model::ClaudeOpus41 => "claude-opus-4-1".to_string(),
+        Model::ClaudeOpus4 => "claude-opus-4-0".to_string(),
+        Model::ClaudeSonnet4 => "claude-sonnet-4-0".to_string(),
+        Model::ClaudeSonnet37 => "claude-sonnet-3-7-sonnet-latest".to_string(),
+        Model::ClaudeHaiku35 => "claude-haiku-3-5-haiku-latest".to_string(),
     }
 }
 
