@@ -32,7 +32,7 @@ cloudllm = "0.2.9" # Use the latest version
 - OpenAI
 - Grok
 - Gemini
-- Claude (Coming Soon)
+- Claude
 - AWS Bedrock (Coming Soon)
 - ... and more to come!
 
