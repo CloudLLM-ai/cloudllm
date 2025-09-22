@@ -1,4 +1,14 @@
-0.2.10 - SEP/21/2025
+0.2.11 SEP/21/2025
+ - Added Claude client implementation at src/cloudllm/clients/claude.rs:
+   - ClaudeClient struct follows the same delegate pattern as GrokClient, using OpenAIClient internally
+   - Supports Anthropic API base URL (https://api.anthropic.com/v1)
+   - Includes 6 Claude model variants: Claude35Sonnet20241022, Claude35Haiku20241022, Claude3Opus20240229, Claude35Sonnet20240620, Claude3Sonnet20240229, Claude3Haiku20240307
+   - Implements all standard constructor methods and ClientWrapper trait
+   - Added test function with CLAUDE_API_KEY environment variable
+   - Updated README.md to mark Claude as supported (removed "Coming Soon")
+   - Added Claude example to interactive_session.rs example
+
+0.2.10 SEP/21/2025
  - New Grok model enums added to the GrokClient:
    - grok-4-fast-reasoning
    - grok-4-fast-non-reasoning

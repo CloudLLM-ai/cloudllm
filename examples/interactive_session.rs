@@ -9,6 +9,7 @@ use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::LLMSession;
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session
+// CLAUDE_API_KEY=your-claude-key-here cargo run --example interactive_session
 
 #[tokio::main]
 async fn main() {
@@ -24,6 +25,10 @@ async fn main() {
     //let secret_key =
     //    env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
 
+    // Read CLAUDE_API_KEY from environment variable
+    //let secret_key =
+    //    env::var("CLAUDE_API_KEY").expect("Please set the CLAUDE_API_KEY environment variable!");
+
     // Instantiate the OpenAI client
     let client = OpenAIClient::new_with_model_enum(&secret_key, cloudllm::clients::openai::Model::GPT5Nano);
     //let client = OpenAIClient::new_with_model_string(&secret_key, "gpt-5-nano"); // hardcode the string
@@ -33,6 +38,9 @@ async fn main() {
 
     // Instantiate the Grok client
     //let client = GrokClient::new_with_model_enum(&secret_key, clients::grok::Model::Grok3MiniBeta);
+
+    // Instantiate the Claude client
+    //let client = cloudllm::clients::claude::ClaudeClient::new_with_model_enum(&secret_key, cloudllm::clients::claude::Model::Claude35Sonnet20241022);
 
     // Set up the LLMSession
     let system_prompt = "You are an award winning bitcoin/blockchain/crypto/tech/software journalist for DiarioBitcoin, you are spanish/english bilingual, you can write in spanish at a professional journalist level, as well as a software engineer. You are hold a doctorate in economy and cryptography. When you answer you don't make any mentions of your credentials unless specifically asked about them.".to_string();
