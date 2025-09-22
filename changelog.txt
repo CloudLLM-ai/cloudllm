@@ -1,4 +1,4 @@
-0.2.11 SEP/21/2025
+0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
    - ClaudeClient struct follows the same delegate pattern as GrokClient, using OpenAIClient internally
    - Supports Anthropic API base URL (https://api.anthropic.com/v1)
