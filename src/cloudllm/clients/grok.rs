@@ -27,6 +27,9 @@ pub enum Model {
     Grok3Fast,     // $5/MMT input $25/MMT output
     Grok3,         // $3/MMT input $15/MMT output
     Grok4_0709,       // $3/MMT input $15/MMT output
+    Grok4FastReasoning, // #$0.2/MMT input $0.50/MMT output
+    Grok4FastNonReasoning, // #$0.2/MMT input $0.50/MMT output
+    GrokCodeFast1, // #$0.2/MMT input $1.50/MMT output
 }
 
 fn model_to_string(model: Model) -> String {
@@ -39,6 +42,9 @@ fn model_to_string(model: Model) -> String {
         Model::Grok3Fast => "grok-3-fast".to_string(),
         Model::Grok3 => "grok-3".to_string(),
         Model::Grok4_0709 => "grok-4-0709".to_string(),
+        Model::Grok4FastReasoning => "grok-4-fast-reasoning".to_string(),
+        Model::Grok4FastNonReasoning => "grok-4-fast-nonreasoning".to_string(),
+        Model::GrokCodeFast1 => "grok-code-fast-1".to_string()
     }
 }
 
