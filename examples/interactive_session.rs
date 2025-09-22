@@ -15,30 +15,29 @@ use cloudllm::LLMSession;
 
 #[tokio::main]
 async fn main() {
-    // Read OPENAI_AI_SECRET from environment variable
+    // // Read OPENAI_AI_SECRET from environment variable
     // let secret_key =
     //      env::var("OPEN_AI_SECRET").expect("Please set the OPEN_AI_SECRET environment variable!");
-    // Instantiate the OpenAI client
+    // // Instantiate the OpenAI client
     //let client = OpenAIClient::new_with_model_enum(&secret_key, cloudllm::clients::openai::Model::GPT5Nano);
     //let client = OpenAIClient::new_with_model_string(&secret_key, "gpt-5-nano"); // hardcode the string
 
-    // Read GEMINI_API_KEY from the environment variable
-    //let secret_key =
+    // // Read GEMINI_API_KEY from the environment variable
+    // let secret_key =
     //    env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
-    // Instantiate the Gemini client
-    //let client = cloudllm::clients::gemini::GeminiClient::new_with_model_enum(&secret_key, cloudllm::clients::gemini::Model::Gemini25Flash);
+    // // Instantiate the Gemini client
+    // let client = cloudllm::clients::gemini::GeminiClient::new_with_model_enum(&secret_key, cloudllm::clients::gemini::Model::Gemini25Flash);
 
     // Read the XAI_API_KEY from the environment variable
-    // let secret_key =
-    //    env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
-    // // Instantiate the Grok client
-    // let client = GrokClient::new_with_model_enum(&secret_key, cloudllm::clients::grok::Model::Grok4FastReasoning);
+    let secret_key =
+       env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
+    // Instantiate the Grok client
+    let client = GrokClient::new_with_model_enum(&secret_key, cloudllm::clients::grok::Model::Grok4FastReasoning);
 
-
-    // Read CLAUDE_API_KEY from the environment variable
-    let secret_key = env::var("CLAUDE_API_KEY").expect("Please set the CLAUDE_API_KEY environment variable!");
-    // Instantiate the Claude client
-    let client = cloudllm::clients::claude::ClaudeClient::new_with_model_enum(&secret_key, cloudllm::clients::claude::Model::ClaudeSonnet4);
+    // // Read CLAUDE_API_KEY from the environment variable
+    // let secret_key = env::var("CLAUDE_API_KEY").expect("Please set the CLAUDE_API_KEY environment variable!");
+    // // Instantiate the Claude client
+    // let client = cloudllm::clients::claude::ClaudeClient::new_with_model_enum(&secret_key, cloudllm::clients::claude::Model::ClaudeSonnet4);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
