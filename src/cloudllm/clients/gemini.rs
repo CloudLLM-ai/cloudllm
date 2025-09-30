@@ -8,6 +8,14 @@ use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use std::sync::Mutex;
 
+#[cfg(test)]
+use {
+    std::env,
+    tokio::runtime::Runtime,
+    crate::LLMSession,
+    log::info,
+};
+
 pub struct GeminiClient {
     client: openai_rust::Client,
     model: String,

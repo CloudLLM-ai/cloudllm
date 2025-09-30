@@ -6,6 +6,17 @@ use openai_rust2 as openai_rust;
 use std::error::Error;
 use std::sync::Mutex;
 
+#[cfg(test)]
+use {
+    std::env,
+    tokio::runtime::Runtime,
+    crate::LLMSession,
+    crate::Role,
+    crate::clients::grok::Model::Grok4_0709,
+    openai_rust2::chat::SearchMode,
+    log::{error, info},
+};
+
 pub struct GrokClient {
     delegate_client: OpenAIClient,
     model: String,

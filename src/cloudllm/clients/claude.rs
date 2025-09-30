@@ -6,6 +6,16 @@ use openai_rust2 as openai_rust;
 use std::error::Error;
 use std::sync::Mutex;
 
+#[cfg(test)]
+use {
+    std::env,
+    tokio::runtime::Runtime,
+    crate::LLMSession,
+    crate::Role,
+    crate::clients::claude::Model::ClaudeSonnet4,
+    log::{error, info},
+};
+
 pub struct ClaudeClient {
     delegate_client: OpenAIClient,
     model: String,

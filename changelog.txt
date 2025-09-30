@@ -1,3 +1,12 @@
+0.2.13 (Upcoming)
+ - Implemented HTTP client connection pooling for all providers:
+   - Created http_pool module that maintains singleton reqwest::Client instances per base URL
+   - Configured clients with persistent connections (90s idle timeout, 10 max idle per host)
+   - Added TCP keepalive (60s) to prevent connection drops
+   - Minimizes DNS lookups, TLS handshakes, and TCP connection overhead
+   - All clients (OpenAI, Gemini, Claude, Grok) automatically benefit from connection pooling
+   - Updated documentation to reflect connection pooling behavior
+
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
    - ClaudeClient struct follows the same delegate pattern as GrokClient, using OpenAIClient internally

@@ -7,6 +7,8 @@
 //! - **send_message(...)**: unchanged signature; returns a `Message` as before.
 //! - **Automatic Usage Capture**: stores the latest `TokenUsage` (input_tokens, output_tokens, total_tokens) internally.
 //! - **Inspect Usage**: call `get_last_usage()` after `send_message()` to retrieve actual usage stats.
+//! - **Connection Pooling**: Automatically uses persistent HTTP connections. Multiple `OpenAIClient` instances
+//!   with the same base URL share a connection pool, minimizing DNS lookups, TLS handshakes, and TCP overhead.
 //!
 //! # Example
 //!
@@ -53,6 +55,15 @@ use crate::clients::common::send_and_track;
 use crate::clients::http_pool::get_http_client;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use std::sync::Mutex;
+
+#[cfg(test)]
+use {
+    std::env,
+    tokio::runtime::Runtime,
+    crate::LLMSession,
+    crate::clients::openai::Model::GPT5Nano,
+    log::info,
+};
 
 pub enum Model {
     GPT5,            // Higher Reasoning, Medium speed, Text+Image input, Text output; input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
