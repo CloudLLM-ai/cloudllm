@@ -2,8 +2,9 @@
 //! handling not just message history and context pruning, but also
 //! real token accounting (input vs. output) for cost estimates.
 //!
-//! **Key features: **
-//! - **Automatic context trimming**: never exceeds your `max_tokens` window.
+//! **Key features:**
+//! - **Pre-transmission trimming**: optimizes payload size by pruning before sending to LLM.
+//! - **Automatic context trimming**: never exceed your `max_tokens` window.
 //! - **Token tracking**: accumulates `input_tokens` & `output_tokens` per call.
 //! - **Easy inspection**: call `session.token_usage()` to get a `TokenUsage` struct.
 //!
@@ -47,7 +48,7 @@
 //! );
 //! ```
 //!
-//! The session automatically prunes oldest messages when cumulative tokens exceed the configured window.
+//! The session automatically trims oldest messages before transmission when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
