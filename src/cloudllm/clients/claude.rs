@@ -119,7 +119,7 @@ pub fn test_claude_client() {
                 error!("Error: {}", e);
                 Message {
                     role: Role::System,
-                    content: format!("An error occurred: {:?}", e),
+                    content: format!("An error occurred: {:?}", e).into(),
                 }
             }
         }

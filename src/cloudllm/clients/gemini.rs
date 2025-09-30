@@ -8,7 +8,7 @@ use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use std::env;
 use std::error::Error;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 
 pub struct GeminiClient {
@@ -197,7 +197,7 @@ impl ClientWrapper for GeminiClient {
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
                 },
-                content: msg.content,
+                content: msg.content.to_string(),
             })
             .collect();
 
@@ -216,7 +216,7 @@ impl ClientWrapper for GeminiClient {
         match result {
             Ok(content) => Ok(Message {
                 role: Role::Assistant,
-                content,
+                content: Arc::from(content.as_str()),
             }),
             Err(err) => {
                 error!("GeminiClient::send_message error: {}", err);

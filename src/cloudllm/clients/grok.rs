@@ -135,7 +135,7 @@ pub fn test_grok_client() {
                 error!("Error: {}", e);
                 Message {
                     role: Role::System,
-                    content: format!("An error occurred: {:?}", e),
+                    content: format!("An error occurred: {:?}", e).into(),
                 }
             }
         }

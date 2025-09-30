@@ -43,6 +43,7 @@
 
 use std::env;
 use std::error::Error;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use log::{error, info};
@@ -160,7 +161,7 @@ impl ClientWrapper for OpenAIClient {
                     Role::Assistant => "assistant".to_owned(),
                     // Extend this match as new roles are added to the Role enum
                 },
-                content: msg.content,
+                content: msg.content.to_string(),
             })
             .collect();
 
@@ -179,7 +180,7 @@ impl ClientWrapper for OpenAIClient {
         match result {
             Ok(c) => Ok(Message {
                 role: Role::Assistant,
-                content: c,
+                content: Arc::from(c.as_str()),
             }),
             Err(_) => {
                 error!(
@@ -228,7 +229,7 @@ pub fn test_openai_client() {
                 error!("Error: {}", e);
                 Message {
                     role: Role::System,
-                    content: format!("An error occurred: {:?}", e),
+                    content: Arc::from(format!("An error occurred: {:?}", e).as_str()),
                 }
             }
         }

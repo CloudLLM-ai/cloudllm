@@ -53,6 +53,7 @@ use crate::client_wrapper;
 use std::sync::Arc;
 // src/llm_session.rs
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+use bumpalo::Bump;
 use openai_rust2 as openai_rust;
 
 /// A conversation session with an LLM, including:
@@ -65,6 +66,7 @@ use openai_rust2 as openai_rust;
 /// - `total_output_tokens`: sum of all completion tokens received so far.
 /// - `total_context_tokens`: shortcut for input + output totals.
 /// - `total_token_count`: total tokens used in the current session.
+/// - `arena`: bump allocator for efficient message body allocation.
 pub struct LLMSession {
     client: Arc<dyn ClientWrapper>,
     system_prompt: Message,
@@ -73,18 +75,25 @@ pub struct LLMSession {
     total_input_tokens: usize,
     total_output_tokens: usize,
     total_token_count: usize,
+    arena: Bump,
 }
 
 impl LLMSession {
     /// Creates a new `LLMSession` with the given client and system prompt.
     /// Initializes the conversation history and sets a default maximum token limit.
     pub fn new(client: Arc<dyn ClientWrapper>, system_prompt: String, max_tokens: usize) -> Self {
+        let arena = Bump::new();
+        
+        // Allocate system prompt in arena and create Arc<str> from it
+        let system_prompt_str = arena.alloc_str(&system_prompt);
+        let system_prompt_arc: Arc<str> = Arc::from(system_prompt_str);
+        
         // Create the system prompt message
         let system_prompt_message = Message {
             role: Role::System,
-            content: system_prompt,
+            content: system_prompt_arc,
         };
-        // Count tokens in the system prompt message
+        
         LLMSession {
             client,
             system_prompt: system_prompt_message,
@@ -93,6 +102,7 @@ impl LLMSession {
             total_input_tokens: 0,
             total_output_tokens: 0,
             total_token_count: 0,
+            arena,
         }
     }
 
@@ -112,7 +122,14 @@ impl LLMSession {
         content: String,
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
-        let message = Message { role, content };
+        // Allocate message content in arena and create Arc<str>
+        let content_str = self.arena.alloc_str(&content);
+        let content_arc: Arc<str> = Arc::from(content_str);
+        
+        let message = Message {
+            role,
+            content: content_arc,
+        };
 
         // Add the new message to the conversation history
         self.conversation_history.push(message);
@@ -163,9 +180,13 @@ impl LLMSession {
     /// Sets a new system prompt for the session.
     /// Updates the token count accordingly.
     pub fn set_system_prompt(&mut self, prompt: String) {
+        // Allocate prompt in arena and create Arc<str>
+        let prompt_str = self.arena.alloc_str(&prompt);
+        let prompt_arc: Arc<str> = Arc::from(prompt_str);
+        
         self.system_prompt = Message {
             role: Role::System,
-            content: prompt,
+            content: prompt_arc,
         };
     }
 
