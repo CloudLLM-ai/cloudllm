@@ -43,14 +43,16 @@
 
 use std::env;
 use std::error::Error;
+use std::pin::Pin;
 
 use async_trait::async_trait;
+use futures_util::Stream;
 use log::{error, info};
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
-use crate::client_wrapper::TokenUsage;
-use crate::clients::common::send_and_track;
+use crate::client_wrapper::{MessageChunk, SendError, TokenUsage};
+use crate::clients::common::{send_and_track, send_and_track_stream};
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use std::sync::Mutex;
 use tokio::runtime::Runtime;
@@ -193,6 +195,36 @@ impl ClientWrapper for OpenAIClient {
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
+    }
+
+    async fn send_message_stream(
+        &self,
+        messages: Vec<Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<MessageChunk, SendError>>>>, Box<dyn Error>> {
+        // Convert the provided messages into the format expected by openai_rust
+        let formatted_messages = messages
+            .into_iter()
+            .map(|msg| chat::Message {
+                role: match msg.role {
+                    Role::System => "system".to_owned(),
+                    Role::User => "user".to_owned(),
+                    Role::Assistant => "assistant".to_owned(),
+                },
+                content: msg.content,
+            })
+            .collect();
+
+        let url_path_string = "/v1/chat/completions".to_string();
+
+        send_and_track_stream(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            Some(url_path_string),
+            optional_search_parameters,
+        )
+        .await
     }
 }
 

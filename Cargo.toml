@@ -10,6 +10,7 @@ documentation = "https://docs.rs/cloudllm/latest/cloudllm/"
 
 [dependencies]
 tokio = { version = "1.47.1", features = ["full"] }
+tokio-stream = "0.1"
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
 # https://github.com/gubatron/openai-rust
@@ -18,3 +19,4 @@ openai-rust2 = { version = "1.6.0" }
 async-trait = "0.1.88"
 log = "0.4.27"
 env_logger = "0.11.8"
+futures-util = "0.3.27"
