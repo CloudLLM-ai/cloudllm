@@ -182,10 +182,12 @@ impl ClientWrapper for OpenAIClient {
                 content: c,
             }),
             Err(_) => {
-                error!(
-                    "OpenAIClient::send_message(...): OpenAI API Error: {}",
-                    "Error occurred while sending message"
-                );
+                if log::log_enabled!(log::Level::Error) {
+                    error!(
+                        "OpenAIClient::send_message(...): OpenAI API Error: {}",
+                        "Error occurred while sending message"
+                    );
+                }
                 Err("Error occurred while sending message".into())
             }
         }
