@@ -268,3 +268,58 @@ pub fn test_openai_client() {
 
     info!("test_openai_client() response: {}", response_message.content);
 }
+
+#[test]
+pub fn test_openai_client_streaming() {
+    // initialize logger
+    crate::init_logger();
+
+    let secret_key = env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let client = OpenAIClient::new_with_model_enum(&secret_key, GPT5Nano);
+
+    // Create a new Tokio runtime
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let messages = vec![
+            Message {
+                role: Role::System,
+                content: "You are a helpful assistant.".to_string(),
+            },
+            Message {
+                role: Role::User,
+                content: "Say 'Hello streaming!'".to_string(),
+            },
+        ];
+
+        match client.send_message_stream(messages, None).await {
+            Ok(mut stream) => {
+                let mut full_content = String::new();
+                info!("Streaming chunks:");
+                
+                while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
+                    match chunk_result {
+                        Ok(chunk) => {
+                            info!("Chunk: '{}'", chunk.content);
+                            full_content.push_str(&chunk.content);
+                            
+                            if chunk.is_final {
+                                info!("Final chunk received");
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Stream error: {}", e);
+                            break;
+                        }
+                    }
+                }
+                
+                info!("Full streamed response: {}", full_content);
+            }
+            Err(e) => {
+                error!("Error starting stream: {}", e);
+            }
+        }
+    });
+}
