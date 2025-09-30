@@ -1,7 +1,8 @@
 
-![cloud-llm-logo-white-bg](https://github.com/CloudLLM-ai/cloudllm/assets/163977/705e28d4-c555-4d6e-bcb8-3242b0b617f4)
 
 # CloudLLM
+
+<img src="https://github.com/CloudLLM-ai/cloudllm/blob/main/logo.png?raw=true" width="256"/>
 
 CloudLLM is a Rust library designed to seamlessly bridge applications with remote Language Learning Models (LLMs) across various platforms. With CloudLLM, you can integrate pay-as-you-go LLM APIs like OpenAI's and more, all under one unified abstraction for your app.
 
