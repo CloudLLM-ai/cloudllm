@@ -14,6 +14,14 @@
 //!   via client wrappers. For example, `OpenAIClient` serves as a client for OpenAI's ChatGPT, abstracting the interaction
 //!   specifics and presenting a unified interface.
 //!
+//! - **Connection Pooling**: All HTTP clients automatically use persistent connection pooling to minimize latency.
+//!   Each base URL (e.g., api.openai.com, api.anthropic.com) maintains its own connection pool with:
+//!   - Reused HTTP connections to avoid TCP handshake overhead
+//!   - Minimized DNS lookups through connection reuse
+//!   - Persistent TLS sessions to skip expensive handshakes
+//!   - TCP keepalive to prevent connection timeouts
+//!   This design ensures optimal performance in co-located and distributed deployments.
+//!
 //! ## The Road Ahead: LLM-VM Architecture
 //!
 //! The library is poised to evolve into a more sophisticated toolset with the introduction of the "LLM-VM" architecture.

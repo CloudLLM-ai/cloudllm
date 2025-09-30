@@ -1,15 +1,21 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::grok::Model::Grok4_0709;
 use crate::clients::openai::OpenAIClient;
-use crate::{ClientWrapper, LLMSession, Message, Role};
+use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
-use log::{error, info};
 use openai_rust2 as openai_rust;
-use openai_rust2::chat::SearchMode;
-use std::env;
 use std::error::Error;
 use std::sync::Mutex;
-use tokio::runtime::Runtime;
+
+#[cfg(test)]
+use {
+    std::env,
+    tokio::runtime::Runtime,
+    crate::LLMSession,
+    crate::Role,
+    crate::clients::grok::Model::Grok4_0709,
+    openai_rust2::chat::SearchMode,
+    log::{error, info},
+};
 
 pub struct GrokClient {
     delegate_client: OpenAIClient,
