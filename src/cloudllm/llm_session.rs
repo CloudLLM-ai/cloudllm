@@ -192,13 +192,6 @@ impl LLMSession {
         self.formatted_system_prompt = message_to_chat_message(&self.system_prompt);
     }
 
-    /// When we hit the max token limit, we start removing the oldest messages in order to send fewer tokens the next time.
-    fn trim_oldest_message_from_history(&mut self) {
-        if !self.conversation_history.is_empty() {
-            self.conversation_history.remove(0);
-        }
-    }
-
     /// Returns the current token usage statistics
     pub fn token_usage(&self) -> client_wrapper::TokenUsage {
         client_wrapper::TokenUsage {
