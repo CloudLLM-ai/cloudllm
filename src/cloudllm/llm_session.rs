@@ -54,6 +54,7 @@ use std::sync::Arc;
 // src/llm_session.rs
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use openai_rust2 as openai_rust;
+use openai_rust::chat;
 
 /// A conversation session with an LLM, including:
 ///
@@ -65,6 +66,8 @@ use openai_rust2 as openai_rust;
 /// - `total_output_tokens`: sum of all completion tokens received so far.
 /// - `total_context_tokens`: shortcut for input + output totals.
 /// - `total_token_count`: total tokens used in the current session.
+/// - `formatted_system_prompt`: provider-ready cache of system prompt.
+/// - `formatted_history`: provider-ready cache of conversation history.
 pub struct LLMSession {
     client: Arc<dyn ClientWrapper>,
     system_prompt: Message,
@@ -73,6 +76,9 @@ pub struct LLMSession {
     total_input_tokens: usize,
     total_output_tokens: usize,
     total_token_count: usize,
+    // Provider-ready caches for performance optimization
+    formatted_system_prompt: chat::Message,
+    formatted_history: Vec<chat::Message>,
 }
 
 impl LLMSession {
@@ -84,7 +90,9 @@ impl LLMSession {
             role: Role::System,
             content: system_prompt,
         };
-        // Count tokens in the system prompt message
+        // Create the formatted version of the system prompt
+        let formatted_system_prompt = message_to_chat_message(&system_prompt_message);
+        
         LLMSession {
             client,
             system_prompt: system_prompt_message,
@@ -93,6 +101,8 @@ impl LLMSession {
             total_input_tokens: 0,
             total_output_tokens: 0,
             total_token_count: 0,
+            formatted_system_prompt,
+            formatted_history: Vec::new(),
         }
     }
 
@@ -113,25 +123,24 @@ impl LLMSession {
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let message = Message { role, content };
+        
+        // Convert the new message to provider format
+        let formatted_message = message_to_chat_message(&message);
 
-        // Add the new message to the conversation history
+        // Add both versions to their respective histories
         self.conversation_history.push(message);
+        self.formatted_history.push(formatted_message);
 
-        // Temporarily add the system prompt to the start of the conversation history
-        self.conversation_history
-            .insert(0, self.system_prompt.clone());
+        // Build the message list for the API: system prompt + formatted history
+        let mut messages_to_send = Vec::with_capacity(self.formatted_history.len() + 1);
+        messages_to_send.push(self.formatted_system_prompt.clone());
+        messages_to_send.extend_from_slice(&self.formatted_history);
 
-        // Send the messages to the LLM
+        // Send the pre-formatted messages to the LLM (avoiding re-conversion)
         let response = self
             .client
-            .send_message(
-                self.conversation_history.clone(),
-                optional_search_parameters,
-            )
+            .send_formatted_message(messages_to_send, optional_search_parameters)
             .await?;
-
-        // Remove the system prompt from the conversation history
-        self.conversation_history.remove(0);
 
         if let Some(usage) = self.client.get_last_usage() {
             // Update the total token counts based on the usage
@@ -147,14 +156,17 @@ impl LLMSession {
                 // Remove the oldest messages until we've cleared at least `excess` tokens
                 while excess > 0 && !self.conversation_history.is_empty() {
                     let msg = self.conversation_history.remove(0);
+                    self.formatted_history.remove(0); // Keep caches in sync
                     let removed = estimate_message_token_count(&msg);
                     excess = excess.saturating_sub(removed);
                 }
             }
         }
 
-        // Add the LLM's response to the conversation history
-        self.conversation_history.push(response);
+        // Add the LLM's response to both histories
+        let formatted_response = message_to_chat_message(&response);
+        self.conversation_history.push(response.clone());
+        self.formatted_history.push(formatted_response);
 
         // Return the last message, which is the assistant's response
         Ok(self.conversation_history.last().unwrap().clone())
@@ -167,6 +179,8 @@ impl LLMSession {
             role: Role::System,
             content: prompt,
         };
+        // Update the formatted version too
+        self.formatted_system_prompt = message_to_chat_message(&self.system_prompt);
     }
 
     /// When we hit the max token limit, we start removing the oldest messages in order to send fewer tokens the next time.
@@ -187,6 +201,18 @@ impl LLMSession {
 
     pub fn get_max_tokens(&self) -> usize {
         self.max_tokens
+    }
+}
+
+/// Converts a Message to the provider-ready chat::Message format.
+fn message_to_chat_message(msg: &Message) -> chat::Message {
+    chat::Message {
+        role: match msg.role {
+            Role::System => "system".to_owned(),
+            Role::User => "user".to_owned(),
+            Role::Assistant => "assistant".to_owned(),
+        },
+        content: msg.content.clone(),
     }
 }
 

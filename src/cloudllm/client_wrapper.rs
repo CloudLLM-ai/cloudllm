@@ -48,6 +48,31 @@ pub trait ClientWrapper: Send + Sync {
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>>;
 
+    /// Send pre-formatted messages to the LLM and get a response.
+    /// This is an optimization to avoid re-converting messages on every call.
+    /// Default implementation converts formatted messages back to Message and calls send_message.
+    /// Clients can override this to use the formatted messages directly.
+    async fn send_formatted_message(
+        &self,
+        formatted_messages: Vec<openai_rust::chat::Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Message, Box<dyn Error>> {
+        // Default implementation: convert back to Message and use send_message
+        let messages: Vec<Message> = formatted_messages
+            .into_iter()
+            .map(|chat_msg| Message {
+                role: match chat_msg.role.as_str() {
+                    "system" => Role::System,
+                    "user" => Role::User,
+                    "assistant" => Role::Assistant,
+                    _ => Role::User,
+                },
+                content: chat_msg.content,
+            })
+            .collect();
+        self.send_message(messages, optional_search_parameters).await
+    }
+
     /// Hook to retrieve usage from the *last* send_message() call.
     /// Default impl returns None so existing wrappers don’t break.
     fn get_last_usage(&self) -> Option<TokenUsage> {

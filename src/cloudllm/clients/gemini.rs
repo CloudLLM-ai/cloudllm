@@ -225,6 +225,36 @@ impl ClientWrapper for GeminiClient {
         }
     }
 
+    /// Optimized version that accepts pre-formatted messages, avoiding re-conversion.
+    async fn send_formatted_message(
+        &self,
+        formatted_messages: Vec<chat::Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Message, Box<dyn std::error::Error>> {
+        // Use the shared helper to send & track usage
+        let url_path = Some("/v1beta/chat/completions".to_string());
+        let result = send_and_track(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            url_path,
+            &self.token_usage,
+            optional_search_parameters,
+        )
+        .await;
+
+        match result {
+            Ok(content) => Ok(Message {
+                role: Role::Assistant,
+                content,
+            }),
+            Err(err) => {
+                error!("GeminiClient::send_formatted_message error: {}", err);
+                Err(err)
+            }
+        }
+    }
+
     /// This function is used to get the token usage for the last request, otherwise there will be no tracking for token usage available
     /// because default trait implementation of `usage_slot()` returns `None`
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {

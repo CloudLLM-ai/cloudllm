@@ -191,6 +191,39 @@ impl ClientWrapper for OpenAIClient {
         }
     }
 
+    /// Optimized version that accepts pre-formatted messages, avoiding re-conversion.
+    async fn send_formatted_message(
+        &self,
+        formatted_messages: Vec<chat::Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Message, Box<dyn Error>> {
+        let url_path_string = "/v1/chat/completions".to_string();
+
+        let result = send_and_track(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            Some(url_path_string),
+            &self.token_usage,
+            optional_search_parameters,
+        )
+        .await;
+
+        match result {
+            Ok(c) => Ok(Message {
+                role: Role::Assistant,
+                content: c,
+            }),
+            Err(_) => {
+                error!(
+                    "OpenAIClient::send_formatted_message(...): OpenAI API Error: {}",
+                    "Error occurred while sending message"
+                );
+                Err("Error occurred while sending message".into())
+            }
+        }
+    }
+
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }
