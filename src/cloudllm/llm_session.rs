@@ -211,6 +211,84 @@ impl LLMSession {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    // Mock client for testing
+    struct MockClient;
+
+    #[async_trait::async_trait]
+    impl ClientWrapper for MockClient {
+        async fn send_message(
+            &self,
+            _messages: Vec<Message>,
+            _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        ) -> Result<Message, Box<dyn std::error::Error>> {
+            Ok(Message {
+                role: Role::Assistant,
+                content: Arc::from("Mock response"),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_arena_allocation() {
+        let client = Arc::new(MockClient);
+        let mut session = LLMSession::new(
+            client,
+            "Test system prompt".to_string(),
+            1000,
+        );
+
+        // Send a message
+        let result = session.send_message(
+            Role::User,
+            "Test user message".to_string(),
+            None,
+        ).await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(&*response.content, "Mock response");
+
+        // Verify system prompt is allocated correctly
+        assert_eq!(&*session.system_prompt.content, "Test system prompt");
+
+        // Verify conversation history
+        assert_eq!(session.conversation_history.len(), 2); // user message + assistant response
+    }
+
+    #[test]
+    fn test_set_system_prompt() {
+        let client = Arc::new(MockClient);
+        let mut session = LLMSession::new(
+            client,
+            "Initial prompt".to_string(),
+            1000,
+        );
+
+        // Change system prompt
+        session.set_system_prompt("Updated prompt".to_string());
+        assert_eq!(&*session.system_prompt.content, "Updated prompt");
+    }
+
+    #[test]
+    fn test_message_content_is_arc_str() {
+        // Verify that Message.content is Arc<str> and cloning is cheap
+        let msg = Message {
+            role: Role::User,
+            content: Arc::from("Test message"),
+        };
+
+        let cloned = msg.clone();
+        
+        // Arc::ptr_eq checks if both Arcs point to the same allocation
+        assert!(Arc::ptr_eq(&msg.content, &cloned.content));
+    }
+}
+
 /// Estimates the number of tokens in a string.
 /// Uses an approximate formula: one token per 4 characters.
 fn estimate_token_count(text: &str) -> usize {
