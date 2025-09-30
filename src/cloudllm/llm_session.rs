@@ -59,6 +59,7 @@ use std::sync::Arc;
 /// - `client`: your `ClientWrapper` (e.g. `OpenAIClient`).
 /// - `system_prompt`: the context-steering system message.
 /// - `conversation_history`: all user & assistant messages (excluding system prompt).
+/// - `cached_token_counts`: cached token estimates for each message in conversation_history.
 /// - `max_tokens`: your configured context window size.
 /// - `total_input_tokens`: sum of all prompt tokens sent so far.
 /// - `total_output_tokens`: sum of all completion tokens received so far.
@@ -68,6 +69,7 @@ pub struct LLMSession {
     client: Arc<dyn ClientWrapper>,
     system_prompt: Message,
     conversation_history: Vec<Message>,
+    cached_token_counts: Vec<usize>,
     max_tokens: usize,
     total_input_tokens: usize,
     total_output_tokens: usize,
@@ -88,6 +90,7 @@ impl LLMSession {
             client,
             system_prompt: system_prompt_message,
             conversation_history: Vec::new(),
+            cached_token_counts: Vec::new(),
             max_tokens,
             total_input_tokens: 0,
             total_output_tokens: 0,
@@ -113,8 +116,12 @@ impl LLMSession {
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let message = Message { role, content };
 
+        // Cache the token count for the new message before adding it
+        let message_token_count = estimate_message_token_count(&message);
+
         // Add the new message to the conversation history
         self.conversation_history.push(message);
+        self.cached_token_counts.push(message_token_count);
 
         // Temporarily add the system prompt to the start of the conversation history
         self.conversation_history
@@ -142,15 +149,19 @@ impl LLMSession {
 
                 // Remove the oldest messages until we've cleared at least `excess` tokens
                 while excess > 0 && !self.conversation_history.is_empty() {
-                    let msg = self.conversation_history.remove(0);
-                    let removed = estimate_message_token_count(&msg);
+                    self.conversation_history.remove(0);
+                    let removed = self.cached_token_counts.remove(0);
                     excess = excess.saturating_sub(removed);
                 }
             }
         }
 
+        // Cache the token count for the response before adding it
+        let response_token_count = estimate_message_token_count(&response);
+
         // Add the LLM's response to the conversation history
         self.conversation_history.push(response);
+        self.cached_token_counts.push(response_token_count);
 
         // Return the last message, which is the assistant's response
         Ok(self.conversation_history.last().unwrap().clone())
@@ -191,4 +202,129 @@ fn estimate_message_token_count(message: &Message) -> usize {
     let role_token_count = 1;
     let content_token_count = estimate_token_count(&message.content);
     role_token_count + content_token_count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    // Mock client for testing
+    struct MockClient {
+        usage: Mutex<Option<client_wrapper::TokenUsage>>,
+        response_content: String,
+    }
+
+    impl MockClient {
+        fn new(response_content: String) -> Self {
+            Self {
+                usage: Mutex::new(None),
+                response_content,
+            }
+        }
+
+        fn set_usage(&self, input: usize, output: usize, total: usize) {
+            *self.usage.lock().unwrap() = Some(client_wrapper::TokenUsage {
+                input_tokens: input,
+                output_tokens: output,
+                total_tokens: total,
+            });
+        }
+    }
+
+    #[async_trait]
+    impl ClientWrapper for MockClient {
+        async fn send_message(
+            &self,
+            _messages: Vec<Message>,
+            _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        ) -> Result<Message, Box<dyn std::error::Error>> {
+            Ok(Message {
+                role: Role::Assistant,
+                content: self.response_content.clone(),
+            })
+        }
+
+        fn usage_slot(&self) -> Option<&Mutex<Option<client_wrapper::TokenUsage>>> {
+            Some(&self.usage)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_token_caching() {
+        let mock_client = Arc::new(MockClient::new("Response".to_string()));
+        let mut session = LLMSession::new(
+            mock_client.clone(),
+            "System prompt".to_string(),
+            1000,
+        );
+
+        // Send a message
+        let user_message = "Hello, this is a test message";
+        mock_client.set_usage(100, 50, 150);
+        
+        let _ = session.send_message(Role::User, user_message.to_string(), None).await;
+
+        // Verify that both the user message and response have cached token counts
+        assert_eq!(session.conversation_history.len(), 2); // User message + response
+        assert_eq!(session.cached_token_counts.len(), 2); // Token counts for both messages
+
+        // Verify token counts are cached correctly
+        let expected_user_tokens = estimate_message_token_count(&Message {
+            role: Role::User,
+            content: user_message.to_string(),
+        });
+        let expected_response_tokens = estimate_message_token_count(&Message {
+            role: Role::Assistant,
+            content: "Response".to_string(),
+        });
+
+        assert_eq!(session.cached_token_counts[0], expected_user_tokens);
+        assert_eq!(session.cached_token_counts[1], expected_response_tokens);
+    }
+
+    #[tokio::test]
+    async fn test_token_caching_with_trimming() {
+        let mock_client = Arc::new(MockClient::new("Response".to_string()));
+        let mut session = LLMSession::new(
+            mock_client.clone(),
+            "System prompt".to_string(),
+            100, // Small max_tokens to trigger trimming
+        );
+
+        // Send first message
+        mock_client.set_usage(50, 25, 75);
+        let _ = session.send_message(Role::User, "First message".to_string(), None).await;
+
+        assert_eq!(session.conversation_history.len(), 2);
+        assert_eq!(session.cached_token_counts.len(), 2);
+
+        // Send second message with usage that exceeds max_tokens
+        mock_client.set_usage(80, 40, 120); // Exceeds max_tokens of 100
+        let _ = session.send_message(Role::User, "Second message".to_string(), None).await;
+
+        // Some messages should have been trimmed
+        assert!(session.conversation_history.len() < 4); // Should have fewer than 4 messages
+        // cached_token_counts should match conversation_history length
+        assert_eq!(session.conversation_history.len(), session.cached_token_counts.len());
+    }
+
+    #[test]
+    fn test_estimate_token_count() {
+        // Test basic token estimation (1 token per 4 characters)
+        assert_eq!(estimate_token_count("test"), 1);
+        assert_eq!(estimate_token_count("this is a longer test"), 5);
+        assert_eq!(estimate_token_count(""), 1); // Minimum 1 token
+    }
+
+    #[test]
+    fn test_estimate_message_token_count() {
+        let message = Message {
+            role: Role::User,
+            content: "test message".to_string(),
+        };
+        // "test message" = 12 characters = 3 tokens + 1 role token = 4 tokens
+        assert_eq!(estimate_message_token_count(&message), 4);
+    }
 }
