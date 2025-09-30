@@ -73,6 +73,8 @@ pub struct LLMSession {
     total_input_tokens: usize,
     total_output_tokens: usize,
     total_token_count: usize,
+    // Reusable buffer to avoid allocating Vec<Message> on each send
+    request_buffer: Vec<Message>,
 }
 
 impl LLMSession {
@@ -93,6 +95,7 @@ impl LLMSession {
             total_input_tokens: 0,
             total_output_tokens: 0,
             total_token_count: 0,
+            request_buffer: Vec::new(),
         }
     }
 
@@ -117,21 +120,24 @@ impl LLMSession {
         // Add the new message to the conversation history
         self.conversation_history.push(message);
 
-        // Temporarily add the system prompt to the start of the conversation history
-        self.conversation_history
-            .insert(0, self.system_prompt.clone());
+        // Clear and reuse the request buffer instead of cloning
+        self.request_buffer.clear();
+        self.request_buffer.reserve(self.conversation_history.len() + 1);
+        
+        // Add system prompt first
+        self.request_buffer.push(self.system_prompt.clone());
+        
+        // Add all conversation history
+        self.request_buffer.extend(self.conversation_history.iter().cloned());
 
         // Send the messages to the LLM
         let response = self
             .client
             .send_message(
-                self.conversation_history.clone(),
+                self.request_buffer.clone(),
                 optional_search_parameters,
             )
             .await?;
-
-        // Remove the system prompt from the conversation history
-        self.conversation_history.remove(0);
 
         if let Some(usage) = self.client.get_last_usage() {
             // Update the total token counts based on the usage

@@ -151,9 +151,10 @@ impl ClientWrapper for OpenAIClient {
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
-        let formatted_messages = messages
-            .into_iter()
-            .map(|msg| chat::Message {
+        // Pre-allocate capacity to avoid reallocation
+        let mut formatted_messages = Vec::with_capacity(messages.len());
+        for msg in messages {
+            formatted_messages.push(chat::Message {
                 role: match msg.role {
                     Role::System => "system".to_owned(),
                     Role::User => "user".to_owned(),
@@ -161,8 +162,8 @@ impl ClientWrapper for OpenAIClient {
                     // Extend this match as new roles are added to the Role enum
                 },
                 content: msg.content,
-            })
-            .collect();
+            });
+        }
 
         let url_path_string = "/v1/chat/completions".to_string();
 

@@ -189,17 +189,18 @@ impl ClientWrapper for GeminiClient {
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
-        let formatted_messages = messages
-            .into_iter()
-            .map(|msg| chat::Message {
+        // Pre-allocate capacity to avoid reallocation
+        let mut formatted_messages = Vec::with_capacity(messages.len());
+        for msg in messages {
+            formatted_messages.push(chat::Message {
                 role: match msg.role {
                     Role::System => "system".to_owned(),
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
                 },
                 content: msg.content,
-            })
-            .collect();
+            });
+        }
 
         // Use the shared helper to send & track usage
         let url_path = Some("/v1beta/chat/completions".to_string());
