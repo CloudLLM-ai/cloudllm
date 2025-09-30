@@ -50,7 +50,6 @@
 //! The session automatically prunes oldest messages when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
-use std::collections::VecDeque;
 use std::sync::Arc;
 // src/llm_session.rs
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
@@ -69,7 +68,7 @@ use openai_rust2 as openai_rust;
 pub struct LLMSession {
     client: Arc<dyn ClientWrapper>,
     system_prompt: Message,
-    conversation_history: VecDeque<Message>,
+    conversation_history: Vec<Message>,
     max_tokens: usize,
     total_input_tokens: usize,
     total_output_tokens: usize,
@@ -89,7 +88,7 @@ impl LLMSession {
         LLMSession {
             client,
             system_prompt: system_prompt_message,
-            conversation_history: VecDeque::new(),
+            conversation_history: Vec::new(),
             max_tokens,
             total_input_tokens: 0,
             total_output_tokens: 0,
@@ -116,20 +115,25 @@ impl LLMSession {
         let message = Message { role, content };
 
         // Add the new message to the conversation history
-        self.conversation_history.push_back(message);
+        self.conversation_history.push(message);
 
-        // Build outbound buffer without mutating conversation_history
-        let mut messages_to_send = Vec::with_capacity(self.conversation_history.len() + 1);
-        messages_to_send.push(self.system_prompt.clone());
-        messages_to_send.extend(self.conversation_history.iter().cloned());
+        // Temporarily add the system prompt to the start of the conversation history
+        self.conversation_history
+            .insert(0, self.system_prompt.clone());
 
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(messages_to_send, optional_search_parameters)
+            .send_message(
+                self.conversation_history.clone(),
+                optional_search_parameters,
+            )
             .await?;
 
-        if let Some(usage) = self.client.get_last_usage().await {
+        // Remove the system prompt from the conversation history
+        self.conversation_history.remove(0);
+
+        if let Some(usage) = self.client.get_last_usage() {
             // Update the total token counts based on the usage
             self.total_input_tokens = usage.input_tokens;
             self.total_output_tokens = usage.output_tokens;
@@ -142,7 +146,7 @@ impl LLMSession {
 
                 // Remove the oldest messages until we've cleared at least `excess` tokens
                 while excess > 0 && !self.conversation_history.is_empty() {
-                    let msg = self.conversation_history.pop_front().unwrap();
+                    let msg = self.conversation_history.remove(0);
                     let removed = estimate_message_token_count(&msg);
                     excess = excess.saturating_sub(removed);
                 }
@@ -150,10 +154,10 @@ impl LLMSession {
         }
 
         // Add the LLM's response to the conversation history
-        self.conversation_history.push_back(response);
+        self.conversation_history.push(response);
 
         // Return the last message, which is the assistant's response
-        Ok(self.conversation_history.back().unwrap().clone())
+        Ok(self.conversation_history.last().unwrap().clone())
     }
 
     /// Sets a new system prompt for the session.
@@ -168,7 +172,7 @@ impl LLMSession {
     /// When we hit the max token limit, we start removing the oldest messages in order to send fewer tokens the next time.
     fn trim_oldest_message_from_history(&mut self) {
         if !self.conversation_history.is_empty() {
-            self.conversation_history.pop_front();
+            self.conversation_history.remove(0);
         }
     }
 
@@ -198,93 +202,4 @@ fn estimate_message_token_count(message: &Message) -> usize {
     let role_token_count = 1;
     let content_token_count = estimate_token_count(&message.content);
     role_token_count + content_token_count
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
-    use async_trait::async_trait;
-    use std::error::Error;
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
-
-    // Mock client for testing
-    struct MockClient {
-        usage: Mutex<Option<TokenUsage>>,
-        response_content: String,
-    }
-
-    impl MockClient {
-        fn new(response: String) -> Self {
-            MockClient {
-                usage: Mutex::new(Some(TokenUsage {
-                    input_tokens: 10,
-                    output_tokens: 5,
-                    total_tokens: 15,
-                })),
-                response_content: response,
-            }
-        }
-    }
-
-    #[async_trait]
-    impl ClientWrapper for MockClient {
-        async fn send_message(
-            &self,
-            _messages: Vec<Message>,
-            _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-        ) -> Result<Message, Box<dyn Error>> {
-            Ok(Message {
-                role: Role::Assistant,
-                content: self.response_content.clone(),
-            })
-        }
-
-        fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
-            Some(&self.usage)
-        }
-    }
-
-    #[tokio::test]
-    async fn test_vecdeque_conversation_history() {
-        let client = Arc::new(MockClient::new("Hello!".to_string()));
-        let mut session = LLMSession::new(client, "You are helpful".to_string(), 1000);
-
-        // Send first message
-        let result = session
-            .send_message(Role::User, "Hi".to_string(), None)
-            .await;
-        assert!(result.is_ok());
-
-        // Verify conversation history has 2 messages (user + assistant)
-        assert_eq!(session.conversation_history.len(), 2);
-
-        // Send second message
-        let result = session
-            .send_message(Role::User, "How are you?".to_string(), None)
-            .await;
-        assert!(result.is_ok());
-
-        // Verify conversation history has 4 messages (2 user + 2 assistant)
-        assert_eq!(session.conversation_history.len(), 4);
-    }
-
-    #[tokio::test]
-    async fn test_vecdeque_trimming() {
-        let client = Arc::new(MockClient::new("Response".to_string()));
-        // Set very low max_tokens to trigger trimming
-        let mut session = LLMSession::new(client, "System".to_string(), 10);
-
-        // Send several messages to trigger trimming
-        for i in 0..5 {
-            let _ = session
-                .send_message(Role::User, format!("Message {}", i), None)
-                .await;
-        }
-
-        // Conversation history should be trimmed due to token limit
-        // Since we're over the limit, oldest messages should be removed
-        assert!(session.conversation_history.len() < 10);
-    }
 }

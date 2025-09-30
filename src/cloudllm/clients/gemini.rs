@@ -185,19 +185,19 @@ impl GeminiClient {
 impl ClientWrapper for GeminiClient {
     async fn send_message(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
         let formatted_messages = messages
-            .into_iter()
+            .iter()
             .map(|msg| chat::Message {
                 role: match msg.role {
                     Role::System => "system".to_owned(),
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
                 },
-                content: msg.content,
+                content: msg.content.clone(),
             })
             .collect();
 

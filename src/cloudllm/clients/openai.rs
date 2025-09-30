@@ -147,12 +147,12 @@ impl OpenAIClient {
 impl ClientWrapper for OpenAIClient {
     async fn send_message(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
         let formatted_messages = messages
-            .into_iter()
+            .iter()
             .map(|msg| chat::Message {
                 role: match msg.role {
                     Role::System => "system".to_owned(),
@@ -160,7 +160,7 @@ impl ClientWrapper for OpenAIClient {
                     Role::Assistant => "assistant".to_owned(),
                     // Extend this match as new roles are added to the Role enum
                 },
-                content: msg.content,
+                content: msg.content.clone(),
             })
             .collect();
 

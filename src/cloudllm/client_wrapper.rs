@@ -44,7 +44,7 @@ pub trait ClientWrapper: Send + Sync {
     /// - `messages`: The messages to send in the request.
     async fn send_message(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>>;
 
