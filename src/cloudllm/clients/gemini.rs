@@ -1,15 +1,12 @@
 use crate::client_wrapper::TokenUsage;
 use crate::clients::common::send_and_track;
-use crate::clients::openai::OpenAIClient;
-use crate::{ClientWrapper, LLMSession, Message, Role};
+use crate::clients::http_pool::get_http_client;
+use crate::{ClientWrapper, Message, Role};
 use async_trait::async_trait;
-use log::{error, info};
+use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
-use std::env;
-use std::error::Error;
 use std::sync::Mutex;
-use tokio::runtime::Runtime;
 
 pub struct GeminiClient {
     client: openai_rust::Client,
@@ -148,10 +145,14 @@ pub fn model_to_string(model: Model) -> String {
 
 impl GeminiClient {
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
+        let base_url = "https://generativelanguage.googleapis.com/v1beta/";
+        let http_client = get_http_client(base_url);
+        
         GeminiClient {
-            client: openai_rust::Client::new_with_base_url(
+            client: openai_rust::Client::new_with_client_and_base_url(
                 secret_key,
-                "https://generativelanguage.googleapis.com/v1beta/",
+                http_client,
+                base_url,
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
@@ -165,8 +166,10 @@ impl GeminiClient {
     /// This function is used to create a GeminiClient with a custom base URL
     /// The default base URL is "<https://generativelanguage.googleapis.com/v1beta/>"
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        let http_client = get_http_client(base_url);
+        
         GeminiClient {
-            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
+            client: openai_rust::Client::new_with_client_and_base_url(secret_key, http_client, base_url),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }

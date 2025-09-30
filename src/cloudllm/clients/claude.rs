@@ -1,15 +1,10 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::claude::Model::ClaudeSonnet4;
 use crate::clients::openai::OpenAIClient;
-use crate::{ClientWrapper, LLMSession, Message, Role};
+use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
-use log::{error, info};
 use openai_rust2 as openai_rust;
-use openai_rust2::chat::SearchMode;
-use std::env;
 use std::error::Error;
 use std::sync::Mutex;
-use tokio::runtime::Runtime;
 
 pub struct ClaudeClient {
     delegate_client: OpenAIClient,

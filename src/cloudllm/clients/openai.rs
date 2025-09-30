@@ -41,21 +41,18 @@
 //!
 //! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
 
-use std::env;
 use std::error::Error;
 
 use async_trait::async_trait;
-use log::{error, info};
+use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
 use crate::client_wrapper::TokenUsage;
 use crate::clients::common::send_and_track;
+use crate::clients::http_pool::get_http_client;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use std::sync::Mutex;
-use tokio::runtime::Runtime;
-use crate::clients::openai::Model::GPT5Nano;
-use crate::LLMSession;
 
 pub enum Model {
     GPT5,            // Higher Reasoning, Medium speed, Text+Image input, Text output; input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
@@ -119,16 +116,22 @@ impl OpenAIClient {
     }
 
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
+        // Use default OpenAI base URL
+        let base_url = "https://api.openai.com";
+        let http_client = get_http_client(base_url);
+        
         OpenAIClient {
-            client: openai_rust::Client::new(secret_key),
+            client: openai_rust::Client::new_with_client(secret_key, http_client),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }
     }
 
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        let http_client = get_http_client(base_url);
+        
         OpenAIClient {
-            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
+            client: openai_rust::Client::new_with_client_and_base_url(secret_key, http_client, base_url),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }
