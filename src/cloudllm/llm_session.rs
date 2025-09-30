@@ -206,7 +206,8 @@ mod tests {
     use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
     use async_trait::async_trait;
     use std::error::Error;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     // Mock client for testing
     struct MockClient {
