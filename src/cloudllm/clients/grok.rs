@@ -87,7 +87,7 @@ impl GrokClient {
 impl ClientWrapper for GrokClient {
     async fn send_message(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>> {
         self.delegate_client
