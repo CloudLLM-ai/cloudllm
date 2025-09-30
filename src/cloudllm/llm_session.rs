@@ -6,6 +6,8 @@
 //! - **Automatic context trimming**: never exceed your `max_tokens` window.
 //! - **Token tracking**: accumulates `input_tokens` & `output_tokens` per call.
 //! - **Easy inspection**: call `session.token_usage()` to get a `TokenUsage` struct.
+//! - **Performance optimization**: maintains provider-ready message cache to avoid
+//!   repeated conversions on each API call (reduces O(N) conversions to O(1)).
 //!
 //! ## Quickstart
 //!
@@ -48,6 +50,13 @@
 //! ```
 //!
 //! The session automatically prunes oldest messages when cumulative tokens exceed the configured window.
+//!
+//! ## Performance Optimization
+//!
+//! The session maintains a parallel cache of provider-formatted messages (`formatted_history`)
+//! alongside the logical message history. This cache is updated incrementally when messages
+//! are added or removed, avoiding the need to re-convert all messages on every API call.
+//! This optimization reduces per-turn conversion overhead from O(N) to O(1).
 
 use crate::client_wrapper;
 use std::sync::Arc;

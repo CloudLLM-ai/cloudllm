@@ -83,6 +83,16 @@ impl ClientWrapper for ClaudeClient {
             .await
     }
 
+    async fn send_formatted_message(
+        &self,
+        formatted_messages: Vec<openai_rust::chat::Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Message, Box<dyn Error>> {
+        self.delegate_client
+            .send_formatted_message(formatted_messages, optional_search_parameters)
+            .await
+    }
+
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         self.delegate_client.usage_slot()
     }
