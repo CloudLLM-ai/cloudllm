@@ -154,10 +154,10 @@ impl LLMSession {
         }
 
         // Add the LLM's response to the conversation history
-        self.conversation_history.push(response);
+        self.conversation_history.push(response.clone());
 
-        // Return the last message, which is the assistant's response
-        Ok(self.conversation_history.last().unwrap().clone())
+        // Return the assistant's response without cloning
+        Ok(response)
     }
 
     /// Sets a new system prompt for the session.
