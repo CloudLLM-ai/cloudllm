@@ -129,7 +129,7 @@ impl LLMSession {
             .send_message(messages_to_send, optional_search_parameters)
             .await?;
 
-        if let Some(usage) = self.client.get_last_usage() {
+        if let Some(usage) = self.client.get_last_usage().await {
             // Update the total token counts based on the usage
             self.total_input_tokens = usage.input_tokens;
             self.total_output_tokens = usage.output_tokens;

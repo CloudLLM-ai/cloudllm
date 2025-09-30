@@ -8,8 +8,8 @@ use openai_rust2 as openai_rust;
 use openai_rust2::chat::SearchMode;
 use std::env;
 use std::error::Error;
-use std::sync::Mutex;
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 
 pub struct GrokClient {
     delegate_client: OpenAIClient,
@@ -21,15 +21,15 @@ pub struct GrokClient {
 pub enum Model {
     Grok2,
     Grok2Latest,
-    Grok21212,         // $2/MMT input $10/MMT output
-    Grok3MiniFast, // $0.60/MMT input $4.00/MMT output
-    Grok3Mini,     // $0.30/MMT input $0.50/MMT output
-    Grok3Fast,     // $5/MMT input $25/MMT output
-    Grok3,         // $3/MMT input $15/MMT output
-    Grok4_0709,       // $3/MMT input $15/MMT output
-    Grok4FastReasoning, // #$0.2/MMT input $0.50/MMT output
+    Grok21212,             // $2/MMT input $10/MMT output
+    Grok3MiniFast,         // $0.60/MMT input $4.00/MMT output
+    Grok3Mini,             // $0.30/MMT input $0.50/MMT output
+    Grok3Fast,             // $5/MMT input $25/MMT output
+    Grok3,                 // $3/MMT input $15/MMT output
+    Grok4_0709,            // $3/MMT input $15/MMT output
+    Grok4FastReasoning,    // #$0.2/MMT input $0.50/MMT output
     Grok4FastNonReasoning, // #$0.2/MMT input $0.50/MMT output
-    GrokCodeFast1, // #$0.2/MMT input $1.50/MMT output
+    GrokCodeFast1,         // #$0.2/MMT input $1.50/MMT output
 }
 
 fn model_to_string(model: Model) -> String {
@@ -44,7 +44,7 @@ fn model_to_string(model: Model) -> String {
         Model::Grok4_0709 => "grok-4-0709".to_string(),
         Model::Grok4FastReasoning => "grok-4-fast-reasoning".to_string(),
         Model::Grok4FastNonReasoning => "grok-4-fast-nonreasoning".to_string(),
-        Model::GrokCodeFast1 => "grok-code-fast-1".to_string()
+        Model::GrokCodeFast1 => "grok-code-fast-1".to_string(),
     }
 }
 

@@ -8,8 +8,8 @@ use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use std::env;
 use std::error::Error;
-use std::sync::Mutex;
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 
 pub struct GeminiClient {
     client: openai_rust::Client,
@@ -77,7 +77,7 @@ pub enum Model {
     Veo20Generate001,
     Gemini25Flash,
     Gemini25Pro,
-    Gemini25FlashLitePreview0617
+    Gemini25FlashLitePreview0617,
 }
 
 pub fn model_to_string(model: Model) -> String {
