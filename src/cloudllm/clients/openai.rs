@@ -51,18 +51,18 @@ use openai_rust2 as openai_rust;
 
 use crate::client_wrapper::TokenUsage;
 use crate::clients::common::send_and_track;
-use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
-use std::sync::Mutex;
-use tokio::runtime::Runtime;
 use crate::clients::openai::Model::GPT5Nano;
+use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use crate::LLMSession;
+use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 
 pub enum Model {
-    GPT5,            // Higher Reasoning, Medium speed, Text+Image input, Text output; input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
-    GPT5Mini,        // High Reasoning, Fast speed, Text+Image input, Text output; input $0.25/1M tokens, cached input $0.025/1M tokens, output $2/1M tokens
-    GPT5Nano,        // Average Reasoning, Very fast speed, Text+Image input, Text output; input $0.05/1M tokens, cached input $0.005/1M tokens, output $0.4/1M tokens
-    GPT5ChatLatest,  // High Reasoning, Medium speed, Text+Image input, Text output; used in ChatGPT, input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
-    GPT4o,           // input $2.5/1M tokens, cached input $1.25/1M tokens, output $10/1M tokens
+    GPT5, // Higher Reasoning, Medium speed, Text+Image input, Text output; input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
+    GPT5Mini, // High Reasoning, Fast speed, Text+Image input, Text output; input $0.25/1M tokens, cached input $0.025/1M tokens, output $2/1M tokens
+    GPT5Nano, // Average Reasoning, Very fast speed, Text+Image input, Text output; input $0.05/1M tokens, cached input $0.005/1M tokens, output $0.4/1M tokens
+    GPT5ChatLatest, // High Reasoning, Medium speed, Text+Image input, Text output; used in ChatGPT, input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
+    GPT4o,          // input $2.5/1M tokens, cached input $1.25/1M tokens, output $10/1M tokens
     ChatGPT4oLatest, // latest used in ChatGPT
     GPt4oMini,
     O1,
@@ -236,5 +236,8 @@ pub fn test_openai_client() {
         }
     });
 
-    info!("test_openai_client() response: {}", response_message.content);
+    info!(
+        "test_openai_client() response: {}",
+        response_message.content
+    );
 }

@@ -8,8 +8,8 @@ use openai_rust2 as openai_rust;
 use openai_rust2::chat::SearchMode;
 use std::env;
 use std::error::Error;
-use std::sync::Mutex;
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 
 pub struct ClaudeClient {
     delegate_client: OpenAIClient,
@@ -125,5 +125,8 @@ pub fn test_claude_client() {
         }
     });
 
-    info!("test_claude_client() response: {}", response_message.content);
+    info!(
+        "test_claude_client() response: {}",
+        response_message.content
+    );
 }
