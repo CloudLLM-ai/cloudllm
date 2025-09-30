@@ -1,3 +1,6 @@
+0.3.0 SEP/30/2025
+ - Optimized LLMSession conversation history with VecDeque to eliminate O(N²) insert/remove churn
+
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
    - ClaudeClient struct follows the same delegate pattern as GrokClient, using OpenAIClient internally
