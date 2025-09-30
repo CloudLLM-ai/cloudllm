@@ -50,9 +50,11 @@
 //! The session automatically prunes oldest messages when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
+use futures_util::Stream;
+use std::pin::Pin;
 use std::sync::Arc;
 // src/llm_session.rs
-use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+use crate::cloudllm::client_wrapper::{ClientWrapper, Message, MessageChunk, Role, SendError};
 use openai_rust2 as openai_rust;
 
 /// A conversation session with an LLM, including:
@@ -158,6 +160,63 @@ impl LLMSession {
 
         // Return the last message, which is the assistant's response
         Ok(self.conversation_history.last().unwrap().clone())
+    }
+
+    /// Send a message and get a streaming response.
+    /// 
+    /// This method adds the user message to history and returns a stream of message chunks.
+    /// 
+    /// **Note:** Token usage tracking is not available for streaming responses. The conversation
+    /// history is updated with the user message before streaming, but the assistant's response
+    /// is NOT automatically added to history. You must collect the chunks and add them manually
+    /// if you want to maintain conversation history with streaming.
+    /// 
+    /// # Example
+    /// ```no_run
+    /// use futures_util::StreamExt;
+    /// # use cloudllm::client_wrapper::Role;
+    /// # use std::sync::Arc;
+    /// # async fn example(mut session: cloudllm::LLMSession) -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut stream = session.send_message_stream(
+    ///     Role::User, 
+    ///     "Tell me a story".to_string(),
+    ///     None
+    /// ).await?;
+    /// 
+    /// let mut full_response = String::new();
+    /// while let Some(chunk_result) = stream.next().await {
+    ///     let chunk = chunk_result?;
+    ///     print!("{}", chunk.content);
+    ///     full_response.push_str(&chunk.content);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send_message_stream(
+        &mut self,
+        role: Role,
+        content: String,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<MessageChunk, SendError>>>>, Box<dyn std::error::Error>> {
+        let message = Message { role, content };
+
+        // Add the new message to the conversation history
+        self.conversation_history.push(message);
+
+        // Temporarily add the system prompt to the start of the conversation history
+        self.conversation_history
+            .insert(0, self.system_prompt.clone());
+
+        // Clone the messages for streaming
+        let messages_for_stream = self.conversation_history.clone();
+
+        // Remove the system prompt from the conversation history
+        self.conversation_history.remove(0);
+
+        // Send the messages to the LLM and get a stream
+        self.client
+            .send_message_stream(messages_for_stream, optional_search_parameters)
+            .await
     }
 
     /// Sets a new system prompt for the session.

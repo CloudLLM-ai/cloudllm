@@ -9,6 +9,7 @@ CloudLLM is a Rust library designed to seamlessly bridge applications with remot
 ## Features
 
 - **Unified Interface**: Interact with multiple LLMs using a single, consistent API.
+- **Streaming Support**: Real-time token delivery for reduced latency and better UX (see [STREAMING.md](STREAMING.md))
 - **Pay-as-you-go Integration**: Designed to work efficiently with pay-as-you-go LLM platforms.
 - **Extendable**: Easily add new LLM platform clients as they emerge.
 - **Asynchronous Support**: Built with async operations for non-blocking calls.
@@ -40,6 +41,23 @@ cloudllm = "0.2.12" # Use the latest version
 ## Usage
 
 Refer to the `examples/` directory to see how you can set up sessions and interact with various LLM platforms using CloudLLM.
+
+### Streaming Responses
+
+CloudLLM supports real-time streaming for dramatically reduced latency. Tokens are delivered as soon as they arrive, creating a better user experience:
+
+```rust
+use cloudllm::ClientWrapper;
+use futures_util::StreamExt;
+
+let mut stream = client.send_message_stream(messages, None).await?;
+while let Some(chunk) = stream.next().await {
+    let chunk = chunk?;
+    print!("{}", chunk.content);  // Display immediately!
+}
+```
+
+For complete streaming documentation and examples, see [STREAMING.md](STREAMING.md).
 
 ## Contributing
 

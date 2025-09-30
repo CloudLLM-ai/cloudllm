@@ -43,14 +43,16 @@
 
 use std::env;
 use std::error::Error;
+use std::pin::Pin;
 
 use async_trait::async_trait;
+use futures_util::Stream;
 use log::{error, info};
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
-use crate::client_wrapper::TokenUsage;
-use crate::clients::common::send_and_track;
+use crate::client_wrapper::{MessageChunk, SendError, TokenUsage};
+use crate::clients::common::{send_and_track, send_and_track_stream};
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use std::sync::Mutex;
 use tokio::runtime::Runtime;
@@ -194,6 +196,36 @@ impl ClientWrapper for OpenAIClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }
+
+    async fn send_message_stream(
+        &self,
+        messages: Vec<Message>,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<MessageChunk, SendError>>>>, Box<dyn Error>> {
+        // Convert the provided messages into the format expected by openai_rust
+        let formatted_messages = messages
+            .into_iter()
+            .map(|msg| chat::Message {
+                role: match msg.role {
+                    Role::System => "system".to_owned(),
+                    Role::User => "user".to_owned(),
+                    Role::Assistant => "assistant".to_owned(),
+                },
+                content: msg.content,
+            })
+            .collect();
+
+        let url_path_string = "/v1/chat/completions".to_string();
+
+        send_and_track_stream(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            Some(url_path_string),
+            optional_search_parameters,
+        )
+        .await
+    }
 }
 
 #[test]
@@ -235,4 +267,59 @@ pub fn test_openai_client() {
     });
 
     info!("test_openai_client() response: {}", response_message.content);
+}
+
+#[test]
+pub fn test_openai_client_streaming() {
+    // initialize logger
+    crate::init_logger();
+
+    let secret_key = env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let client = OpenAIClient::new_with_model_enum(&secret_key, GPT5Nano);
+
+    // Create a new Tokio runtime
+    let rt = Runtime::new().unwrap();
+
+    rt.block_on(async {
+        let messages = vec![
+            Message {
+                role: Role::System,
+                content: "You are a helpful assistant.".to_string(),
+            },
+            Message {
+                role: Role::User,
+                content: "Say 'Hello streaming!'".to_string(),
+            },
+        ];
+
+        match client.send_message_stream(messages, None).await {
+            Ok(mut stream) => {
+                let mut full_content = String::new();
+                info!("Streaming chunks:");
+                
+                while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
+                    match chunk_result {
+                        Ok(chunk) => {
+                            info!("Chunk: '{}'", chunk.content);
+                            full_content.push_str(&chunk.content);
+                            
+                            if chunk.is_final {
+                                info!("Final chunk received");
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Stream error: {}", e);
+                            break;
+                        }
+                    }
+                }
+                
+                info!("Full streamed response: {}", full_content);
+            }
+            Err(e) => {
+                error!("Error starting stream: {}", e);
+            }
+        }
+    });
 }

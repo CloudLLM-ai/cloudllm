@@ -1,13 +1,16 @@
 use async_trait::async_trait;
+use futures_util::Stream;
 use openai_rust2 as openai_rust;
+use std::error::Error;
+use std::pin::Pin;
+use std::sync::Mutex;
+
 /// A ClientWrapper is a wrapper around a specific cloud LLM service.
 /// It provides a common interface to interact with the LLMs.
 /// It does not keep track of the conversation/session, for that we use an LLMSession
 /// which keeps track of the conversation history and other session-specific data
 /// and uses a ClientWrapper to interact with the LLM.
 // src/client_wrapper
-use std::error::Error;
-use std::sync::Mutex;
 
 /// Represents the possible roles for a message.
 #[derive(Clone)]
@@ -37,6 +40,18 @@ pub struct Message {
     pub content: String,
 }
 
+/// Represents a chunk of a streaming message response.
+#[derive(Clone, Debug)]
+pub struct MessageChunk {
+    /// The incremental content in this chunk.
+    pub content: String,
+    /// Whether this is the final chunk in the stream.
+    pub is_final: bool,
+}
+
+/// Type alias for a Send-able error box
+pub type SendError = Box<dyn Error + Send>;
+
 /// Trait defining the interface to interact with various LLM services.
 #[async_trait]
 pub trait ClientWrapper: Send + Sync {
@@ -47,6 +62,20 @@ pub trait ClientWrapper: Send + Sync {
         messages: Vec<Message>,
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>>;
+
+    /// Send a message to the LLM and get a streaming response.
+    /// - `messages`: The messages to send in the request.
+    /// Returns a Stream of MessageChunk items, allowing tokens to be processed as they arrive.
+    /// This method has a default implementation that returns an error, so existing
+    /// implementations don't break. Clients that support streaming should override this.
+    /// Note: The returned stream may not be Send-safe and must be consumed in the same task.
+    async fn send_message_stream(
+        &self,
+        _messages: Vec<Message>,
+        _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<MessageChunk, SendError>>>>, Box<dyn Error>> {
+        Err("Streaming not supported by this client".into())
+    }
 
     /// Hook to retrieve usage from the *last* send_message() call.
     /// Default impl returns None so existing wrappers don’t break.
