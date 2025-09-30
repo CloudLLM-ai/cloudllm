@@ -219,7 +219,9 @@ impl ClientWrapper for GeminiClient {
                 content,
             }),
             Err(err) => {
-                error!("GeminiClient::send_message error: {}", err);
+                if log::log_enabled!(log::Level::Error) {
+                    error!("GeminiClient::send_message error: {}", err);
+                }
                 Err(err)
             }
         }

@@ -36,10 +36,12 @@ pub async fn send_and_track(
             Ok(response.choices[0].message.content.clone())
         }
         Err(err) => {
-            log::error!(
-                "cloudllm::clients::common::send_and_track(...): OpenAI API Error: {}",
-                err
-            ); // Log the entire error
+            if log::log_enabled!(log::Level::Error) {
+                log::error!(
+                    "cloudllm::clients::common::send_and_track(...): OpenAI API Error: {}",
+                    err
+                );
+            }
             Err(err.into()) // Convert the error to Box<dyn Error>
         }
     }
