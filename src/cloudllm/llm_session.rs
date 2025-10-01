@@ -188,143 +188,26 @@ impl LLMSession {
     pub fn get_max_tokens(&self) -> usize {
         self.max_tokens
     }
+
+    pub fn get_conversation_history(&self) -> &Vec<Message> {
+        &self.conversation_history
+    }
+
+    pub fn get_cached_token_counts(&self) -> &Vec<usize> {
+        &self.cached_token_counts
+    }
 }
 
 /// Estimates the number of tokens in a string.
 /// Uses an approximate formula: one token per 4 characters.
-fn estimate_token_count(text: &str) -> usize {
+pub fn estimate_token_count(text: &str) -> usize {
     (text.len() / 4).max(1)
 }
 
 /// Estimates the number of tokens in a Message, including role annotations.
-fn estimate_message_token_count(message: &Message) -> usize {
+pub fn estimate_message_token_count(message: &Message) -> usize {
     // Assuming the role adds some fixed number of tokens, e.g., 1 token
     let role_token_count = 1;
     let content_token_count = estimate_token_count(&message.content);
     role_token_count + content_token_count
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use async_trait::async_trait;
-    use std::sync::Mutex;
-
-    // Mock client for testing
-    struct MockClient {
-        usage: Mutex<Option<client_wrapper::TokenUsage>>,
-        response_content: String,
-    }
-
-    impl MockClient {
-        fn new(response_content: String) -> Self {
-            Self {
-                usage: Mutex::new(None),
-                response_content,
-            }
-        }
-
-        fn set_usage(&self, input: usize, output: usize, total: usize) {
-            *self.usage.lock().unwrap() = Some(client_wrapper::TokenUsage {
-                input_tokens: input,
-                output_tokens: output,
-                total_tokens: total,
-            });
-        }
-    }
-
-    #[async_trait]
-    impl ClientWrapper for MockClient {
-        async fn send_message(
-            &self,
-            _messages: Vec<Message>,
-            _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-        ) -> Result<Message, Box<dyn std::error::Error>> {
-            Ok(Message {
-                role: Role::Assistant,
-                content: self.response_content.clone(),
-            })
-        }
-
-        fn usage_slot(&self) -> Option<&Mutex<Option<client_wrapper::TokenUsage>>> {
-            Some(&self.usage)
-        }
-    }
-
-    #[tokio::test]
-    async fn test_token_caching() {
-        let mock_client = Arc::new(MockClient::new("Response".to_string()));
-        let mut session = LLMSession::new(
-            mock_client.clone(),
-            "System prompt".to_string(),
-            1000,
-        );
-
-        // Send a message
-        let user_message = "Hello, this is a test message";
-        mock_client.set_usage(100, 50, 150);
-        
-        let _ = session.send_message(Role::User, user_message.to_string(), None).await;
-
-        // Verify that both the user message and response have cached token counts
-        assert_eq!(session.conversation_history.len(), 2); // User message + response
-        assert_eq!(session.cached_token_counts.len(), 2); // Token counts for both messages
-
-        // Verify token counts are cached correctly
-        let expected_user_tokens = estimate_message_token_count(&Message {
-            role: Role::User,
-            content: user_message.to_string(),
-        });
-        let expected_response_tokens = estimate_message_token_count(&Message {
-            role: Role::Assistant,
-            content: "Response".to_string(),
-        });
-
-        assert_eq!(session.cached_token_counts[0], expected_user_tokens);
-        assert_eq!(session.cached_token_counts[1], expected_response_tokens);
-    }
-
-    #[tokio::test]
-    async fn test_token_caching_with_trimming() {
-        let mock_client = Arc::new(MockClient::new("Response".to_string()));
-        let mut session = LLMSession::new(
-            mock_client.clone(),
-            "System prompt".to_string(),
-            100, // Small max_tokens to trigger trimming
-        );
-
-        // Send first message
-        mock_client.set_usage(50, 25, 75);
-        let _ = session.send_message(Role::User, "First message".to_string(), None).await;
-
-        assert_eq!(session.conversation_history.len(), 2);
-        assert_eq!(session.cached_token_counts.len(), 2);
-
-        // Send second message with usage that exceeds max_tokens
-        mock_client.set_usage(80, 40, 120); // Exceeds max_tokens of 100
-        let _ = session.send_message(Role::User, "Second message".to_string(), None).await;
-
-        // Some messages should have been trimmed
-        assert!(session.conversation_history.len() < 4); // Should have fewer than 4 messages
-        // cached_token_counts should match conversation_history length
-        assert_eq!(session.conversation_history.len(), session.cached_token_counts.len());
-    }
-
-    #[test]
-    fn test_estimate_token_count() {
-        // Test basic token estimation (1 token per 4 characters)
-        assert_eq!(estimate_token_count("test"), 1);
-        assert_eq!(estimate_token_count("this is a longer test"), 5);
-        assert_eq!(estimate_token_count(""), 1); // Minimum 1 token
-    }
-
-    #[test]
-    fn test_estimate_message_token_count() {
-        let message = Message {
-            role: Role::User,
-            content: "test message".to_string(),
-        };
-        // "test message" = 12 characters = 3 tokens + 1 role token = 4 tokens
-        assert_eq!(estimate_message_token_count(&message), 4);
-    }
 }
