@@ -3,6 +3,9 @@
  - Minimize string formatting overhead in hot path error logs
  - Replace std::sync::Mutex with tokio::sync::Mutex for async-friendly token usage tracking
  - Change ClientWrapper::send_message to accept &[Message] instead of Vec<Message>
+ - refactor: Move all client tests to external integration test files
+ - feat: make token usage retrieval async and clean up Claude/OpenAI client usage
+ - Implement token count caching for efficient message trimming
 
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
