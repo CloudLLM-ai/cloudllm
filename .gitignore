@@ -15,3 +15,7 @@ Cargo.lock
 
 .idea/
 run_example
+
+# Temporary test binaries
+verify_pooling
+/tmp/*.rs
