@@ -28,7 +28,7 @@
 //!     println!("Assistant: {}", resp.content);
 //!
 //!     // Then pull the real token usage.
-//!     if let Some(usage) = client.get_last_usage() {
+//!     if let Some(usage) = client.get_last_usage().await {
 //!         println!(
 //!             "Tokens — input: {}, output: {}, total: {}",
 //!             usage.input_tokens, usage.output_tokens, usage.total_tokens

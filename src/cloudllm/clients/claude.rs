@@ -1,14 +1,9 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::claude::Model::ClaudeSonnet4;
 use crate::clients::openai::OpenAIClient;
-use crate::{ClientWrapper, LLMSession, Message, Role};
+use crate::{cloudllm, ClientWrapper, Message};
 use async_trait::async_trait;
-use log::{error, info};
 use openai_rust2 as openai_rust;
-use openai_rust2::chat::SearchMode;
-use std::env;
 use std::error::Error;
-use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
 pub struct ClaudeClient {
@@ -93,39 +88,36 @@ pub fn test_claude_client() {
     // initialize logger
     crate::init_logger();
 
-    let secret_key = env::var("CLAUDE_API_KEY").expect("CLAUDE_API_KEY not set");
-    let client = ClaudeClient::new_with_model_enum(&secret_key, ClaudeSonnet4);
-    let mut llm_session: LLMSession = LLMSession::new(
+    let secret_key = std::env::var("CLAUDE_API_KEY").expect("CLAUDE_API_KEY not set");
+    let client = ClaudeClient::new_with_model_enum(&secret_key, Model::ClaudeSonnet4);
+    let mut llm_session: crate::LLMSession = crate::LLMSession::new(
         std::sync::Arc::new(client),
         "You are a helpful assistant.".to_string(),
         1048576,
     );
 
     // Create a new Tokio runtime
-    let rt = Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     let response_message: Message = rt.block_on(async {
         let s = llm_session
             .send_message(
-                Role::User,
+                crate::Role::User,
                 "What is the capital of France?".to_string(),
                 None,
             )
             .await;
 
-        match s {
-            Ok(msg) => msg,
-            Err(e) => {
-                error!("Error: {}", e);
-                Message {
-                    role: Role::System,
-                    content: format!("An error occurred: {:?}", e),
-                }
+        s.unwrap_or_else(|e| {
+            log::error!("Error: {}", e);
+            Message {
+                role: cloudllm::client_wrapper::Role::System,
+                content: format!("An error occurred: {:?}", e),
             }
-        }
+        })
     });
 
-    info!(
+    log::info!(
         "test_claude_client() response: {}",
         response_message.content
     );

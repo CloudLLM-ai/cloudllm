@@ -5,9 +5,7 @@ use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
-use cloudllm::clients::claude::ClaudeClient;
 use cloudllm::clients::grok::GrokClient;
-use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::LLMSession;
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session

@@ -51,7 +51,6 @@
 
 use crate::client_wrapper;
 use std::sync::Arc;
-// src/llm_session.rs
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use openai_rust2 as openai_rust;
 
@@ -125,7 +124,7 @@ impl LLMSession {
         let response = self
             .client
             .send_message(
-                self.conversation_history.clone(),
+                &self.conversation_history,
                 optional_search_parameters,
             )
             .await?;
@@ -133,7 +132,7 @@ impl LLMSession {
         // Remove the system prompt from the conversation history
         self.conversation_history.remove(0);
 
-        if let Some(usage) = self.client.get_last_usage() {
+        if let Some(usage) = self.client.get_last_usage().await {
             // Update the total token counts based on the usage
             self.total_input_tokens = usage.input_tokens;
             self.total_output_tokens = usage.output_tokens;
@@ -167,13 +166,6 @@ impl LLMSession {
             role: Role::System,
             content: prompt,
         };
-    }
-
-    /// When we hit the max token limit, we start removing the oldest messages in order to send fewer tokens the next time.
-    fn trim_oldest_message_from_history(&mut self) {
-        if !self.conversation_history.is_empty() {
-            self.conversation_history.remove(0);
-        }
     }
 
     /// Returns the current token usage statistics
