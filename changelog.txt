@@ -2,6 +2,7 @@
  - Optimized LLMSession conversation history with VecDeque to eliminate O(N²) insert/remove churn
  - Minimize string formatting overhead in hot path error logs
  - Replace std::sync::Mutex with tokio::sync::Mutex for async-friendly token usage tracking
+ - Change ClientWrapper::send_message to accept &[Message] instead of Vec<Message>
 
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
