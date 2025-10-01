@@ -7,6 +7,7 @@ use openai_rust2 as openai_rust;
 /// and uses a ClientWrapper to interact with the LLM.
 // src/client_wrapper
 use std::error::Error;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Represents the possible roles for a message.
