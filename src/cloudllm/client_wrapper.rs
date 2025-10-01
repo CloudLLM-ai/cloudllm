@@ -7,7 +7,7 @@ use openai_rust2 as openai_rust;
 /// and uses a ClientWrapper to interact with the LLM.
 // src/client_wrapper
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex;
 
 /// Represents the possible roles for a message.
 #[derive(Clone)]
@@ -20,7 +20,7 @@ pub enum Role {
                // Add other roles as needed
 }
 
-/// How many tokens were spent on prompt vs. completion.
+/// How many tokens were spent on prompt vs. completion?
 #[derive(Clone, Debug)]
 pub struct TokenUsage {
     pub input_tokens: usize,
@@ -44,15 +44,18 @@ pub trait ClientWrapper: Send + Sync {
     /// - `messages`: The messages to send in the request.
     async fn send_message(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>>;
 
     /// Hook to retrieve usage from the *last* send_message() call.
-    /// Default impl returns None so existing wrappers don’t break.
-    fn get_last_usage(&self) -> Option<TokenUsage> {
-        self.usage_slot()
-            .and_then(|slot| slot.lock().ok().and_then(|u| u.clone()))
+    /// Default impl returns None, so existing wrappers don’t break.
+    async fn get_last_usage(&self) -> Option<TokenUsage> {
+        if let Some(slot) = self.usage_slot() {
+            slot.lock().await.clone()
+        } else {
+            None
+        }
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {

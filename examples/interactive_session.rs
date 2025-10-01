@@ -5,9 +5,7 @@ use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 
 use cloudllm::client_wrapper::Role;
-use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::clients::grok::GrokClient;
-use cloudllm::clients::claude::ClaudeClient;
 use cloudllm::LLMSession;
 // Run from the root folder of the repo as follows:
 // OPEN_AI_SECRET=your-open-ai-key-here cargo run --example interactive_session
@@ -30,9 +28,12 @@ async fn main() {
 
     // Read the XAI_API_KEY from the environment variable
     let secret_key =
-       env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
+        env::var("XAI_API_KEY").expect("Please set the XAI_API_KEY environment variable!");
     // Instantiate the Grok client
-    let client = GrokClient::new_with_model_enum(&secret_key, cloudllm::clients::grok::Model::Grok4FastReasoning);
+    let client = GrokClient::new_with_model_enum(
+        &secret_key,
+        cloudllm::clients::grok::Model::Grok4FastReasoning,
+    );
 
     // // Read CLAUDE_API_KEY from the environment variable
     // let secret_key = env::var("CLAUDE_API_KEY").expect("Please set the CLAUDE_API_KEY environment variable!");
@@ -42,7 +43,8 @@ async fn main() {
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // Set up the LLMSession
-    let system_prompt = "You are a socratic mentor and you will not hide your LLM Model name if asked.".to_string();
+    let system_prompt =
+        "You are a socratic mentor and you will not hide your LLM Model name if asked.".to_string();
     let max_tokens = 1024; // Set a small context window for testing conversation history pruning
     let mut session = LLMSession::new(std::sync::Arc::new(client), system_prompt, max_tokens);
 
@@ -82,10 +84,8 @@ async fn main() {
         tx.send(false).unwrap();
 
         let response = match response_result {
-            Ok(r) => {
-                r
-            }
-            Err(err ) => {
+            Ok(r) => r,
+            Err(err) => {
                 println!("\n\n[Error sending message:] {}\n", err);
                 continue; // Skip to the next iteration of the loop
             }

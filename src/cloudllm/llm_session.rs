@@ -2,8 +2,8 @@
 //! handling not just message history and context pruning, but also
 //! real token accounting (input vs. output) for cost estimates.
 //!
-//! **Key features:**
-//! - **Automatic context trimming**: never exceed your `max_tokens` window.
+//! **Key features: **
+//! - **Automatic context trimming**: never exceeds your `max_tokens` window.
 //! - **Token tracking**: accumulates `input_tokens` & `output_tokens` per call.
 //! - **Easy inspection**: call `session.token_usage()` to get a `TokenUsage` struct.
 //!
@@ -50,17 +50,17 @@
 //! The session automatically prunes oldest messages when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
-use std::sync::Arc;
-// src/llm_session.rs
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use bumpalo::Bump;
 use openai_rust2 as openai_rust;
+use std::sync::Arc;
 
 /// A conversation session with an LLM, including:
 ///
 /// - `client`: your `ClientWrapper` (e.g. `OpenAIClient`).
 /// - `system_prompt`: the context-steering system message.
 /// - `conversation_history`: all user & assistant messages (excluding system prompt).
+/// - `cached_token_counts`: cached token estimates for each message in conversation_history.
 /// - `max_tokens`: your configured context window size.
 /// - `total_input_tokens`: sum of all prompt tokens sent so far.
 /// - `total_output_tokens`: sum of all completion tokens received so far.
@@ -71,6 +71,7 @@ pub struct LLMSession {
     client: Arc<dyn ClientWrapper>,
     system_prompt: Message,
     conversation_history: Vec<Message>,
+    cached_token_counts: Vec<usize>,
     max_tokens: usize,
     total_input_tokens: usize,
     total_output_tokens: usize,
@@ -98,6 +99,7 @@ impl LLMSession {
             client,
             system_prompt: system_prompt_message,
             conversation_history: Vec::new(),
+            cached_token_counts: Vec::new(),
             max_tokens,
             total_input_tokens: 0,
             total_output_tokens: 0,
@@ -131,8 +133,12 @@ impl LLMSession {
             content: content_arc,
         };
 
+        // Cache the token count for the new message before adding it
+        let message_token_count = estimate_message_token_count(&message);
+
         // Add the new message to the conversation history
         self.conversation_history.push(message);
+        self.cached_token_counts.push(message_token_count);
 
         // Temporarily add the system prompt to the start of the conversation history
         self.conversation_history
@@ -141,16 +147,13 @@ impl LLMSession {
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(
-                self.conversation_history.clone(),
-                optional_search_parameters,
-            )
+            .send_message(&self.conversation_history, optional_search_parameters)
             .await?;
 
         // Remove the system prompt from the conversation history
         self.conversation_history.remove(0);
 
-        if let Some(usage) = self.client.get_last_usage() {
+        if let Some(usage) = self.client.get_last_usage().await {
             // Update the total token counts based on the usage
             self.total_input_tokens = usage.input_tokens;
             self.total_output_tokens = usage.output_tokens;
@@ -163,15 +166,19 @@ impl LLMSession {
 
                 // Remove the oldest messages until we've cleared at least `excess` tokens
                 while excess > 0 && !self.conversation_history.is_empty() {
-                    let msg = self.conversation_history.remove(0);
-                    let removed = estimate_message_token_count(&msg);
+                    self.conversation_history.remove(0);
+                    let removed = self.cached_token_counts.remove(0);
                     excess = excess.saturating_sub(removed);
                 }
             }
         }
 
+        // Cache the token count for the response before adding it
+        let response_token_count = estimate_message_token_count(&response);
+
         // Add the LLM's response to the conversation history
         self.conversation_history.push(response);
+        self.cached_token_counts.push(response_token_count);
 
         // Return the last message, which is the assistant's response
         Ok(self.conversation_history.last().unwrap().clone())
@@ -190,13 +197,6 @@ impl LLMSession {
         };
     }
 
-    /// When we hit the max token limit, we start removing the oldest messages in order to send fewer tokens the next time.
-    fn trim_oldest_message_from_history(&mut self) {
-        if !self.conversation_history.is_empty() {
-            self.conversation_history.remove(0);
-        }
-    }
-
     /// Returns the current token usage statistics
     pub fn token_usage(&self) -> client_wrapper::TokenUsage {
         client_wrapper::TokenUsage {
@@ -208,6 +208,14 @@ impl LLMSession {
 
     pub fn get_max_tokens(&self) -> usize {
         self.max_tokens
+    }
+
+    pub fn get_conversation_history(&self) -> &Vec<Message> {
+        &self.conversation_history
+    }
+
+    pub fn get_cached_token_counts(&self) -> &Vec<usize> {
+        &self.cached_token_counts
     }
 }
 
@@ -291,12 +299,12 @@ mod tests {
 
 /// Estimates the number of tokens in a string.
 /// Uses an approximate formula: one token per 4 characters.
-fn estimate_token_count(text: &str) -> usize {
+pub fn estimate_token_count(text: &str) -> usize {
     (text.len() / 4).max(1)
 }
 
 /// Estimates the number of tokens in a Message, including role annotations.
-fn estimate_message_token_count(message: &Message) -> usize {
+pub fn estimate_message_token_count(message: &Message) -> usize {
     // Assuming the role adds some fixed number of tokens, e.g., 1 token
     let role_token_count = 1;
     let content_token_count = estimate_token_count(&message.content);

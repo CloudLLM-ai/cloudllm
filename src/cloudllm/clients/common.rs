@@ -2,7 +2,7 @@ use crate::client_wrapper::TokenUsage;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use std::error::Error;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 /// Send a chat request, record its usage, and return the assistant’s content.
 pub async fn send_and_track(
@@ -30,16 +30,18 @@ pub async fn send_and_track(
             };
 
             // Store it for get_last_usage()
-            *usage_slot.lock().unwrap() = Some(usage);
+            *usage_slot.lock().await = Some(usage);
 
             // Return the assistant’s content
             Ok(response.choices[0].message.content.clone())
         }
         Err(err) => {
-            log::error!(
-                "cloudllm::clients::common::send_and_track(...): OpenAI API Error: {}",
-                err
-            ); // Log the entire error
+            if log::log_enabled!(log::Level::Error) {
+                log::error!(
+                    "cloudllm::clients::common::send_and_track(...): OpenAI API Error: {}",
+                    err
+                );
+            }
             Err(err.into()) // Convert the error to Box<dyn Error>
         }
     }

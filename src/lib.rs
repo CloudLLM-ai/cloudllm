@@ -36,7 +36,6 @@
 //!
 
 // src/lib.rs
-use env_logger;
 use std::sync::Once;
 
 static INIT_LOGGER: Once = Once::new();
@@ -56,6 +55,5 @@ pub mod cloudllm;
 pub use cloudllm::client_wrapper;
 pub use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 // If you wish, you can also re-export specific clients or functionalities from the `clients` submodule:
-// pub use cloudllm::clients::openai;
 pub use cloudllm::clients;
 pub use cloudllm::llm_session::LLMSession;

@@ -1,15 +1,10 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::grok::Model::Grok4_0709;
 use crate::clients::openai::OpenAIClient;
-use crate::{ClientWrapper, LLMSession, Message, Role};
+use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
-use log::{error, info};
 use openai_rust2 as openai_rust;
-use openai_rust2::chat::SearchMode;
-use std::env;
 use std::error::Error;
-use std::sync::Mutex;
-use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 
 pub struct GrokClient {
     delegate_client: OpenAIClient,
@@ -21,15 +16,15 @@ pub struct GrokClient {
 pub enum Model {
     Grok2,
     Grok2Latest,
-    Grok21212,         // $2/MMT input $10/MMT output
-    Grok3MiniFast, // $0.60/MMT input $4.00/MMT output
-    Grok3Mini,     // $0.30/MMT input $0.50/MMT output
-    Grok3Fast,     // $5/MMT input $25/MMT output
-    Grok3,         // $3/MMT input $15/MMT output
-    Grok4_0709,       // $3/MMT input $15/MMT output
-    Grok4FastReasoning, // #$0.2/MMT input $0.50/MMT output
+    Grok21212,             // $2/MMT input $10/MMT output
+    Grok3MiniFast,         // $0.60/MMT input $4.00/MMT output
+    Grok3Mini,             // $0.30/MMT input $0.50/MMT output
+    Grok3Fast,             // $5/MMT input $25/MMT output
+    Grok3,                 // $3/MMT input $15/MMT output
+    Grok4_0709,            // $3/MMT input $15/MMT output
+    Grok4FastReasoning,    // #$0.2/MMT input $0.50/MMT output
     Grok4FastNonReasoning, // #$0.2/MMT input $0.50/MMT output
-    GrokCodeFast1, // #$0.2/MMT input $1.50/MMT output
+    GrokCodeFast1,         // #$0.2/MMT input $1.50/MMT output
 }
 
 fn model_to_string(model: Model) -> String {
@@ -44,7 +39,7 @@ fn model_to_string(model: Model) -> String {
         Model::Grok4_0709 => "grok-4-0709".to_string(),
         Model::Grok4FastReasoning => "grok-4-fast-reasoning".to_string(),
         Model::Grok4FastNonReasoning => "grok-4-fast-nonreasoning".to_string(),
-        Model::GrokCodeFast1 => "grok-code-fast-1".to_string()
+        Model::GrokCodeFast1 => "grok-code-fast-1".to_string(),
     }
 }
 
@@ -87,7 +82,7 @@ impl GrokClient {
 impl ClientWrapper for GrokClient {
     async fn send_message(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>> {
         self.delegate_client
@@ -98,48 +93,4 @@ impl ClientWrapper for GrokClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         self.delegate_client.usage_slot()
     }
-}
-
-#[test]
-pub fn test_grok_client() {
-    // initialize logger
-    crate::init_logger();
-
-    let secret_key = env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
-    let client = GrokClient::new_with_model_enum(&secret_key, Grok4_0709);
-    let mut llm_session: LLMSession = LLMSession::new(
-        std::sync::Arc::new(client),
-        "You are a math professor.".to_string(),
-        1048576,
-    );
-
-    // Create a new Tokio runtime
-    let rt = Runtime::new().unwrap();
-
-    let search_parameters =
-        openai_rust::chat::SearchParameters::new(SearchMode::On).with_citations(true);
-
-    let response_message: Message = rt.block_on(async {
-        let s = llm_session
-            .send_message(
-                Role::User,
-                "Using your Live search capabilities: What's the current price of Bitcoin?"
-                    .to_string(),
-                Some(search_parameters),
-            )
-            .await;
-
-        match s {
-            Ok(msg) => msg,
-            Err(e) => {
-                error!("Error: {}", e);
-                Message {
-                    role: Role::System,
-                    content: format!("An error occurred: {:?}", e).into(),
-                }
-            }
-        }
-    });
-
-    info!("test_grok_client() response: {}", response_message.content);
 }

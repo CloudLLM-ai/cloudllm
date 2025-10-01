@@ -1,19 +1,20 @@
 use crate::client_wrapper::TokenUsage;
 use crate::clients::common::send_and_track;
-use crate::clients::openai::OpenAIClient;
-use crate::{ClientWrapper, LLMSession, Message, Role};
+use crate::{ClientWrapper, Message, Role};
 use async_trait::async_trait;
-use log::{error, info};
+use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use std::env;
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
+
 
 pub struct GeminiClient {
     client: openai_rust::Client,
-    model: String,
+    pub model: String,
     token_usage: Mutex<Option<TokenUsage>>,
 }
 
@@ -77,7 +78,7 @@ pub enum Model {
     Veo20Generate001,
     Gemini25Flash,
     Gemini25Pro,
-    Gemini25FlashLitePreview0617
+    Gemini25FlashLitePreview0617,
 }
 
 pub fn model_to_string(model: Model) -> String {
@@ -185,21 +186,22 @@ impl GeminiClient {
 impl ClientWrapper for GeminiClient {
     async fn send_message(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
-        let formatted_messages = messages
-            .into_iter()
-            .map(|msg| chat::Message {
+
+        let mut formatted_messages = Vec::with_capacity(messages.len());
+        for msg in messages {
+            formatted_messages.push(chat::Message {
                 role: match msg.role {
                     Role::System => "system".to_owned(),
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
                 },
                 content: msg.content.to_string(),
-            })
-            .collect();
+            });
+        }
 
         // Use the shared helper to send & track usage
         let url_path = Some("/v1beta/chat/completions".to_string());
@@ -219,7 +221,9 @@ impl ClientWrapper for GeminiClient {
                 content: Arc::from(content.as_str()),
             }),
             Err(err) => {
-                error!("GeminiClient::send_message error: {}", err);
+                if log::log_enabled!(log::Level::Error) {
+                    error!("GeminiClient::send_message error: {}", err);
+                }
                 Err(err)
             }
         }
@@ -230,45 +234,4 @@ impl ClientWrapper for GeminiClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }
-}
-
-#[test]
-pub fn test_gemini_client() {
-    // initialize logger
-    crate::init_logger();
-
-    let secret_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
-    let client = GeminiClient::new_with_model_enum(&secret_key, Model::Gemini20Flash);
-    assert_eq!(client.model, "gemini-2.0-flash");
-
-    let mut llm_session: LLMSession = LLMSession::new(
-        std::sync::Arc::new(client),
-        "You are a math professor.".to_string(),
-        1048576,
-    );
-
-    // Create a new Tokio runtime
-    let rt = Runtime::new().unwrap();
-
-    let response_message: Message = rt.block_on(async {
-        let s = llm_session
-            .send_message(
-                Role::User,
-                "What is the square root of 16?".to_string(),
-                None,
-            )
-            .await;
-
-        match s {
-            Ok(msg) => msg,
-            Err(e) => {
-                panic!("test_gemini_client Error: {}", e);
-            }
-        }
-    });
-
-    info!(
-        "test_gemini_client() response: {}",
-        response_message.content
-    );
 }
