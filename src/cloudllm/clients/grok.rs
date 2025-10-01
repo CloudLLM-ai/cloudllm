@@ -1,14 +1,9 @@
 use crate::client_wrapper::TokenUsage;
-use crate::clients::grok::Model::Grok4_0709;
 use crate::clients::openai::OpenAIClient;
-use crate::{ClientWrapper, LLMSession, Message, Role};
+use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
-use log::{error, info};
 use openai_rust2 as openai_rust;
-use openai_rust2::chat::SearchMode;
-use std::env;
 use std::error::Error;
-use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
 pub struct GrokClient {
@@ -98,48 +93,4 @@ impl ClientWrapper for GrokClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         self.delegate_client.usage_slot()
     }
-}
-
-#[test]
-pub fn test_grok_client() {
-    // initialize logger
-    crate::init_logger();
-
-    let secret_key = env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
-    let client = GrokClient::new_with_model_enum(&secret_key, Grok4_0709);
-    let mut llm_session: LLMSession = LLMSession::new(
-        std::sync::Arc::new(client),
-        "You are a math professor.".to_string(),
-        1048576,
-    );
-
-    // Create a new Tokio runtime
-    let rt = Runtime::new().unwrap();
-
-    let search_parameters =
-        openai_rust::chat::SearchParameters::new(SearchMode::On).with_citations(true);
-
-    let response_message: Message = rt.block_on(async {
-        let s = llm_session
-            .send_message(
-                Role::User,
-                "Using your Live search capabilities: What's the current price of Bitcoin?"
-                    .to_string(),
-                Some(search_parameters),
-            )
-            .await;
-
-        match s {
-            Ok(msg) => msg,
-            Err(e) => {
-                error!("Error: {}", e);
-                Message {
-                    role: Role::System,
-                    content: format!("An error occurred: {:?}", e),
-                }
-            }
-        }
-    });
-
-    info!("test_grok_client() response: {}", response_message.content);
 }

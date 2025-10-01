@@ -21,7 +21,7 @@
 //!     let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
 //!
 //!     // Send system + user messages.
-//!     let resp = client.send_message(vec![
+//!     let resp = client.send_message(&vec![
 //!         Message { role: Role::System,    content: "You are an assistant.".into() },
 //!         Message { role: Role::User,      content: "Hello!".into() },
 //!     ], None).await.unwrap();
@@ -40,28 +40,22 @@
 //! # Note
 //!
 //! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
-
-use std::env;
 use std::error::Error;
 
 use async_trait::async_trait;
-use log::{error, info};
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
 use crate::client_wrapper::TokenUsage;
 use crate::clients::common::send_and_track;
-use crate::clients::openai::Model::GPT5Nano;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
-use crate::LLMSession;
-use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
 pub enum Model {
     GPT5, // Higher Reasoning, Medium speed, Text+Image input, Text output; input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
     GPT5Mini, // High Reasoning, Fast speed, Text+Image input, Text output; input $0.25/1M tokens, cached input $0.025/1M tokens, output $2/1M tokens
     GPT5Nano, // Average Reasoning, Very fast speed, Text+Image input, Text output; input $0.05/1M tokens, cached input $0.005/1M tokens, output $0.4/1M tokens
-    GPT5ChatLatest, // High Reasoning, Medium speed, Text+Image input, Text output; used in ChatGPT, input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
+    GPT5ChatLatest, // High-Reasoning, Medium speed, Text+Image input, Text output; used in ChatGPT, input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
     GPT4o,          // input $2.5/1M tokens, cached input $1.25/1M tokens, output $10/1M tokens
     ChatGPT4oLatest, // latest used in ChatGPT
     GPt4oMini,
@@ -151,18 +145,17 @@ impl ClientWrapper for OpenAIClient {
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
-        let formatted_messages = messages
-            .iter()
-            .map(|msg| chat::Message {
+        let mut formatted_messages = Vec::with_capacity(messages.len());
+        for msg in messages {
+            formatted_messages.push(chat::Message {
                 role: match msg.role {
                     Role::System => "system".to_owned(),
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
-                    // Extend this match as new roles are added to the Role enum
                 },
                 content: msg.content.clone(),
-            })
-            .collect();
+            });
+        }
 
         let url_path_string = "/v1/chat/completions".to_string();
 
@@ -183,7 +176,7 @@ impl ClientWrapper for OpenAIClient {
             }),
             Err(_) => {
                 if log::log_enabled!(log::Level::Error) {
-                    error!(
+                    log::error!(
                         "OpenAIClient::send_message(...): OpenAI API Error: {}",
                         "Error occurred while sending message"
                     );
@@ -196,48 +189,4 @@ impl ClientWrapper for OpenAIClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }
-}
-
-#[test]
-pub fn test_openai_client() {
-    // initialize logger
-    crate::init_logger();
-
-    let secret_key = env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
-    let client = OpenAIClient::new_with_model_enum(&secret_key, GPT5Nano);
-    let mut llm_session: LLMSession = LLMSession::new(
-        std::sync::Arc::new(client),
-        "You are a philosophy professor.".to_string(),
-        1048576,
-    );
-
-    // Create a new Tokio runtime
-    let rt = Runtime::new().unwrap();
-
-    let response_message: Message = rt.block_on(async {
-        let s = llm_session
-            .send_message(
-                Role::User,
-                "If life is a game and you are not an NPC character, what can you while you play to benefit the higher consciousness of your avatar controller?"
-                    .to_string(),
-                None,
-            )
-            .await;
-
-        match s {
-            Ok(msg) => msg,
-            Err(e) => {
-                error!("Error: {}", e);
-                Message {
-                    role: Role::System,
-                    content: format!("An error occurred: {:?}", e),
-                }
-            }
-        }
-    });
-
-    info!(
-        "test_openai_client() response: {}",
-        response_message.content
-    );
 }

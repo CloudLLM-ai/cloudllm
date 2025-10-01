@@ -1,6 +1,6 @@
 use crate::client_wrapper::TokenUsage;
 use crate::clients::openai::OpenAIClient;
-use crate::{cloudllm, ClientWrapper, Message};
+use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
 use openai_rust2 as openai_rust;
 use std::error::Error;
@@ -81,44 +81,4 @@ impl ClientWrapper for ClaudeClient {
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         self.delegate_client.usage_slot()
     }
-}
-
-#[test]
-pub fn test_claude_client() {
-    // initialize logger
-    crate::init_logger();
-
-    let secret_key = std::env::var("CLAUDE_API_KEY").expect("CLAUDE_API_KEY not set");
-    let client = ClaudeClient::new_with_model_enum(&secret_key, Model::ClaudeSonnet4);
-    let mut llm_session: crate::LLMSession = crate::LLMSession::new(
-        std::sync::Arc::new(client),
-        "You are a helpful assistant.".to_string(),
-        1048576,
-    );
-
-    // Create a new Tokio runtime
-    let rt = tokio::runtime::Runtime::new().unwrap();
-
-    let response_message: Message = rt.block_on(async {
-        let s = llm_session
-            .send_message(
-                crate::Role::User,
-                "What is the capital of France?".to_string(),
-                None,
-            )
-            .await;
-
-        s.unwrap_or_else(|e| {
-            log::error!("Error: {}", e);
-            Message {
-                role: cloudllm::client_wrapper::Role::System,
-                content: format!("An error occurred: {:?}", e),
-            }
-        })
-    });
-
-    log::info!(
-        "test_claude_client() response: {}",
-        response_message.content
-    );
 }

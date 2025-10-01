@@ -2,8 +2,8 @@
 //! handling not just message history and context pruning, but also
 //! real token accounting (input vs. output) for cost estimates.
 //!
-//! **Key features:**
-//! - **Automatic context trimming**: never exceed your `max_tokens` window.
+//! **Key features: **
+//! - **Automatic context trimming**: never exceeds your `max_tokens` window.
 //! - **Token tracking**: accumulates `input_tokens` & `output_tokens` per call.
 //! - **Easy inspection**: call `session.token_usage()` to get a `TokenUsage` struct.
 //!
@@ -50,9 +50,9 @@
 //! The session automatically prunes oldest messages when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
-use std::sync::Arc;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use openai_rust2 as openai_rust;
+use std::sync::Arc;
 
 /// A conversation session with an LLM, including:
 ///
@@ -123,10 +123,7 @@ impl LLMSession {
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(
-                &self.conversation_history,
-                optional_search_parameters,
-            )
+            .send_message(&self.conversation_history, optional_search_parameters)
             .await?;
 
         // Remove the system prompt from the conversation history
