@@ -41,6 +41,7 @@
 //!
 //! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
 use std::error::Error;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use openai_rust::chat;
@@ -153,7 +154,7 @@ impl ClientWrapper for OpenAIClient {
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
                 },
-                content: msg.content.clone(),
+                content: msg.content.to_string(),
             });
         }
 
@@ -172,7 +173,7 @@ impl ClientWrapper for OpenAIClient {
         match result {
             Ok(c) => Ok(Message {
                 role: Role::Assistant,
-                content: c,
+                content: Arc::from(c.as_str()),
             }),
             Err(_) => {
                 if log::log_enabled!(log::Level::Error) {

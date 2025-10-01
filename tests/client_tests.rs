@@ -43,7 +43,7 @@ fn test_claude_client() {
             log::error!("Error: {}", e);
             Message {
                 role: System,
-                content: format!("An error occurred: {:?}", e),
+                content: format!("An error occurred: {:?}", e).into(),
             }
         })
     });
@@ -129,7 +129,7 @@ pub fn test_grok_client() {
             log::error!("Error: {}", e);
             Message {
                 role: crate::Role::System,
-                content: format!("An error occurred: {:?}", e),
+                content: format!("An error occurred: {:?}", e).into(),
             }
         })
     });
@@ -168,7 +168,7 @@ fn test_openai_client() {
             log::error!("Error: {}", e);
             Message {
                 role: Role::System,
-                content: format!("An error occurred: {:?}", e),
+                content: format!("An error occurred: {:?}", e).into(),
             }
         })
     });
