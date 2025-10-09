@@ -144,10 +144,13 @@ pub fn model_to_string(model: Model) -> String {
 
 impl GeminiClient {
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
+        let base_url = "https://generativelanguage.googleapis.com/v1beta/";
+        let pooled_client = crate::cloudllm::http_client_pool::get_or_create_client(base_url);
         GeminiClient {
-            client: openai_rust::Client::new_with_base_url(
+            client: openai_rust::Client::new_with_client_and_base_url(
                 secret_key,
-                "https://generativelanguage.googleapis.com/v1beta/",
+                pooled_client,
+                base_url,
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
@@ -161,8 +164,13 @@ impl GeminiClient {
     /// This function is used to create a GeminiClient with a custom base URL
     /// The default base URL is "<https://generativelanguage.googleapis.com/v1beta/>"
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        let pooled_client = crate::cloudllm::http_client_pool::get_or_create_client(base_url);
         GeminiClient {
-            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
+            client: openai_rust::Client::new_with_client_and_base_url(
+                secret_key,
+                pooled_client,
+                base_url,
+            ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }

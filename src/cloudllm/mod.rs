@@ -2,6 +2,7 @@
 
 pub mod client_wrapper;
 pub mod clients;
+pub mod http_client_pool;
 pub mod llm_session;
 
 // Let's explicitly export LLMSession so we don't have to access it via cloudllm::llm_session::LLMSession
