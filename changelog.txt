@@ -1,4 +1,4 @@
-0.3.0 SEP/30/2025
+0.3.0 OCT/09/2025
  - Optimized LLMSession conversation history with VecDeque to eliminate O(N²) insert/remove churn
  - Minimize string formatting overhead in hot path error logs
  - Replace std::sync::Mutex with tokio::sync::Mutex for async-friendly token usage tracking
@@ -6,6 +6,7 @@
  - refactor: Move all client tests to external integration test files
  - feat: make token usage retrieval async and clean up Claude/OpenAI client usage
  - Implement token count caching for efficient message trimming
+ - Implement pre-transmission trimming to reduce network overhead and latency
 
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
