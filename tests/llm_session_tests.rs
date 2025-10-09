@@ -1,17 +1,19 @@
-use openai_rust2;
-use openai_rust2 as openai_rust;
+use async_trait::async_trait;
 use cloudllm::client_wrapper;
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
-use cloudllm::LLMSession;
 use cloudllm::cloudllm::llm_session;
-use async_trait::async_trait;
+use cloudllm::cloudllm::llm_session::estimate_message_token_count;
+use cloudllm::LLMSession;
+use openai_rust2;
+use openai_rust2 as openai_rust;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // Mock client for testing
 struct MockClient {
-    usage: Mutex<Option<client_wrapper::TokenUsage>>,
+    usage: Mutex<Option<TokenUsage>>,
     response_content: String,
+    last_message_count: Mutex<usize>,
 }
 
 impl MockClient {
@@ -19,7 +21,12 @@ impl MockClient {
         Self {
             usage: Mutex::new(None),
             response_content,
+            last_message_count: Mutex::new(0),
         }
+    }
+
+    async fn get_last_message_count(&self) -> usize {
+        *self.last_message_count.lock().await
     }
 
     async fn set_usage(&self, input: usize, output: usize, total: usize) {
@@ -36,9 +43,34 @@ impl MockClient {
 impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
-        _messages: &[Message],
+        messages: &[Message],
         _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
+        // Record how many messages were sent
+        let mut count_guard = self.last_message_count.lock().await;
+        *count_guard = messages.len();
+
+        // Calculate token usage
+        let mut input_tokens = 0;
+        for msg in messages {
+            input_tokens += estimate_message_token_count(msg);
+        }
+        let output_tokens = estimate_message_token_count(&Message {
+            role: Role::Assistant,
+            content: self.response_content.clone(),
+        });
+
+        let computed_usage = TokenUsage {
+            input_tokens,
+            output_tokens,
+            total_tokens: input_tokens + output_tokens,
+        };
+
+        let mut usage_guard = self.usage.lock().await;
+        if usage_guard.is_none() {
+            *usage_guard = Some(computed_usage);
+        }
+
         Ok(Message {
             role: Role::Assistant,
             content: self.response_content.clone(),
@@ -78,7 +110,10 @@ async fn test_token_caching() {
     });
 
     assert_eq!(session.get_cached_token_counts()[0], expected_user_tokens);
-    assert_eq!(session.get_cached_token_counts()[1], expected_response_tokens);
+    assert_eq!(
+        session.get_cached_token_counts()[1],
+        expected_response_tokens
+    );
 }
 
 #[tokio::test]
@@ -107,7 +142,7 @@ async fn test_token_caching_with_trimming() {
 
     // Some messages should have been trimmed
     assert!(session.get_conversation_history().len() < 4); // Should have fewer than 4 messages
-                                                     // cached_token_counts should match conversation_history length
+                                                           // cached_token_counts should match conversation_history length
     assert_eq!(
         session.get_conversation_history().len(),
         session.get_cached_token_counts().len()
@@ -118,7 +153,10 @@ async fn test_token_caching_with_trimming() {
 fn test_estimate_token_count() {
     // Test basic token estimation (1 token per 4 characters)
     assert_eq!(llm_session::estimate_token_count("test"), 1);
-    assert_eq!(llm_session::estimate_token_count("this is a longer test"), 5);
+    assert_eq!(
+        llm_session::estimate_token_count("this is a longer test"),
+        5
+    );
     assert_eq!(llm_session::estimate_token_count(""), 1); // Minimum 1 token
 }
 
@@ -130,4 +168,84 @@ fn test_estimate_message_token_count() {
     };
     // "test message" = 12 characters = 3 tokens + 1 role token = 4 tokens
     assert_eq!(llm_session::estimate_message_token_count(&message), 4);
+}
+
+#[tokio::test]
+async fn test_pre_transmission_trimming() {
+    // Create a mock client
+    let client = Arc::new(MockClient::new("Response".to_string()));
+
+    // Create a session with a very small max_tokens limit
+    // System prompt: "System" = (6/4).max(1) + 1 = 2 + 1 = 3 tokens
+    let mut session = LLMSession::new(
+        client.clone(),
+        "System".to_string(),
+        20, // Very small limit to trigger trimming
+    );
+
+    // Add several messages that exceed the limit
+    // Each message with 4 chars = (4/4).max(1) + 1 = 1 + 1 = 2 tokens
+    let _ = session
+        .send_message(Role::User, "Msg1".to_string(), None)
+        .await;
+    let _ = session
+        .send_message(Role::User, "Msg2".to_string(), None)
+        .await;
+    let _ = session
+        .send_message(Role::User, "Msg3".to_string(), None)
+        .await;
+
+    // Add a large message that should trigger trimming
+    // 40 chars = (40/4).max(1) + 1 = 10 + 1 = 11 tokens
+    let large_msg = "0123456789012345678901234567890123456789"; // 40 chars
+    let _ = session
+        .send_message(Role::User, large_msg.to_string(), None)
+        .await;
+
+    // The client should have received fewer messages than we sent
+    // because old messages should have been trimmed before transmission
+    let message_count = client.get_last_message_count().await;
+
+    // With max_tokens=20:
+    // System prompt (3 tokens) + large message (11 tokens) = 14 tokens
+    // We should have trimmed old messages to stay under 20
+    // The last call should have sent: system prompt + some history + large message
+    assert!(
+        message_count > 0,
+        "Should have sent at least the system prompt and new message"
+    );
+    assert!(
+        message_count < 6,
+        "Should have trimmed some messages (system + 4 user + 4 assistant = 9 total before trim)"
+    );
+
+    // Verify that conversation history exists
+    assert!(
+        !session.get_conversation_history().is_empty(),
+        "Conversation history should not be empty"
+    );
+}
+
+#[tokio::test]
+async fn test_no_trimming_when_under_limit() {
+    let client = Arc::new(MockClient::new("OK".to_string()));
+
+    // Large max_tokens limit - no trimming should occur
+    let mut session = LLMSession::new(client.clone(), "System".to_string(), 10000);
+
+    // Add a few small messages
+    let _ = session
+        .send_message(Role::User, "Hi".to_string(), None)
+        .await;
+    let _ = session
+        .send_message(Role::User, "Hello".to_string(), None)
+        .await;
+
+    // The last send should include: system prompt + first user message + first assistant response + second user message
+    // = 1 system + 1 user + 1 assistant + 1 user = 4 messages
+    let message_count = client.get_last_message_count().await;
+    assert_eq!(
+        message_count, 4,
+        "Should have sent all messages without trimming"
+    );
 }
