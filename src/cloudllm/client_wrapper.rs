@@ -7,6 +7,7 @@ use openai_rust2 as openai_rust;
 /// and uses a ClientWrapper to interact with the LLM.
 // src/client_wrapper
 use std::error::Error;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Represents the possible roles for a message.
@@ -33,8 +34,8 @@ pub struct TokenUsage {
 pub struct Message {
     /// The role associated with the message.
     pub role: Role,
-    /// The actual content of the message.
-    pub content: String,
+    /// The actual content of the message stored as Arc<str> to avoid clones.
+    pub content: Arc<str>,
 }
 
 /// Trait defining the interface to interact with various LLM services.

@@ -73,7 +73,7 @@ impl ClientWrapper for MockClient {
 
         Ok(Message {
             role: Role::Assistant,
-            content: self.response_content.clone(),
+            content: self.response_content.clone().into(),
         })
     }
 
@@ -102,11 +102,11 @@ async fn test_token_caching() {
     // Verify token counts are cached correctly
     let expected_user_tokens = llm_session::estimate_message_token_count(&Message {
         role: Role::User,
-        content: user_message.to_string(),
+        content: user_message.to_string().into(),
     });
     let expected_response_tokens = llm_session::estimate_message_token_count(&Message {
         role: Role::Assistant,
-        content: "Response".to_string(),
+        content: "Response".to_string().into(),
     });
 
     assert_eq!(session.get_cached_token_counts()[0], expected_user_tokens);
@@ -164,7 +164,7 @@ fn test_estimate_token_count() {
 fn test_estimate_message_token_count() {
     let message = Message {
         role: Role::User,
-        content: "test message".to_string(),
+        content: "test message".to_string().into(),
     };
     // "test message" = 12 characters = 3 tokens + 1 role token = 4 tokens
     assert_eq!(llm_session::estimate_message_token_count(&message), 4);

@@ -5,7 +5,12 @@ use async_trait::async_trait;
 use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
+use std::env;
+use std::error::Error;
+use std::sync::Arc;
+use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
+
 
 pub struct GeminiClient {
     client: openai_rust::Client,
@@ -194,7 +199,7 @@ impl ClientWrapper for GeminiClient {
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
                 },
-                content: msg.content.clone(),
+                content: msg.content.to_string(),
             });
         }
 
@@ -213,7 +218,7 @@ impl ClientWrapper for GeminiClient {
         match result {
             Ok(content) => Ok(Message {
                 role: Role::Assistant,
-                content,
+                content: Arc::from(content.as_str()),
             }),
             Err(err) => {
                 if log::log_enabled!(log::Level::Error) {
