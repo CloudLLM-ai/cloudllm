@@ -98,15 +98,16 @@ impl LLMSession {
         }
     }
 
-    /// Sends a user/system message, receives the assistant’s reply, and
+    /// Sends a user/system message, receives the assistant's reply, and
     /// automatically:
-    /// 1. Adds the system prompt + message to history
-    /// 2. Calls into your client’s `send_message(...)`
-    /// 3. Pulls real token usage via `client.get_last_usage()`
-    /// 4. Updates `total_input_tokens`, `total_output_tokens`
-    /// 5. Prunes oldest messages if `total_token_count > max_tokens`
+    /// 1. Adds the message to history
+    /// 2. Trims oldest messages if estimated tokens exceed `max_tokens` (pre-transmission)
+    /// 3. Calls into your client's `send_message(...)` with trimmed history
+    /// 4. Pulls real token usage via `client.get_last_usage()`
+    /// 5. Updates `total_input_tokens`, `total_output_tokens`
+    /// 6. Trims again if actual usage exceeds `max_tokens` (post-response)
     ///
-    /// Returns the assistant’s `Message`; call `session.token_usage()`
+    /// Returns the assistant's `Message`; call `session.token_usage()`
     /// to see your cumulative usage.
     pub async fn send_message(
         &mut self,
@@ -123,6 +124,23 @@ impl LLMSession {
         self.conversation_history.push(message);
         self.cached_token_counts.push(message_token_count);
 
+        // Estimate total tokens before sending:
+        // system prompt + all conversation history
+        let system_prompt_tokens = estimate_message_token_count(&self.system_prompt);
+        let mut estimated_total: usize = system_prompt_tokens;
+        for msg in &self.conversation_history {
+            estimated_total += estimate_message_token_count(msg);
+        }
+
+        // Trim oldest messages if estimated total exceeds max_tokens
+        while estimated_total > self.max_tokens && !self.conversation_history.is_empty() {
+            self.conversation_history.remove(0);
+            if !self.cached_token_counts.is_empty() {
+                let removed_tokens = self.cached_token_counts.remove(0);
+                estimated_total = estimated_total.saturating_sub(removed_tokens);
+            }
+        }
+
         // Temporarily add the system prompt to the start of the conversation history
         self.conversation_history
             .insert(0, self.system_prompt.clone());
@@ -136,18 +154,23 @@ impl LLMSession {
         // Remove the system prompt from the conversation history
         self.conversation_history.remove(0);
 
-        if let Some(usage) = self.client.get_last_usage().await {
-            // Update the total token counts based on the usage
+        // Add the LLM's response to the conversation history
+        let response_token_count = estimate_message_token_count(&response);
+        self.cached_token_counts.push(response_token_count);
+        self.conversation_history.push(response.clone());
+
+        // Update token counts from actual provider usage
+        if let Some(usage) = self.client.get_last_usage().await{
             self.total_input_tokens = usage.input_tokens;
             self.total_output_tokens = usage.output_tokens;
             self.total_token_count = usage.total_tokens;
 
-            // Trim the conversation history again after adding the response
+            // Trim again if actual usage exceeded max_tokens
+            // This can happen if our estimate was off or if the response was large
             if self.total_token_count > self.max_tokens {
-                // How many tokens we're over by
                 let mut excess = self.total_token_count - self.max_tokens;
-
-                // Remove the oldest messages until we've cleared at least `excess` tokens
+                
+                // Remove oldest messages until we're back under the limit
                 while excess > 0 && !self.conversation_history.is_empty() {
                     self.conversation_history.remove(0);
                     let removed = self.cached_token_counts.remove(0);
@@ -156,15 +179,8 @@ impl LLMSession {
             }
         }
 
-        // Cache the token count for the response before adding it
-        let response_token_count = estimate_message_token_count(&response);
-
-        // Add the LLM's response to the conversation history
-        self.conversation_history.push(response);
-        self.cached_token_counts.push(response_token_count);
-
         // Return the last message, which is the assistant's response
-        Ok(self.conversation_history.last().unwrap().clone())
+        Ok(response)
     }
 
     /// Sets a new system prompt for the session.
