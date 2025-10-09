@@ -7,6 +7,7 @@
  - feat: make token usage retrieval async and clean up Claude/OpenAI client usage
  - Implement token count caching for efficient message trimming
  - Implement pre-transmission trimming to reduce network overhead and latency
+ - Arena/bump allocation for message bodies
 
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
