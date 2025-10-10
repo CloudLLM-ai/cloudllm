@@ -8,6 +8,8 @@
  - Implement token count caching for efficient message trimming
  - Implement pre-transmission trimming to reduce network overhead and latency
  - Arena/bump allocation for message bodies
+ - Reuse request buffers in LLMSession to avoid repeated allocations on each send
+ - OpenAI and Gemini clients preallocate formatted_messages with Vec::with_capacity
 
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
