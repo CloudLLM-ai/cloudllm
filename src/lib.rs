@@ -53,7 +53,7 @@ pub mod cloudllm;
 
 // Re-exporting key items for easier external access.
 pub use cloudllm::client_wrapper;
-pub use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+pub use cloudllm::client_wrapper::{ClientWrapper, Message, MessageChunk, Role};
 // If you wish, you can also re-export specific clients or functionalities from the `clients` submodule:
 pub use cloudllm::clients;
 pub use cloudllm::llm_session::LLMSession;
