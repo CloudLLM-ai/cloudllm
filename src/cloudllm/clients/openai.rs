@@ -114,16 +114,25 @@ impl OpenAIClient {
     }
 
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
+        use crate::clients::common::get_shared_http_client;
         OpenAIClient {
-            client: openai_rust::Client::new(secret_key),
+            client: openai_rust::Client::new_with_client(
+                secret_key,
+                get_shared_http_client().clone(),
+            ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }
     }
 
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        use crate::clients::common::get_shared_http_client;
         OpenAIClient {
-            client: openai_rust::Client::new_with_base_url(secret_key, base_url),
+            client: openai_rust::Client::new_with_client_and_base_url(
+                secret_key,
+                get_shared_http_client().clone(),
+                base_url,
+            ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
         }
