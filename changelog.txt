@@ -11,6 +11,7 @@
  - Reuse request buffers in LLMSession to avoid repeated allocations on each send
  - OpenAI and Gemini clients preallocate formatted_messages with Vec::with_capacity
  - feat: Add model_name() to ClientWrapper and LLMSession
+ - feat: Implement persistent HTTP connection pooling for all provider clients
 
 0.2.12 SEP/21/2025
  - Added Claude client implementation at src/cloudllm/clients/claude.rs:
