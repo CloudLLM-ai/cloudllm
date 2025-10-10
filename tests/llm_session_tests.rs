@@ -264,7 +264,7 @@ async fn test_request_buffer_reuse() {
     let _ = session
         .send_message(Role::User, "First".to_string(), None)
         .await;
-    
+
     // Should have sent: system prompt + user message = 2 messages
     let count1 = client.get_last_message_count().await;
     assert_eq!(count1, 2);
@@ -273,7 +273,7 @@ async fn test_request_buffer_reuse() {
     let _ = session
         .send_message(Role::User, "Second".to_string(), None)
         .await;
-    
+
     // Should have sent: system prompt + first user + first assistant + second user = 4 messages
     let count2 = client.get_last_message_count().await;
     assert_eq!(count2, 4);
@@ -282,7 +282,7 @@ async fn test_request_buffer_reuse() {
     let _ = session
         .send_message(Role::User, "Third".to_string(), None)
         .await;
-    
+
     // Should have sent: system prompt + all messages = 6 messages
     let count3 = client.get_last_message_count().await;
     assert_eq!(count3, 6);
