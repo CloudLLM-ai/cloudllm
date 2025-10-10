@@ -1,6 +1,6 @@
+use async_trait::async_trait;
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 use cloudllm::LLMSession;
-use async_trait::async_trait;
 use openai_rust2 as openai_rust;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -41,18 +41,12 @@ impl ClientWrapper for MockClient {
 #[tokio::test]
 async fn test_arena_allocation() {
     let mock_client = Arc::new(MockClient::new("Mock response".to_string()));
-    let mut session = LLMSession::new(
-        mock_client,
-        "Test system prompt".to_string(),
-        1000,
-    );
+    let mut session = LLMSession::new(mock_client, "Test system prompt".to_string(), 1000);
 
     // Send a message
-    let result = session.send_message(
-        Role::User,
-        "Test user message".to_string(),
-        None,
-    ).await;
+    let result = session
+        .send_message(Role::User, "Test user message".to_string(), None)
+        .await;
 
     assert!(result.is_ok());
     let response = result.unwrap();
@@ -68,11 +62,7 @@ async fn test_arena_allocation() {
 #[test]
 fn test_set_system_prompt() {
     let mock_client = Arc::new(MockClient::new("Response".to_string()));
-    let mut session = LLMSession::new(
-        mock_client,
-        "Initial prompt".to_string(),
-        1000,
-    );
+    let mut session = LLMSession::new(mock_client, "Initial prompt".to_string(), 1000);
 
     // Change system prompt
     session.set_system_prompt("Updated prompt".to_string());
@@ -88,7 +78,7 @@ fn test_message_content_is_arc_str() {
     };
 
     let cloned = msg.clone();
-    
+
     // Arc::ptr_eq checks if both Arcs point to the same allocation
     assert!(Arc::ptr_eq(&msg.content, &cloned.content));
 }
