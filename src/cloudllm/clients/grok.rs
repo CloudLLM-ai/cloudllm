@@ -97,8 +97,22 @@ impl ClientWrapper for GrokClient {
         &'a self,
         messages: &'a [Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<Option<Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>>>, Box<dyn Error>>> + 'a>> {
-        self.delegate_client.send_message_stream(messages, optional_search_parameters)
+    ) -> Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        Option<
+                            Pin<
+                                Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>,
+                            >,
+                        >,
+                        Box<dyn Error>,
+                    >,
+                > + 'a,
+        >,
+    > {
+        self.delegate_client
+            .send_message_stream(messages, optional_search_parameters)
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {

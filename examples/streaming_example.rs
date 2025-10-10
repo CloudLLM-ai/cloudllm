@@ -1,9 +1,8 @@
+use cloudllm::client_wrapper::Role;
 /// Example demonstrating streaming support for LLM responses.
 /// This example shows how to receive tokens as they arrive from the LLM,
 /// providing a much better user experience with reduced perceived latency.
-
 use cloudllm::clients::openai::{Model, OpenAIClient};
-use cloudllm::client_wrapper::Role;
 use cloudllm::{ClientWrapper, LLMSession};
 use futures_util::StreamExt;
 use std::io::{self, Write};
@@ -52,7 +51,7 @@ async fn main() {
         Ok(Some(mut stream)) => {
             print!("Assistant (streaming): ");
             io::stdout().flush().unwrap();
-            
+
             let mut full_response = String::new();
             while let Some(chunk_result) = stream.next().await {
                 match chunk_result {
@@ -62,7 +61,7 @@ async fn main() {
                             io::stdout().flush().unwrap();
                             full_response.push_str(&chunk.content);
                         }
-                        
+
                         if let Some(reason) = chunk.finish_reason {
                             println!("\n[Finished: {}]", reason);
                         }
@@ -73,14 +72,16 @@ async fn main() {
                     }
                 }
             }
-            
+
             // After collecting the full response, you can manually add it to history if needed
             println!("\nAccumulated response: {} chars", full_response.len());
-            
+
             // Optionally add the streamed response to history for context
             if !full_response.is_empty() {
                 // Note: The user message was already added; now add the assistant response
-                let _ = session.send_message(Role::Assistant, full_response, None).await;
+                let _ = session
+                    .send_message(Role::Assistant, full_response, None)
+                    .await;
             }
         }
         Ok(None) => {

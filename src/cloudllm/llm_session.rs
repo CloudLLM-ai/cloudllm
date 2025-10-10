@@ -229,7 +229,12 @@ impl LLMSession {
         role: Role,
         content: String,
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-    ) -> Result<Option<Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn std::error::Error>>> + Send>>>, Box<dyn std::error::Error>> {
+    ) -> Result<
+        Option<
+            Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn std::error::Error>>> + Send>>,
+        >,
+        Box<dyn std::error::Error>,
+    > {
         // Allocate message content in arena and create Arc<str>
         let content_str = self.arena.alloc_str(&content);
         let content_arc: Arc<str> = Arc::from(content_str);
