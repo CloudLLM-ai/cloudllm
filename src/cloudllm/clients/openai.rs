@@ -50,7 +50,7 @@ use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
 use crate::client_wrapper::{MessageChunk, TokenUsage};
-use crate::clients::common::{send_and_track, chunks_to_stream, StreamError};
+use crate::clients::common::{chunks_to_stream, send_and_track, StreamError};
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use tokio::sync::Mutex;
 
@@ -206,80 +206,105 @@ impl ClientWrapper for OpenAIClient {
         &'a self,
         messages: &'a [Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<Option<Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>>>, Box<dyn Error>>> + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        Option<
+                            Pin<
+                                Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>,
+                            >,
+                        >,
+                        Box<dyn Error>,
+                    >,
+                > + 'a,
+        >,
+    > {
         Box::pin(async move {
-        // Convert the provided messages into the format expected by openai_rust
-        let mut formatted_messages = Vec::with_capacity(messages.len());
-        for msg in messages {
-            formatted_messages.push(chat::Message {
-                role: match msg.role {
-                    Role::System => "system".to_owned(),
-                    Role::User => "user".to_owned(),
-                    Role::Assistant => "assistant".to_owned(),
-                },
-                content: msg.content.to_string(),
-            });
-        }
+            // Convert the provided messages into the format expected by openai_rust
+            let mut formatted_messages = Vec::with_capacity(messages.len());
+            for msg in messages {
+                formatted_messages.push(chat::Message {
+                    role: match msg.role {
+                        Role::System => "system".to_owned(),
+                        Role::User => "user".to_owned(),
+                        Role::Assistant => "assistant".to_owned(),
+                    },
+                    content: msg.content.to_string(),
+                });
+            }
 
-        let url_path_string = "/v1/chat/completions".to_string();
+            let url_path_string = "/v1/chat/completions".to_string();
 
-        // Build the chat arguments
-        let mut chat_arguments = chat::ChatArguments::new(&self.model, formatted_messages);
-        if let Some(search_params) = optional_search_parameters {
-            chat_arguments = chat_arguments.with_search_parameters(search_params);
-        }
+            // Build the chat arguments
+            let mut chat_arguments = chat::ChatArguments::new(&self.model, formatted_messages);
+            if let Some(search_params) = optional_search_parameters {
+                chat_arguments = chat_arguments.with_search_parameters(search_params);
+            }
 
-        // Create the streaming request
-        let stream_result = self.client.create_chat_stream(chat_arguments, Some(url_path_string)).await;
+            // Create the streaming request
+            let stream_result = self
+                .client
+                .create_chat_stream(chat_arguments, Some(url_path_string))
+                .await;
 
-        match stream_result {
-            Ok(mut chunk_stream) => {
-                // Collect all chunks into a Vec
-                let mut chunks: Vec<Result<MessageChunk, Box<dyn Error + Send>>> = Vec::new();
-                
-                while let Some(chunk_result) = chunk_stream.next().await {
-                    let message_chunk: Result<MessageChunk, Box<dyn Error + Send>> = match chunk_result {
-                        Ok(chunk) => {
-                            // Extract content and finish_reason from the chunk
-                            let content = chunk.choices.get(0)
-                                .and_then(|choice| choice.delta.content.clone())
-                                .unwrap_or_default();
-                            
-                            let finish_reason = chunk.choices.get(0)
-                                .and_then(|choice| choice.finish_reason.clone());
+            match stream_result {
+                Ok(mut chunk_stream) => {
+                    // Collect all chunks into a Vec
+                    let mut chunks: Vec<Result<MessageChunk, Box<dyn Error + Send>>> = Vec::new();
 
-                            Ok(MessageChunk {
-                                content,
-                                finish_reason,
-                            })
-                        }
-                        Err(err) => {
-                            if log::log_enabled!(log::Level::Error) {
-                                log::error!(
+                    while let Some(chunk_result) = chunk_stream.next().await {
+                        let message_chunk: Result<MessageChunk, Box<dyn Error + Send>> =
+                            match chunk_result {
+                                Ok(chunk) => {
+                                    // Extract content and finish_reason from the chunk
+                                    let content = chunk
+                                        .choices
+                                        .get(0)
+                                        .and_then(|choice| choice.delta.content.clone())
+                                        .unwrap_or_default();
+
+                                    let finish_reason = chunk
+                                        .choices
+                                        .get(0)
+                                        .and_then(|choice| choice.finish_reason.clone());
+
+                                    Ok(MessageChunk {
+                                        content,
+                                        finish_reason,
+                                    })
+                                }
+                                Err(err) => {
+                                    if log::log_enabled!(log::Level::Error) {
+                                        log::error!(
                                     "OpenAIClient::send_message_stream(...): Stream chunk error: {}",
                                     err
                                 );
-                            }
-                            Err(Box::new(StreamError(format!("Stream chunk error: {}", err))) as Box<dyn Error + Send>)
-                        }
-                    };
-                    
-                    chunks.push(message_chunk);
-                }
+                                    }
+                                    Err(Box::new(StreamError(format!(
+                                        "Stream chunk error: {}",
+                                        err
+                                    )))
+                                        as Box<dyn Error + Send>)
+                                }
+                            };
 
-                // Convert the collected chunks into a stream
-                Ok(Some(chunks_to_stream(chunks)))
-            }
-            Err(err) => {
-                if log::log_enabled!(log::Level::Error) {
-                    log::error!(
-                        "OpenAIClient::send_message_stream(...): OpenAI API Error: {}",
-                        err
-                    );
+                        chunks.push(message_chunk);
+                    }
+
+                    // Convert the collected chunks into a stream
+                    Ok(Some(chunks_to_stream(chunks)))
                 }
-                Err(err.into())
+                Err(err) => {
+                    if log::log_enabled!(log::Level::Error) {
+                        log::error!(
+                            "OpenAIClient::send_message_stream(...): OpenAI API Error: {}",
+                            err
+                        );
+                    }
+                    Err(err.into())
+                }
             }
-        }
         })
     }
 

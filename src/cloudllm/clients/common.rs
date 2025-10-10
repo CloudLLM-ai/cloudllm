@@ -90,6 +90,10 @@ impl Error for StreamError {}
 pub fn chunks_to_stream(
     chunks: Vec<Result<MessageChunk, Box<dyn Error + Send>>>,
 ) -> Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>> {
-    let stream = futures_util::stream::iter(chunks.into_iter().map(|r| r.map_err(|e| e as Box<dyn Error>)));
+    let stream = futures_util::stream::iter(
+        chunks
+            .into_iter()
+            .map(|r| r.map_err(|e| e as Box<dyn Error>)),
+    );
     Box::pin(stream)
 }

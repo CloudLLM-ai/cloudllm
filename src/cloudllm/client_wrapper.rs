@@ -75,7 +75,20 @@ pub trait ClientWrapper: Send + Sync {
         &'a self,
         _messages: &'a [Message],
         _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<Option<Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>>>, Box<dyn Error>>> + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<
+                        Option<
+                            Pin<
+                                Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>,
+                            >,
+                        >,
+                        Box<dyn Error>,
+                    >,
+                > + 'a,
+        >,
+    > {
         Box::pin(async { Ok(None) })
     }
 
