@@ -49,6 +49,9 @@ pub trait ClientWrapper: Send + Sync {
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>>;
 
+    /// Returns the model identifier configured for this client.
+    fn model_name(&self) -> &str;
+
     /// Hook to retrieve usage from the *last* send_message() call.
     /// Default impl returns None, so existing wrappers don’t break.
     async fn get_last_usage(&self) -> Option<TokenUsage> {

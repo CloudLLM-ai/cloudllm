@@ -87,17 +87,17 @@ impl LLMSession {
     /// Initializes the conversation history and sets a default maximum token limit.
     pub fn new(client: Arc<dyn ClientWrapper>, system_prompt: String, max_tokens: usize) -> Self {
         let arena = Bump::new();
-        
+
         // Allocate system prompt in arena and create Arc<str> from it
         let system_prompt_str = arena.alloc_str(&system_prompt);
         let system_prompt_arc: Arc<str> = Arc::from(system_prompt_str);
-        
+
         // Create the system prompt message
         let system_prompt_message = Message {
             role: Role::System,
             content: system_prompt_arc,
         };
-        
+
         LLMSession {
             client,
             system_prompt: system_prompt_message,
@@ -132,7 +132,7 @@ impl LLMSession {
         // Allocate message content in arena and create Arc<str>
         let content_str = self.arena.alloc_str(&content);
         let content_arc: Arc<str> = Arc::from(content_str);
-        
+
         let message = Message {
             role,
             content: content_arc,
@@ -164,9 +164,11 @@ impl LLMSession {
 
         // Build request buffer by reusing the existing Vec to avoid allocation
         self.request_buffer.clear();
-        self.request_buffer.reserve(1 + self.conversation_history.len());
+        self.request_buffer
+            .reserve(1 + self.conversation_history.len());
         self.request_buffer.push(self.system_prompt.clone());
-        self.request_buffer.extend_from_slice(&self.conversation_history);
+        self.request_buffer
+            .extend_from_slice(&self.conversation_history);
 
         // Send the messages to the LLM
         let response = self
@@ -180,7 +182,7 @@ impl LLMSession {
         self.conversation_history.push(response.clone());
 
         // Update token counts from actual provider usage
-        if let Some(usage) = self.client.get_last_usage().await{
+        if let Some(usage) = self.client.get_last_usage().await {
             self.total_input_tokens = usage.input_tokens;
             self.total_output_tokens = usage.output_tokens;
             self.total_token_count = usage.total_tokens;
@@ -189,7 +191,7 @@ impl LLMSession {
             // This can happen if our estimate was off or if the response was large
             if self.total_token_count > self.max_tokens {
                 let mut excess = self.total_token_count - self.max_tokens;
-                
+
                 // Remove oldest messages until we're back under the limit
                 while excess > 0 && !self.conversation_history.is_empty() {
                     self.conversation_history.remove(0);
@@ -209,7 +211,7 @@ impl LLMSession {
         // Allocate prompt in arena and create Arc<str>
         let prompt_str = self.arena.alloc_str(&prompt);
         let prompt_arc: Arc<str> = Arc::from(prompt_str);
-        
+
         self.system_prompt = Message {
             role: Role::System,
             content: prompt_arc,
@@ -223,6 +225,16 @@ impl LLMSession {
             output_tokens: self.total_output_tokens,
             total_tokens: self.total_token_count,
         }
+    }
+
+    /// Returns the model identifier used by the underlying client.
+    pub fn model_name(&self) -> String {
+        self.client.model_name().to_string()
+    }
+
+    /// Returns the latest token usage reported by the upstream client, if available.
+    pub async fn last_token_usage(&self) -> Option<client_wrapper::TokenUsage> {
+        self.client.get_last_usage().await
     }
 
     pub fn get_max_tokens(&self) -> usize {

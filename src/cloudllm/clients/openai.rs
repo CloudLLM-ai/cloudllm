@@ -140,6 +140,10 @@ impl OpenAIClient {
 
 #[async_trait]
 impl ClientWrapper for OpenAIClient {
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
     async fn send_message(
         &self,
         messages: &[Message],

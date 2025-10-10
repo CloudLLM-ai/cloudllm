@@ -9,7 +9,6 @@ use tokio::sync::Mutex;
 pub struct GrokClient {
     delegate_client: OpenAIClient,
     model: String,
-    token_usage: Mutex<Option<TokenUsage>>,
 }
 
 // Models returned by the xAI API as of apr.14.2025
@@ -57,7 +56,6 @@ impl GrokClient {
                 "https://api.x.ai/v1",
             ),
             model: model_name.to_string(),
-            token_usage: Mutex::new(None),
         }
     }
 
@@ -65,7 +63,6 @@ impl GrokClient {
         GrokClient {
             delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, base_url),
             model: model_name.to_string(),
-            token_usage: Mutex::new(None),
         }
     }
 
@@ -80,6 +77,10 @@ impl GrokClient {
 
 #[async_trait]
 impl ClientWrapper for GrokClient {
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
     async fn send_message(
         &self,
         messages: &[Message],

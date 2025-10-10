@@ -8,7 +8,6 @@ use openai_rust2 as openai_rust;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-
 pub struct GeminiClient {
     client: openai_rust::Client,
     pub model: String,
@@ -181,6 +180,10 @@ impl GeminiClient {
 
 #[async_trait]
 impl ClientWrapper for GeminiClient {
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
     async fn send_message(
         &self,
         messages: &[Message],

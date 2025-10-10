@@ -9,7 +9,6 @@ use tokio::sync::Mutex;
 pub struct ClaudeClient {
     delegate_client: OpenAIClient,
     model: String,
-    token_usage: Mutex<Option<TokenUsage>>,
 }
 
 // Models available in Claude API as of jan.2025
@@ -45,7 +44,6 @@ impl ClaudeClient {
                 "https://api.anthropic.com/v1",
             ),
             model: model_name.to_string(),
-            token_usage: Mutex::new(None),
         }
     }
 
@@ -53,7 +51,6 @@ impl ClaudeClient {
         ClaudeClient {
             delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, base_url),
             model: model_name.to_string(),
-            token_usage: Mutex::new(None),
         }
     }
 
@@ -68,6 +65,10 @@ impl ClaudeClient {
 
 #[async_trait]
 impl ClientWrapper for ClaudeClient {
+    fn model_name(&self) -> &str {
+        &self.model
+    }
+
     async fn send_message(
         &self,
         messages: &[Message],
