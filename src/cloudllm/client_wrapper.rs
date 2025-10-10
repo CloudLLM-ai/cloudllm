@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures_util::stream::Stream;
 use openai_rust2 as openai_rust;
 /// A ClientWrapper is a wrapper around a specific cloud LLM service.
 /// It provides a common interface to interact with the LLMs.
@@ -7,6 +8,7 @@ use openai_rust2 as openai_rust;
 /// and uses a ClientWrapper to interact with the LLM.
 // src/client_wrapper
 use std::error::Error;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -38,6 +40,17 @@ pub struct Message {
     pub content: Arc<str>,
 }
 
+/// Represents a chunk of content in a streaming response.
+/// Each chunk contains a delta (incremental piece) of the assistant's response.
+#[derive(Clone, Debug)]
+pub struct MessageChunk {
+    /// The incremental content delta in this chunk.
+    /// May be empty for chunks that don't contain content (e.g., finish_reason chunks).
+    pub content: String,
+    /// Optional finish reason indicating why the stream ended (e.g., "stop", "length").
+    pub finish_reason: Option<String>,
+}
+
 /// Trait defining the interface to interact with various LLM services.
 #[async_trait]
 pub trait ClientWrapper: Send + Sync {
@@ -48,6 +61,23 @@ pub trait ClientWrapper: Send + Sync {
         messages: &[Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Message, Box<dyn Error>>;
+
+    /// Send a message to the LLM and get a streaming response.
+    /// Returns a stream of MessageChunk items that arrive as the LLM generates them.
+    /// - `messages`: The messages to send in the request.
+    ///
+    /// Default implementation returns None, indicating streaming is not supported.
+    /// Providers that support streaming should override this method.
+    ///
+    /// Note: This method returns a boxed future instead of using async fn to avoid
+    /// Send requirements on the internal stream processing.
+    fn send_message_stream<'a>(
+        &'a self,
+        _messages: &'a [Message],
+        _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<Option<Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>>>, Box<dyn Error>>> + 'a>> {
+        Box::pin(async { Ok(None) })
+    }
 
     /// Returns the model identifier configured for this client.
     fn model_name(&self) -> &str;

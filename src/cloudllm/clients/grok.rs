@@ -1,9 +1,11 @@
-use crate::client_wrapper::TokenUsage;
+use crate::client_wrapper::{MessageChunk, TokenUsage};
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
+use futures_util::stream::Stream;
 use openai_rust2 as openai_rust;
 use std::error::Error;
+use std::pin::Pin;
 use tokio::sync::Mutex;
 
 pub struct GrokClient {
@@ -89,6 +91,14 @@ impl ClientWrapper for GrokClient {
         self.delegate_client
             .send_message(messages, optional_search_parameters)
             .await
+    }
+
+    fn send_message_stream<'a>(
+        &'a self,
+        messages: &'a [Message],
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<Option<Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>>>, Box<dyn Error>>> + 'a>> {
+        self.delegate_client.send_message_stream(messages, optional_search_parameters)
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
