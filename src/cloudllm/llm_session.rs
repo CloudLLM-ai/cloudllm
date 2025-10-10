@@ -220,7 +220,8 @@ impl LLMSession {
     /// The final chunk will include a finish_reason.
     ///
     /// Note: Token usage tracking is not automatically available for streaming responses.
-    /// The message and accumulated response are still added to the conversation history.
+    /// The caller is responsible for accumulating the streamed content and optionally
+    /// adding it to conversation history by calling send_message() with the accumulated text.
     ///
     /// Returns None if the underlying client does not support streaming.
     pub async fn send_message_stream(
@@ -275,17 +276,13 @@ impl LLMSession {
             .send_message_stream(&self.request_buffer, optional_search_parameters)
             .await?;
 
-        // If streaming is not supported, return None
+        // If streaming is not supported, remove the message we added
         if stream_result.is_none() {
-            // Remove the message we added since streaming isn't supported
             self.conversation_history.pop();
             self.cached_token_counts.pop();
-            return Ok(None);
         }
 
-        // We'll accumulate the response content as chunks arrive
-        // and add it to history after the stream completes
-        // For now, return the stream as-is
+        // Return the stream (caller will handle accumulating and adding to history if needed)
         Ok(stream_result)
     }
 

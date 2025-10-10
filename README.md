@@ -9,6 +9,7 @@ CloudLLM is a Rust library designed to seamlessly bridge applications with remot
 ## Features
 
 - **Unified Interface**: Interact with multiple LLMs using a single, consistent API.
+- **Streaming Support**: First-class streaming for real-time token delivery, dramatically reducing perceived latency.
 - **Pay-as-you-go Integration**: Designed to work efficiently with pay-as-you-go LLM platforms.
 - **Extendable**: Easily add new LLM platform clients as they emerge.
 - **Asynchronous Support**: Built with async operations for non-blocking calls.
