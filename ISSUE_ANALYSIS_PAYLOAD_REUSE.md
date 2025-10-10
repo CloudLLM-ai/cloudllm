@@ -12,10 +12,10 @@ Original issue requested caching provider-specific message formats to avoid re-c
 
 | Metric | Value |
 |--------|-------|
-| Current conversion cost | 0.83µs per turn |
-| Potential savings | 0.79µs per turn |
+| Current conversion cost | 1.36µs per turn |
+| Potential savings | 1.32µs per turn |
 | Network + LLM time | ~100ms to 10s |
-| **Optimization impact** | **< 0.001% improvement** |
+| **Optimization impact** | **< 0.002% improvement** |
 
 ## Why This Isn't Needed
 
@@ -37,6 +37,13 @@ Original issue requested caching provider-specific message formats to avoid re-c
    - Additional memory overhead
    - Complex state management
    - Provider-specific logic in generic code
+
+## Run the Benchmark
+
+To verify these results yourself:
+```bash
+cargo run --release --bin payload_conversion_bench
+```
 
 ## Detailed Analysis
 

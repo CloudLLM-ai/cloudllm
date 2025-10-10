@@ -30,17 +30,17 @@ The current flow for each message send:
 
 | Approach | Time per Turn | Description |
 |----------|---------------|-------------|
-| **Current** | 0.83µs | Convert all messages each time |
-| **Cached** | 0.04µs | Only convert new messages |
-| **Savings** | 0.79µs | 19x faster conversion |
+| **Current** | 1.36µs | Convert all messages each time |
+| **Cached** | 0.05µs | Only convert new messages |
+| **Savings** | 1.32µs | 30x faster conversion |
 
 ### Context
 
 | Operation | Time | Percentage |
 |-----------|------|------------|
-| Network latency | ~100ms (100,000µs) | 99.9992% |
+| Network latency | ~100ms (100,000µs) | 99.9986% |
 | LLM processing | ~1-10s (1,000,000µs+) | 99.9999% |
-| Message conversion | 0.83µs | **0.0008%** |
+| Message conversion | 1.36µs | **0.0014%** |
 
 ## Analysis
 
@@ -111,12 +111,12 @@ If future profiling shows message conversion is a bottleneck (which is highly un
 
 ## Benchmark Source Code
 
-```rust
-// See /tmp/comparison_bench.rs for full source
-// Key measurement: convert_all() vs cached approach
-// Hardware: GitHub Actions runner
-// Rust version: 1.x (stable)
+Run the benchmark yourself:
+```bash
+cargo run --release --bin payload_conversion_bench
 ```
+
+Source: `benches/payload_conversion_bench.rs`
 
 ## Conclusion
 
