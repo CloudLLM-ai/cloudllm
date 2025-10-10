@@ -57,7 +57,7 @@ impl ClientWrapper for MockClient {
         }
         let output_tokens = estimate_message_token_count(&Message {
             role: Role::Assistant,
-            content: self.response_content.clone(),
+            content: self.response_content.clone().into(),
         });
 
         let computed_usage = TokenUsage {
@@ -248,4 +248,42 @@ async fn test_no_trimming_when_under_limit() {
         message_count, 4,
         "Should have sent all messages without trimming"
     );
+}
+
+#[tokio::test]
+async fn test_request_buffer_reuse() {
+    // Test that the request buffer is reused correctly across multiple send_message calls
+    let client = Arc::new(MockClient::new("Response".to_string()));
+    let mut session = LLMSession::new(
+        client.clone() as Arc<dyn ClientWrapper>,
+        "System prompt".to_string(),
+        10_000,
+    );
+
+    // Send first message
+    let _ = session
+        .send_message(Role::User, "First".to_string(), None)
+        .await;
+    
+    // Should have sent: system prompt + user message = 2 messages
+    let count1 = client.get_last_message_count().await;
+    assert_eq!(count1, 2);
+
+    // Send second message
+    let _ = session
+        .send_message(Role::User, "Second".to_string(), None)
+        .await;
+    
+    // Should have sent: system prompt + first user + first assistant + second user = 4 messages
+    let count2 = client.get_last_message_count().await;
+    assert_eq!(count2, 4);
+
+    // Send third message
+    let _ = session
+        .send_message(Role::User, "Third".to_string(), None)
+        .await;
+    
+    // Should have sent: system prompt + all messages = 6 messages
+    let count3 = client.get_last_message_count().await;
+    assert_eq!(count3, 6);
 }

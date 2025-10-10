@@ -68,6 +68,7 @@ use std::sync::Arc;
 /// - `total_context_tokens`: shortcut for input + output totals.
 /// - `total_token_count`: total tokens used in the current session.
 /// - `arena`: bump allocator for efficient message body allocation.
+/// - `request_buffer`: reusable buffer for building request messages, reducing allocations.
 pub struct LLMSession {
     client: Arc<dyn ClientWrapper>,
     system_prompt: Message,
@@ -78,6 +79,7 @@ pub struct LLMSession {
     total_output_tokens: usize,
     total_token_count: usize,
     arena: Bump,
+    request_buffer: Vec<Message>,
 }
 
 impl LLMSession {
@@ -106,6 +108,7 @@ impl LLMSession {
             total_output_tokens: 0,
             total_token_count: 0,
             arena,
+            request_buffer: Vec::new(),
         }
     }
 
@@ -159,18 +162,17 @@ impl LLMSession {
             }
         }
 
-        // Temporarily add the system prompt to the start of the conversation history
-        self.conversation_history
-            .insert(0, self.system_prompt.clone());
+        // Build request buffer by reusing the existing Vec to avoid allocation
+        self.request_buffer.clear();
+        self.request_buffer.reserve(1 + self.conversation_history.len());
+        self.request_buffer.push(self.system_prompt.clone());
+        self.request_buffer.extend_from_slice(&self.conversation_history);
 
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(&self.conversation_history, optional_search_parameters)
+            .send_message(&self.request_buffer, optional_search_parameters)
             .await?;
-
-        // Remove the system prompt from the conversation history
-        self.conversation_history.remove(0);
 
         // Add the LLM's response to the conversation history
         let response_token_count = estimate_message_token_count(&response);
