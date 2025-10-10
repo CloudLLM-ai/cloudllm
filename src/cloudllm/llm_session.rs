@@ -176,10 +176,15 @@ impl LLMSession {
             .send_message(&self.request_buffer, optional_search_parameters)
             .await?;
 
-        // Add the LLM's response to the conversation history
+        // Clone response for return before adding to history
+        // This way we keep the owned response from client, push it to history (no clone),
+        // and return a clone only for the caller
+        let response_to_return = response.clone();
+
+        // Cache token count and add the owned response to history
         let response_token_count = estimate_message_token_count(&response);
         self.cached_token_counts.push(response_token_count);
-        self.conversation_history.push(response.clone());
+        self.conversation_history.push(response);
 
         // Update token counts from actual provider usage
         if let Some(usage) = self.client.get_last_usage().await {
@@ -201,8 +206,8 @@ impl LLMSession {
             }
         }
 
-        // Return the last message, which is the assistant's response
-        Ok(response)
+        // Return the response (cloned earlier for caller)
+        Ok(response_to_return)
     }
 
     /// Sets a new system prompt for the session.
