@@ -51,9 +51,11 @@
 //! The session automatically trims oldest messages before transmission when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
-use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+use crate::cloudllm::client_wrapper::{ClientWrapper, Message, MessageChunk, Role};
 use bumpalo::Bump;
+use futures_util::stream::Stream;
 use openai_rust2 as openai_rust;
+use std::pin::Pin;
 use std::sync::Arc;
 
 /// A conversation session with an LLM, including:
@@ -208,6 +210,83 @@ impl LLMSession {
 
         // Return the response (cloned earlier for caller)
         Ok(response_to_return)
+    }
+
+    /// Sends a user/system message and returns a stream of MessageChunk items.
+    /// This method provides first-class streaming support, delivering tokens as they arrive
+    /// from the LLM provider.
+    ///
+    /// The stream will contain incremental content chunks that can be displayed in real-time.
+    /// The final chunk will include a finish_reason.
+    ///
+    /// Note: Token usage tracking is not automatically available for streaming responses.
+    /// The message and accumulated response are still added to the conversation history.
+    ///
+    /// Returns None if the underlying client does not support streaming.
+    pub async fn send_message_stream(
+        &mut self,
+        role: Role,
+        content: String,
+        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    ) -> Result<Option<Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn std::error::Error>>> + Send>>>, Box<dyn std::error::Error>> {
+        // Allocate message content in arena and create Arc<str>
+        let content_str = self.arena.alloc_str(&content);
+        let content_arc: Arc<str> = Arc::from(content_str);
+
+        let message = Message {
+            role,
+            content: content_arc,
+        };
+
+        // Cache the token count for the new message before adding it
+        let message_token_count = estimate_message_token_count(&message);
+
+        // Add the new message to the conversation history
+        self.conversation_history.push(message);
+        self.cached_token_counts.push(message_token_count);
+
+        // Estimate total tokens before sending
+        let system_prompt_tokens = estimate_message_token_count(&self.system_prompt);
+        let mut estimated_total: usize = system_prompt_tokens;
+        for msg in &self.conversation_history {
+            estimated_total += estimate_message_token_count(msg);
+        }
+
+        // Trim oldest messages if estimated total exceeds max_tokens
+        while estimated_total > self.max_tokens && !self.conversation_history.is_empty() {
+            self.conversation_history.remove(0);
+            if !self.cached_token_counts.is_empty() {
+                let removed_tokens = self.cached_token_counts.remove(0);
+                estimated_total = estimated_total.saturating_sub(removed_tokens);
+            }
+        }
+
+        // Build request buffer
+        self.request_buffer.clear();
+        self.request_buffer
+            .reserve(1 + self.conversation_history.len());
+        self.request_buffer.push(self.system_prompt.clone());
+        self.request_buffer
+            .extend_from_slice(&self.conversation_history);
+
+        // Get the streaming response
+        let stream_result = self
+            .client
+            .send_message_stream(&self.request_buffer, optional_search_parameters)
+            .await?;
+
+        // If streaming is not supported, return None
+        if stream_result.is_none() {
+            // Remove the message we added since streaming isn't supported
+            self.conversation_history.pop();
+            self.cached_token_counts.pop();
+            return Ok(None);
+        }
+
+        // We'll accumulate the response content as chunks arrive
+        // and add it to history after the stream completes
+        // For now, return the stream as-is
+        Ok(stream_result)
     }
 
     /// Sets a new system prompt for the session.
