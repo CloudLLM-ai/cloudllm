@@ -5,10 +5,7 @@ use async_trait::async_trait;
 use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
-use std::env;
-use std::error::Error;
 use std::sync::Arc;
-use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
 
 
