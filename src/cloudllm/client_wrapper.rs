@@ -36,7 +36,7 @@ pub struct TokenUsage {
 pub struct Message {
     /// The role associated with the message.
     pub role: Role,
-    /// The actual content of the message stored as Arc<str> to avoid clones.
+    /// The actual content of the message stored as `Arc<str>` to avoid clones.
     pub content: Arc<str>,
 }
 
