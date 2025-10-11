@@ -51,11 +51,9 @@
 //! The session automatically trims oldest messages before transmission when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
-use crate::cloudllm::client_wrapper::{ClientWrapper, Message, MessageChunk, Role};
+use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use bumpalo::Bump;
-use futures_util::stream::Stream;
 use openai_rust2 as openai_rust;
-use std::pin::Pin;
 use std::sync::Arc;
 
 /// A conversation session with an LLM, including:
@@ -229,12 +227,7 @@ impl LLMSession {
         role: Role,
         content: String,
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-    ) -> Result<
-        Option<
-            Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn std::error::Error>>> + Send>>,
-        >,
-        Box<dyn std::error::Error>,
-    > {
+    ) -> Result<Option<crate::client_wrapper::MessageChunkStream>, Box<dyn std::error::Error>> {
         // Allocate message content in arena and create Arc<str>
         let content_str = self.arena.alloc_str(&content);
         let content_arc: Arc<str> = Arc::from(content_str);
