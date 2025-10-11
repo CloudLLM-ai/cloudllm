@@ -1,11 +1,9 @@
 use crate::client_wrapper::{MessageChunk, TokenUsage};
-use futures_util::stream::Stream;
 use lazy_static::lazy_static;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use reqwest;
 use std::error::Error;
-use std::pin::Pin;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -89,7 +87,7 @@ impl Error for StreamError {}
 /// Helper to convert collected chunks into a Send-able stream
 pub fn chunks_to_stream(
     chunks: Vec<Result<MessageChunk, Box<dyn Error + Send>>>,
-) -> Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>> {
+) -> crate::client_wrapper::MessageChunkStream {
     let stream = futures_util::stream::iter(
         chunks
             .into_iter()

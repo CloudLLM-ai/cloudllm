@@ -51,6 +51,15 @@ pub struct MessageChunk {
     pub finish_reason: Option<String>,
 }
 
+/// Type alias for a stream of message chunks.
+pub type MessageChunkStream =
+    Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>>;
+
+/// Type alias for the future returned by send_message_stream.
+pub type MessageStreamFuture<'a> = Pin<
+    Box<dyn std::future::Future<Output = Result<Option<MessageChunkStream>, Box<dyn Error>>> + 'a>,
+>;
+
 /// Trait defining the interface to interact with various LLM services.
 #[async_trait]
 pub trait ClientWrapper: Send + Sync {
@@ -75,20 +84,7 @@ pub trait ClientWrapper: Send + Sync {
         &'a self,
         _messages: &'a [Message],
         _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-    ) -> Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Result<
-                        Option<
-                            Pin<
-                                Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>,
-                            >,
-                        >,
-                        Box<dyn Error>,
-                    >,
-                > + 'a,
-        >,
-    > {
+    ) -> MessageStreamFuture<'a> {
         Box::pin(async { Ok(None) })
     }
 

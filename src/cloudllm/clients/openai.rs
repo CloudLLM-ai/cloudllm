@@ -41,11 +41,10 @@
 //!
 //! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
 use std::error::Error;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures_util::stream::{Stream, StreamExt};
+use futures_util::stream::StreamExt;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
@@ -206,20 +205,7 @@ impl ClientWrapper for OpenAIClient {
         &'a self,
         messages: &'a [Message],
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
-    ) -> Pin<
-        Box<
-            dyn std::future::Future<
-                    Output = Result<
-                        Option<
-                            Pin<
-                                Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>,
-                            >,
-                        >,
-                        Box<dyn Error>,
-                    >,
-                > + 'a,
-        >,
-    > {
+    ) -> crate::client_wrapper::MessageStreamFuture<'a> {
         Box::pin(async move {
             // Convert the provided messages into the format expected by openai_rust
             let mut formatted_messages = Vec::with_capacity(messages.len());
