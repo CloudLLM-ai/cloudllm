@@ -1,4 +1,4 @@
-0.3.1 OCT/10/2025
+0.3.0 OCT/11/2025
  - feat: Add first-class streaming support for LLM responses
    - New MessageChunk type for incremental content delivery
    - ClientWrapper::send_message_stream() method for streaming responses
@@ -10,8 +10,6 @@
    - Added streaming_example.rs demonstrating usage
    - Added futures-util dependency for Stream trait
  - Note: Token usage tracking not available for streaming responses
-
-0.3.0 OCT/09/2025
  - Optimized LLMSession conversation history with VecDeque to eliminate O(N²) insert/remove churn
  - Minimize string formatting overhead in hot path error logs
  - Replace std::sync::Mutex with tokio::sync::Mutex for async-friendly token usage tracking
