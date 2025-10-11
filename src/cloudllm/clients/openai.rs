@@ -246,13 +246,13 @@ impl ClientWrapper for OpenAIClient {
                                     // Extract content and finish_reason from the chunk
                                     let content = chunk
                                         .choices
-                                        .get(0)
+                                        .first()
                                         .and_then(|choice| choice.delta.content.clone())
                                         .unwrap_or_default();
 
                                     let finish_reason = chunk
                                         .choices
-                                        .get(0)
+                                        .first()
                                         .and_then(|choice| choice.finish_reason.clone());
 
                                     Ok(MessageChunk {
