@@ -429,10 +429,145 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 ---
 
+## Recipe 5 — Managing Token Budgets with Per-Participant Limits
+
+**Goal:** Demonstrate how to enforce hard token usage limits on individual participants to control costs in multi-round discussions.
+
+**Why it matters:** In production scenarios, you may want to allocate different token budgets to different participants based on their role importance or cost considerations.
+
+**Council design:**
+
+- High-priority moderator with generous 50K token budget
+- Standard analysts with 10K token limits each
+- Observer with minimal 2K token budget
+
+```rust
+use std::error::Error;
+use std::sync::Arc;
+
+use cloudllm::client_wrapper::Role;
+use cloudllm::clients::openai::{OpenAIClient, Model as OpenAIModel};
+use cloudllm::clients::claude::{ClaudeClient, Model as ClaudeModel};
+use cloudllm::{CouncilRole, CouncilSession, ParticipantConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    cloudllm::init_logger();
+
+    let openai_key = std::env::var("OPENAI_API_KEY")?;
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY")?;
+
+    let mut council = CouncilSession::new(
+        "Multi-round policy analysis with budget constraints",
+    );
+
+    // High-priority moderator with 50K token budget
+    let _moderator = council.add_participant_with_config(
+        Arc::new(OpenAIClient::new_with_model_enum(&openai_key, OpenAIModel::GPT4o)),
+        CouncilRole::Moderator,
+        ParticipantConfig {
+            display_name: Some("Chief Analyst".into()),
+            persona_prompt: Some("Coordinate discussion and synthesize insights.".into()),
+            max_tokens: Some(8192),
+            max_total_tokens: Some(50_000),  // Generous budget
+        },
+    );
+
+    // Standard analyst with 10K token budget
+    let analyst_id = council.add_participant_with_config(
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, ClaudeModel::ClaudeSonnet4)),
+        CouncilRole::Panelist,
+        ParticipantConfig {
+            display_name: Some("Policy Analyst".into()),
+            persona_prompt: Some("Provide detailed policy analysis.".into()),
+            max_tokens: Some(4096),
+            max_total_tokens: Some(10_000),  // Standard budget
+        },
+    );
+
+    // Observer with minimal 2K token budget
+    let _observer = council.add_participant_with_config(
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, ClaudeModel::ClaudeHaiku35)),
+        CouncilRole::Observer,
+        ParticipantConfig {
+            display_name: Some("Compliance Observer".into()),
+            persona_prompt: Some("Note any compliance issues briefly.".into()),
+            max_tokens: Some(2048),
+            max_total_tokens: Some(2_000),  // Minimal budget
+        },
+    );
+
+    // Run multiple rounds
+    for round_num in 1..=5 {
+        println!("\n=== Round {} ===", round_num);
+
+        let round = council
+            .send_message(
+                Role::User,
+                format!("Round {}: Analyze the latest climate policy proposal.", round_num),
+                None,
+            )
+            .await?;
+
+        // Check which participants responded
+        println!("Participants who responded: {}",
+                 round.replies.iter()
+                     .map(|r| r.name.as_str())
+                     .collect::<Vec<_>>()
+                     .join(", "));
+
+        // Display token usage per participant
+        for participant in council.participants() {
+            println!(
+                "{}: {}/{} tokens used ({}%)",
+                participant.display_name,
+                participant.total_usage.total_tokens,
+                participant.max_total_tokens.map_or("unlimited".to_string(), |l| l.to_string()),
+                if let Some(limit) = participant.max_total_tokens {
+                    format!("{:.1}", (participant.total_usage.total_tokens as f64 / limit as f64) * 100.0)
+                } else {
+                    "N/A".to_string()
+                }
+            );
+        }
+
+        // Check if analyst exceeded budget
+        let participants = council.participants();
+        if let Some(analyst) = participants.iter().find(|p| p.id == analyst_id) {
+            if let Some(limit) = analyst.max_total_tokens {
+                if analyst.total_usage.total_tokens >= limit {
+                    println!("⚠ Policy Analyst has reached token limit and will be excluded from future rounds");
+                }
+            }
+        }
+    }
+
+    println!("\n=== Final Token Summary ===");
+    println!("Council total: {} tokens", council.total_usage().total_tokens);
+
+    Ok(())
+}
+```
+
+**Expected behavior:**
+- Participants with smaller budgets will be automatically excluded from rounds after exceeding their limits
+- The council logs warnings when participants are skipped: `"Participants skipped due to token limits: ..."`
+- Check `CouncilParticipantInfo` to monitor each participant's token consumption
+- The council continues functioning with remaining participants
+
+**Cost control best practices:**
+- Set `max_total_tokens` to `None` for critical participants (moderators, lead analysts)
+- Use lower limits for observers or supplementary roles
+- Monitor `participant.total_usage.total_tokens` after each round
+- Consider implementing your own logic to warn users before limits are reached
+
+---
+
 ## Troubleshooting Checklist
 
 - **Order drift:** If specialists answer before the moderator, confirm the vector passed to `set_round_robin_order` lists moderator IDs first.
 - **Token overruns:** Use `ParticipantConfig::max_tokens` to cap history length per participant, or reset the council when conversations grow too long.
+- **Hard token limits:** Set `max_total_tokens` in `ParticipantConfig` to enforce cumulative usage limits across all rounds. Participants exceeding this limit are automatically skipped.
 - **Streaming needs:** The `GrokClient` wrapper already forwards `send_message_stream`; integrate it directly if you require live transcript dashboards before council-level streaming lands in the API.
 
 ---
