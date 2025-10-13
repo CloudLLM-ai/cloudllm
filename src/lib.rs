@@ -61,5 +61,6 @@ pub use cloudllm::clients;
 pub use cloudllm::llm_session::LLMSession;
 pub use cloudllm::multi_participant_session;
 pub use cloudllm::multi_participant_session::{
-    MultiParticipantSession, OrchestrationStrategy, Participant, ParticipantResponse, ParticipantRole,
+    MultiParticipantSession, OrchestrationStrategy, Participant, ParticipantResponse,
+    ParticipantRole,
 };

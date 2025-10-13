@@ -182,7 +182,7 @@ impl MultiParticipantSession {
             cached_token_counts: Vec::new(),
             priority: 0,
         };
-        
+
         self.participants.insert(name.clone(), participant);
         self.participant_order.push(name);
     }
@@ -204,17 +204,19 @@ impl MultiParticipantSession {
             cached_token_counts: Vec::new(),
             priority,
         };
-        
+
         self.participants.insert(name.clone(), participant);
         self.participant_order.push(name);
-        
+
         // Sort by priority if using custom strategy
         if self.orchestration_strategy == OrchestrationStrategy::Custom {
             // Collect priorities into a temporary map to avoid borrow issues
-            let priorities: HashMap<String, i32> = self.participants.iter()
+            let priorities: HashMap<String, i32> = self
+                .participants
+                .iter()
                 .map(|(name, p)| (name.clone(), p.priority))
                 .collect();
-            
+
             self.participant_order.sort_by(|a, b| {
                 let a_priority = priorities.get(a).copied().unwrap_or(0);
                 let b_priority = priorities.get(b).copied().unwrap_or(0);
@@ -279,19 +281,24 @@ impl MultiParticipantSession {
         // Route messages based on orchestration strategy
         match self.orchestration_strategy {
             OrchestrationStrategy::Broadcast => {
-                self.broadcast_message(message, optional_search_parameters).await
+                self.broadcast_message(message, optional_search_parameters)
+                    .await
             }
             OrchestrationStrategy::RoundRobin => {
-                self.round_robin_message(message, optional_search_parameters).await
+                self.round_robin_message(message, optional_search_parameters)
+                    .await
             }
             OrchestrationStrategy::ModeratorLed => {
-                self.moderator_led_message(message, optional_search_parameters).await
+                self.moderator_led_message(message, optional_search_parameters)
+                    .await
             }
             OrchestrationStrategy::Hierarchical => {
-                self.hierarchical_message(message, optional_search_parameters).await
+                self.hierarchical_message(message, optional_search_parameters)
+                    .await
             }
             OrchestrationStrategy::Custom => {
-                self.custom_order_message(message, optional_search_parameters).await
+                self.custom_order_message(message, optional_search_parameters)
+                    .await
             }
         }
     }
@@ -314,10 +321,14 @@ impl MultiParticipantSession {
                 request_messages.extend_from_slice(&participant.conversation_history);
 
                 // Send to participant
-                match participant.client.send_message(&request_messages, optional_search_parameters.clone()).await {
+                match participant
+                    .client
+                    .send_message(&request_messages, optional_search_parameters.clone())
+                    .await
+                {
                     Ok(response) => {
                         let token_usage = participant.client.get_last_usage().await;
-                        
+
                         // Add response to participant's history
                         participant.conversation_history.push(response.clone());
 
@@ -350,26 +361,30 @@ impl MultiParticipantSession {
         for participant_name in self.participant_order.clone() {
             if let Some(participant) = self.participants.get_mut(&participant_name) {
                 // Add accumulated context to participant's history
-                participant.conversation_history.push(accumulated_context.clone());
+                participant
+                    .conversation_history
+                    .push(accumulated_context.clone());
 
                 // Build request
                 let mut request_messages = vec![self.system_prompt.clone()];
                 request_messages.extend_from_slice(&participant.conversation_history);
 
                 // Send to participant
-                match participant.client.send_message(&request_messages, optional_search_parameters.clone()).await {
+                match participant
+                    .client
+                    .send_message(&request_messages, optional_search_parameters.clone())
+                    .await
+                {
                     Ok(response) => {
                         let token_usage = participant.client.get_last_usage().await;
-                        
+
                         // Add response to participant's history
                         participant.conversation_history.push(response.clone());
 
                         // Create a new message that includes this participant's response
-                        let context_str = self.arena.alloc_str(&format!(
-                            "{}: {}",
-                            participant.name,
-                            response.content
-                        ));
+                        let context_str = self
+                            .arena
+                            .alloc_str(&format!("{}: {}", participant.name, response.content));
                         let context_arc: Arc<str> = Arc::from(context_str);
                         accumulated_context = Message {
                             role: Role::Assistant,
@@ -402,9 +417,12 @@ impl MultiParticipantSession {
         let mut responses = Vec::new();
 
         // Find moderator
-        let moderator_name = self.participant_order.iter()
+        let moderator_name = self
+            .participant_order
+            .iter()
             .find(|name| {
-                self.participants.get(*name)
+                self.participants
+                    .get(*name)
                     .map(|p| p.role == ParticipantRole::Moderator)
                     .unwrap_or(false)
             })
@@ -414,11 +432,15 @@ impl MultiParticipantSession {
         let moderator_response = if let Some(mod_name) = moderator_name {
             if let Some(moderator) = self.participants.get_mut(&mod_name) {
                 moderator.conversation_history.push(message.clone());
-                
+
                 let mut request_messages = vec![self.system_prompt.clone()];
                 request_messages.extend_from_slice(&moderator.conversation_history);
 
-                match moderator.client.send_message(&request_messages, optional_search_parameters.clone()).await {
+                match moderator
+                    .client
+                    .send_message(&request_messages, optional_search_parameters.clone())
+                    .await
+                {
                     Ok(response) => {
                         let token_usage = moderator.client.get_last_usage().await;
                         moderator.conversation_history.push(response.clone());
@@ -453,7 +475,7 @@ impl MultiParticipantSession {
 
                 // Add original message
                 participant.conversation_history.push(message.clone());
-                
+
                 // Add moderator's response if available
                 if let Some(ref mod_response) = moderator_response {
                     participant.conversation_history.push(mod_response.clone());
@@ -462,7 +484,11 @@ impl MultiParticipantSession {
                 let mut request_messages = vec![self.system_prompt.clone()];
                 request_messages.extend_from_slice(&participant.conversation_history);
 
-                match participant.client.send_message(&request_messages, optional_search_parameters.clone()).await {
+                match participant
+                    .client
+                    .send_message(&request_messages, optional_search_parameters.clone())
+                    .await
+                {
                     Ok(response) => {
                         let token_usage = participant.client.get_last_usage().await;
                         participant.conversation_history.push(response.clone());
@@ -498,11 +524,15 @@ impl MultiParticipantSession {
             if let Some(participant) = self.participants.get_mut(&participant_name) {
                 if participant.role == ParticipantRole::Worker {
                     participant.conversation_history.push(message.clone());
-                    
+
                     let mut request_messages = vec![self.system_prompt.clone()];
                     request_messages.extend_from_slice(&participant.conversation_history);
 
-                    match participant.client.send_message(&request_messages, optional_search_parameters.clone()).await {
+                    match participant
+                        .client
+                        .send_message(&request_messages, optional_search_parameters.clone())
+                        .await
+                    {
                         Ok(response) => {
                             let token_usage = participant.client.get_last_usage().await;
                             participant.conversation_history.push(response.clone());
@@ -527,11 +557,12 @@ impl MultiParticipantSession {
         // Phase 2: Supervisors synthesize worker results
         if !worker_responses.is_empty() {
             // Build context with all worker responses
-            let worker_context = worker_responses.iter()
+            let worker_context = worker_responses
+                .iter()
                 .map(|r| format!("{} ({}): {}", r.participant_name, "Worker", r.content))
                 .collect::<Vec<_>>()
                 .join("\n\n");
-            
+
             let context_str = self.arena.alloc_str(&worker_context);
             let context_arc: Arc<str> = Arc::from(context_str);
             let synthesis_message = Message {
@@ -543,12 +574,18 @@ impl MultiParticipantSession {
                 if let Some(participant) = self.participants.get_mut(&participant_name) {
                     if participant.role == ParticipantRole::Supervisor {
                         participant.conversation_history.push(message.clone());
-                        participant.conversation_history.push(synthesis_message.clone());
-                        
+                        participant
+                            .conversation_history
+                            .push(synthesis_message.clone());
+
                         let mut request_messages = vec![self.system_prompt.clone()];
                         request_messages.extend_from_slice(&participant.conversation_history);
 
-                        match participant.client.send_message(&request_messages, optional_search_parameters.clone()).await {
+                        match participant
+                            .client
+                            .send_message(&request_messages, optional_search_parameters.clone())
+                            .await
+                        {
                             Ok(response) => {
                                 let token_usage = participant.client.get_last_usage().await;
                                 participant.conversation_history.push(response.clone());
@@ -579,7 +616,8 @@ impl MultiParticipantSession {
         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
     ) -> Result<Vec<ParticipantResponse>, Box<dyn std::error::Error>> {
         // Similar to round-robin but uses participant_order which is already sorted by priority
-        self.round_robin_message(message, optional_search_parameters).await
+        self.round_robin_message(message, optional_search_parameters)
+            .await
     }
 
     /// Gets the shared conversation history.
@@ -591,7 +629,7 @@ impl MultiParticipantSession {
     pub fn total_token_usage(&self) -> TokenUsage {
         let total_input = 0;
         let total_output = 0;
-        
+
         // This is a simplified version - in practice, you might want to track this more carefully
         TokenUsage {
             input_tokens: total_input,
@@ -683,7 +721,7 @@ mod tests {
     async fn test_broadcast_strategy() {
         let client1 = Arc::new(MockClient::new("model1", "Response from client 1"));
         let client2 = Arc::new(MockClient::new("model2", "Response from client 2"));
-        
+
         let mut session = MultiParticipantSession::new(
             "System prompt".to_string(),
             1000,
@@ -693,11 +731,10 @@ mod tests {
         session.add_participant("Client1", client1, ParticipantRole::Panelist);
         session.add_participant("Client2", client2, ParticipantRole::Panelist);
 
-        let responses = session.send_message(
-            Role::User,
-            "Test message".to_string(),
-            None,
-        ).await.unwrap();
+        let responses = session
+            .send_message(Role::User, "Test message".to_string(), None)
+            .await
+            .unwrap();
 
         assert_eq!(responses.len(), 2);
         assert!(responses.iter().any(|r| r.participant_name == "Client1"));
@@ -708,7 +745,7 @@ mod tests {
     async fn test_moderator_led_strategy() {
         let moderator = Arc::new(MockClient::new("moderator", "Moderator response"));
         let panelist = Arc::new(MockClient::new("panelist", "Panelist response"));
-        
+
         let mut session = MultiParticipantSession::new(
             "System prompt".to_string(),
             1000,
@@ -718,11 +755,10 @@ mod tests {
         session.add_participant("Moderator", moderator, ParticipantRole::Moderator);
         session.add_participant("Panelist", panelist, ParticipantRole::Panelist);
 
-        let responses = session.send_message(
-            Role::User,
-            "Test message".to_string(),
-            None,
-        ).await.unwrap();
+        let responses = session
+            .send_message(Role::User, "Test message".to_string(), None)
+            .await
+            .unwrap();
 
         assert_eq!(responses.len(), 2);
         // Moderator should respond first
@@ -735,7 +771,7 @@ mod tests {
         let worker1 = Arc::new(MockClient::new("worker1", "Worker 1 response"));
         let worker2 = Arc::new(MockClient::new("worker2", "Worker 2 response"));
         let supervisor = Arc::new(MockClient::new("supervisor", "Supervisor synthesis"));
-        
+
         let mut session = MultiParticipantSession::new(
             "System prompt".to_string(),
             1000,
@@ -746,22 +782,23 @@ mod tests {
         session.add_participant("Worker2", worker2, ParticipantRole::Worker);
         session.add_participant("Supervisor", supervisor, ParticipantRole::Supervisor);
 
-        let responses = session.send_message(
-            Role::User,
-            "Test message".to_string(),
-            None,
-        ).await.unwrap();
+        let responses = session
+            .send_message(Role::User, "Test message".to_string(), None)
+            .await
+            .unwrap();
 
         // Should have 2 worker responses + 1 supervisor response
         assert_eq!(responses.len(), 3);
-        
-        let worker_count = responses.iter()
+
+        let worker_count = responses
+            .iter()
             .filter(|r| r.participant_role == ParticipantRole::Worker)
             .count();
-        let supervisor_count = responses.iter()
+        let supervisor_count = responses
+            .iter()
             .filter(|r| r.participant_role == ParticipantRole::Supervisor)
             .count();
-        
+
         assert_eq!(worker_count, 2);
         assert_eq!(supervisor_count, 1);
     }
@@ -770,7 +807,7 @@ mod tests {
     async fn test_priority_ordering() {
         let client1 = Arc::new(MockClient::new("low", "Low priority"));
         let client2 = Arc::new(MockClient::new("high", "High priority"));
-        
+
         let mut session = MultiParticipantSession::new(
             "System prompt".to_string(),
             1000,

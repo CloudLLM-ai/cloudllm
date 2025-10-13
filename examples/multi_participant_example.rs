@@ -61,10 +61,7 @@ async fn broadcast_example() -> Result<(), Box<dyn std::error::Error>> {
         &openai_key,
         Model::GPt4oMini,
     ));
-    let gpt4o_client = Arc::new(OpenAIClient::new_with_model_enum(
-        &openai_key,
-        Model::GPT4o,
-    ));
+    let gpt4o_client = Arc::new(OpenAIClient::new_with_model_enum(&openai_key, Model::GPT4o));
 
     // Create session with broadcast strategy
     let mut session = MultiParticipantSession::new(
@@ -144,7 +141,12 @@ async fn round_robin_example() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nSequential responses:");
     for (i, response) in responses.iter().enumerate() {
-        println!("\n{}. {} ({:?}):", i + 1, response.participant_name, response.participant_role);
+        println!(
+            "\n{}. {} ({:?}):",
+            i + 1,
+            response.participant_name,
+            response.participant_role
+        );
         println!("{}", response.content);
     }
 
@@ -156,10 +158,7 @@ async fn moderator_led_example() -> Result<(), Box<dyn std::error::Error>> {
     let openai_key = std::env::var("OPEN_AI_SECRET")
         .unwrap_or_else(|_| "demo-key-please-set-OPEN_AI_SECRET".to_string());
 
-    let moderator_client = Arc::new(OpenAIClient::new_with_model_enum(
-        &openai_key,
-        Model::GPT4o,
-    ));
+    let moderator_client = Arc::new(OpenAIClient::new_with_model_enum(&openai_key, Model::GPT4o));
     let panelist1 = Arc::new(OpenAIClient::new_with_model_enum(
         &openai_key,
         Model::GPt4oMini,
@@ -193,7 +192,10 @@ async fn moderator_led_example() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nModerated discussion:");
     for response in responses {
-        println!("\n{} ({:?}):", response.participant_name, response.participant_role);
+        println!(
+            "\n{} ({:?}):",
+            response.participant_name, response.participant_role
+        );
         println!("{}", response.content);
     }
 
@@ -213,10 +215,7 @@ async fn hierarchical_example() -> Result<(), Box<dyn std::error::Error>> {
         &openai_key,
         Model::GPt4oMini,
     ));
-    let supervisor = Arc::new(OpenAIClient::new_with_model_enum(
-        &openai_key,
-        Model::GPT4o,
-    ));
+    let supervisor = Arc::new(OpenAIClient::new_with_model_enum(&openai_key, Model::GPT4o));
 
     let mut session = MultiParticipantSession::new(
         "Workers provide analysis, supervisors synthesize findings.".to_string(),
@@ -241,13 +240,19 @@ async fn hierarchical_example() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nHierarchical workflow results:");
     println!("\nWorker Analyses:");
-    for response in responses.iter().filter(|r| r.participant_role == ParticipantRole::Worker) {
+    for response in responses
+        .iter()
+        .filter(|r| r.participant_role == ParticipantRole::Worker)
+    {
         println!("\n  {} (Worker):", response.participant_name);
         println!("  {}", response.content);
     }
 
     println!("\nSupervisor Synthesis:");
-    for response in responses.iter().filter(|r| r.participant_role == ParticipantRole::Supervisor) {
+    for response in responses
+        .iter()
+        .filter(|r| r.participant_role == ParticipantRole::Supervisor)
+    {
         println!("\n  {} (Supervisor):", response.participant_name);
         println!("  {}", response.content);
     }
@@ -260,10 +265,7 @@ async fn custom_priority_example() -> Result<(), Box<dyn std::error::Error>> {
     let openai_key = std::env::var("OPEN_AI_SECRET")
         .unwrap_or_else(|_| "demo-key-please-set-OPEN_AI_SECRET".to_string());
 
-    let high_priority = Arc::new(OpenAIClient::new_with_model_enum(
-        &openai_key,
-        Model::GPT4o,
-    ));
+    let high_priority = Arc::new(OpenAIClient::new_with_model_enum(&openai_key, Model::GPT4o));
     let medium_priority = Arc::new(OpenAIClient::new_with_model_enum(
         &openai_key,
         Model::GPt4oMini,
@@ -299,7 +301,10 @@ async fn custom_priority_example() -> Result<(), Box<dyn std::error::Error>> {
         10,
     );
 
-    println!("Participants in priority order: {:?}", session.list_participants());
+    println!(
+        "Participants in priority order: {:?}",
+        session.list_participants()
+    );
     println!("Question: 'What's the best approach?'");
 
     let responses = session
