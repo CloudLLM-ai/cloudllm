@@ -59,3 +59,8 @@ pub use cloudllm::client_wrapper::{
 // If you wish, you can also re-export specific clients or functionalities from the `clients` submodule:
 pub use cloudllm::clients;
 pub use cloudllm::llm_session::LLMSession;
+
+// Re-export tool protocol and council functionality
+pub use cloudllm::tool_protocol;
+pub use cloudllm::tool_adapters;
+pub use cloudllm::council;
