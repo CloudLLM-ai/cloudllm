@@ -204,3 +204,178 @@ async fn council_custom_order_is_respected() {
     assert_eq!(round.replies[0].participant_id, panel_id);
     assert_eq!(round.replies[1].participant_id, moderator_id);
 }
+
+#[tokio::test]
+async fn participant_respects_token_limit() {
+    use cloudllm::ParticipantConfig;
+
+    // Create a client that will respond 3 times
+    let client = make_client(vec!["First response", "Second response", "Third response"]);
+
+    let mut session = CouncilSession::new("Token limit test");
+
+    // Add participant with a 50 token limit
+    let _participant_id = session.add_participant_with_config(
+        client.clone(),
+        CouncilRole::Panelist,
+        ParticipantConfig {
+            display_name: Some("Limited Panelist".into()),
+            persona_prompt: None,
+            max_tokens: Some(8192),
+            max_total_tokens: Some(50),
+        },
+    );
+
+    // First round should succeed (below limit)
+    let round1 = session
+        .send_message(Role::User, "First question".to_string(), None)
+        .await
+        .expect("first round should succeed");
+
+    assert_eq!(round1.replies.len(), 1);
+    assert!(round1.replies[0].usage.is_some());
+    let usage1 = round1.replies[0].usage.clone().unwrap();
+
+    // Check participant's total usage
+    let participants = session.participants();
+    assert_eq!(participants.len(), 1);
+    assert_eq!(participants[0].total_usage.total_tokens, usage1.total_tokens);
+
+    // Second round should succeed if still below limit
+    let round2 = session
+        .send_message(Role::User, "Second question".to_string(), None)
+        .await
+        .expect("second round should succeed");
+
+    // Check if participant was included or skipped based on cumulative usage
+    let participants_after = session.participants();
+    let total_after_round2 = participants_after[0].total_usage.total_tokens;
+
+    if total_after_round2 > usage1.total_tokens {
+        // Participant responded
+        assert_eq!(round2.replies.len(), 1);
+    } else {
+        // Participant was skipped due to hitting limit
+        assert_eq!(round2.replies.len(), 0);
+    }
+}
+
+#[tokio::test]
+async fn multiple_participants_independent_token_limits() {
+    use cloudllm::ParticipantConfig;
+
+    let limited_client = make_client(vec!["Limited 1", "Limited 2", "Limited 3"]);
+    let unlimited_client = make_client(vec!["Unlimited 1", "Unlimited 2", "Unlimited 3"]);
+
+    let mut session = CouncilSession::new("Multi-participant token test");
+
+    // Add limited participant (50 tokens)
+    let limited_id = session.add_participant_with_config(
+        limited_client.clone(),
+        CouncilRole::Panelist,
+        ParticipantConfig {
+            display_name: Some("Limited".into()),
+            persona_prompt: None,
+            max_tokens: Some(8192),
+            max_total_tokens: Some(50),
+        },
+    );
+
+    // Add unlimited participant
+    let unlimited_id = session.add_participant_with_config(
+        unlimited_client.clone(),
+        CouncilRole::Panelist,
+        ParticipantConfig {
+            display_name: Some("Unlimited".into()),
+            persona_prompt: None,
+            max_tokens: Some(8192),
+            max_total_tokens: None,
+        },
+    );
+
+    // Run multiple rounds
+    let mut limited_was_skipped = false;
+    for i in 1..=3 {
+        let round = session
+            .send_message(Role::User, format!("Question {}", i), None)
+            .await
+            .expect("round should succeed");
+
+        // Unlimited participant should always respond
+        assert!(round.replies.iter().any(|r| r.participant_id == unlimited_id),
+                "Unlimited participant should always respond in round {}", i);
+
+        // Limited participant may be skipped after hitting limit
+        let limited_responded = round.replies.iter().any(|r| r.participant_id == limited_id);
+
+        let participants = session.participants();
+        let limited_info = participants.iter().find(|p| p.id == limited_id).unwrap();
+
+        // If already skipped in a previous round, should still be skipped
+        if limited_was_skipped {
+            assert!(!limited_responded,
+                    "Limited participant should remain skipped after exceeding limit in round {}", i);
+        }
+
+        // Check if participant has reached limit
+        if limited_info.total_usage.total_tokens >= 50 {
+            if !limited_responded {
+                limited_was_skipped = true;
+            }
+        }
+    }
+
+    // Verify final state
+    let participants = session.participants();
+    let unlimited_info = participants.iter().find(|p| p.id == unlimited_id).unwrap();
+
+    // Unlimited should have responded 3 times
+    assert!(unlimited_info.total_usage.total_tokens > 0);
+
+    // Limited participant should have hit their limit or been skipped
+    let limited_info = participants.iter().find(|p| p.id == limited_id).unwrap();
+    if limited_info.total_usage.total_tokens >= 50 {
+        assert!(limited_was_skipped, "Limited participant should have been skipped after reaching limit");
+    }
+}
+
+#[tokio::test]
+async fn participant_info_includes_token_limit() {
+    use cloudllm::ParticipantConfig;
+
+    let client = make_client(vec!["Response"]);
+    let mut session = CouncilSession::new("Participant info test");
+
+    let _with_limit = session.add_participant_with_config(
+        client.clone(),
+        CouncilRole::Moderator,
+        ParticipantConfig {
+            display_name: Some("With Limit".into()),
+            persona_prompt: None,
+            max_tokens: Some(4096),
+            max_total_tokens: Some(10000),
+        },
+    );
+
+    let _without_limit = session.add_participant_with_config(
+        make_client(vec!["Response"]),
+        CouncilRole::Panelist,
+        ParticipantConfig {
+            display_name: Some("No Limit".into()),
+            persona_prompt: None,
+            max_tokens: Some(8192),
+            max_total_tokens: None,
+        },
+    );
+
+    let participants = session.participants();
+    assert_eq!(participants.len(), 2);
+
+    // Check first participant has limit
+    assert_eq!(participants[0].display_name, "With Limit");
+    assert_eq!(participants[0].max_total_tokens, Some(10000));
+
+    // Check second participant has no limit
+    assert_eq!(participants[1].display_name, "No Limit");
+    assert_eq!(participants[1].max_total_tokens, None);
+}

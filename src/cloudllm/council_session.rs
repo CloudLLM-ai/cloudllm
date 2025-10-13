@@ -50,21 +50,12 @@ impl fmt::Display for CouncilError {
 
 impl std::error::Error for CouncilError {}
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ParticipantConfig {
     pub display_name: Option<String>,
     pub persona_prompt: Option<String>,
     pub max_tokens: Option<usize>,
-}
-
-impl Default for ParticipantConfig {
-    fn default() -> Self {
-        Self {
-            display_name: None,
-            persona_prompt: None,
-            max_tokens: None,
-        }
-    }
+    pub max_total_tokens: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +101,7 @@ pub struct CouncilParticipantInfo {
     pub display_name: String,
     pub model_name: String,
     pub max_tokens: usize,
+    pub max_total_tokens: Option<usize>,
     pub total_usage: TokenUsage,
 }
 
@@ -122,6 +114,7 @@ struct Participant {
     system_prompt: Message,
     client: Arc<dyn ClientWrapper>,
     max_tokens: usize,
+    max_total_tokens: Option<usize>,
     total_usage: TokenUsage,
 }
 
@@ -133,6 +126,7 @@ impl Participant {
             display_name: self.display_name.clone(),
             model_name: self.model_name.clone(),
             max_tokens: self.max_tokens,
+            max_total_tokens: self.max_total_tokens,
             total_usage: self.total_usage.clone(),
         }
     }
@@ -237,6 +231,7 @@ impl CouncilSession {
             system_prompt,
             client,
             max_tokens: config.max_tokens.unwrap_or(self.default_max_tokens),
+            max_total_tokens: config.max_total_tokens,
             total_usage: TokenUsage {
                 input_tokens: 0,
                 output_tokens: 0,
@@ -323,8 +318,19 @@ impl CouncilSession {
         }
 
         let mut replies = Vec::with_capacity(speaking_order.len());
+        let mut skipped_participants = Vec::new();
 
         for participant_index in speaking_order {
+            let participant = &self.participants[participant_index];
+
+            // Check if participant has exceeded their token limit
+            if let Some(limit) = participant.max_total_tokens {
+                if participant.total_usage.total_tokens >= limit {
+                    skipped_participants.push(participant.display_name.clone());
+                    continue;
+                }
+            }
+
             let messages = self.build_messages_for_participant(participant_index);
             let client = self.participants[participant_index].client.clone();
             let response = client
@@ -357,6 +363,14 @@ impl CouncilSession {
         }
 
         self.rounds_completed += 1;
+
+        // Log warning if any participants were skipped due to token limits
+        if !skipped_participants.is_empty() {
+            log::warn!(
+                "Participants skipped due to token limits: {}",
+                skipped_participants.join(", ")
+            );
+        }
 
         Ok(CouncilRoundResponse {
             user_message: user_arc,
