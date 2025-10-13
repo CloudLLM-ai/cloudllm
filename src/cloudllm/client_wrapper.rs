@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Represents the possible roles for a message.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Role {
     System,
     // set by the developer to steer the model's responses
