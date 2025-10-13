@@ -59,3 +59,7 @@ pub use cloudllm::client_wrapper::{
 // If you wish, you can also re-export specific clients or functionalities from the `clients` submodule:
 pub use cloudllm::clients;
 pub use cloudllm::llm_session::LLMSession;
+pub use cloudllm::multi_participant_session;
+pub use cloudllm::multi_participant_session::{
+    MultiParticipantSession, OrchestrationStrategy, Participant, ParticipantResponse, ParticipantRole,
+};
