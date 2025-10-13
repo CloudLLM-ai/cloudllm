@@ -9,6 +9,7 @@ CloudLLM is a Rust library designed to seamlessly bridge applications with remot
 ## Features
 
 - **Unified Interface**: Interact with multiple LLMs using a single, consistent API.
+- **Multi-Participant Sessions**: Orchestrate conversations between multiple LLM clients with different roles and strategies (panels, hierarchies, round-robin discussions).
 - **Streaming Support**: First-class streaming for real-time token delivery, dramatically reducing perceived latency.
 - **Pay-as-you-go Integration**: Designed to work efficiently with pay-as-you-go LLM platforms.
 - **Extendable**: Easily add new LLM platform clients as they emerge.
@@ -40,7 +41,56 @@ cloudllm = "0.3.0" # Use the latest version
 
 ## Usage
 
-Refer to the `examples/` directory to see how you can set up sessions and interact with various LLM platforms using CloudLLM.
+### Single LLM Session
+
+For basic interactions with a single LLM:
+
+```rust
+use std::sync::Arc;
+use cloudllm::client_wrapper::Role;
+use cloudllm::clients::openai::{OpenAIClient, Model};
+use cloudllm::LLMSession;
+
+let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT4o));
+let mut session = LLMSession::new(client, "You are a helpful assistant.".to_string(), 8192);
+
+let response = session.send_message(
+    Role::User,
+    "What is Rust?".to_string(),
+    None,
+).await?;
+
+println!("Assistant: {}", response.content);
+```
+
+### Multi-Participant Sessions
+
+Create complex multi-agent systems with different orchestration strategies:
+
+```rust
+use cloudllm::multi_participant_session::{
+    MultiParticipantSession, OrchestrationStrategy, ParticipantRole,
+};
+
+// Create a panel discussion
+let mut session = MultiParticipantSession::new(
+    "You are participating in an AI expert panel.".to_string(),
+    8192,
+    OrchestrationStrategy::ModeratorLed,
+);
+
+session.add_participant("Moderator", moderator_client, ParticipantRole::Moderator);
+session.add_participant("Expert-1", expert1_client, ParticipantRole::Panelist);
+session.add_participant("Expert-2", expert2_client, ParticipantRole::Panelist);
+
+let responses = session.send_message(
+    Role::User,
+    "What are the key challenges in AI safety?".to_string(),
+    None,
+).await?;
+```
+
+Refer to the `examples/` directory for more detailed examples, including all orchestration strategies and use cases.
 
 ## Contributing
 

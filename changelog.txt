@@ -1,4 +1,14 @@
 0.3.0 OCT/11/2025
+ - feat: Add multi-participant LLM session support
+   - New MultiParticipantSession for orchestrating conversations between multiple LLM clients
+   - Six participant roles: Moderator, Panelist, Worker, Supervisor, Evaluator, Observer
+   - Five orchestration strategies: Broadcast, RoundRobin, ModeratorLed, Hierarchical, Custom
+   - Support for priority-based custom ordering of participants
+   - Individual conversation history and token tracking per participant
+   - ParticipantResponse type with participant metadata and token usage
+   - Comprehensive tests covering all strategies and scenarios
+   - Full documentation and examples at examples/multi_participant_example.{rs,md}
+   - Enables complex multi-agent systems: expert panels, hierarchical workflows, collaborative problem solving
  - feat: Add first-class streaming support for LLM responses
    - New MessageChunk type for incremental content delivery
    - ClientWrapper::send_message_stream() method for streaming responses
