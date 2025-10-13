@@ -1,3 +1,18 @@
+0.3.1 OCT/13/2025
+ - feat: Add hard token usage limits for CouncilSession participants
+   - New max_total_tokens field in ParticipantConfig
+   - Automatic participant exclusion when token limit exceeded
+   - Per-participant token budget enforcement across all rounds
+   - CouncilParticipantInfo now includes max_total_tokens field
+   - Warning logs when participants are skipped due to limits
+   - Allows fine-grained cost control in multi-round discussions
+   - Updated COUNCIL_TUTORIAL.md with Recipe 5 demonstrating token budgets
+ - test: Added comprehensive token limit tests
+   - participant_respects_token_limit: Validates single participant limit enforcement
+   - multiple_participants_independent_token_limits: Tests independent budgets
+   - participant_info_includes_token_limit: Verifies info structure
+ - docs: Enhanced troubleshooting guide with token limit best practices
+
 0.3.0 OCT/11/2025
  - feat: Add first-class streaming support for LLM responses
    - New MessageChunk type for incremental content delivery
