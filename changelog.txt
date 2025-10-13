@@ -1,3 +1,79 @@
+0.4.0 OCT/13/2025
+ - feat: Multi-Agent Council System
+   - New council.rs module implementing collaborative multi-agent orchestration
+   - Five council modes for different collaboration patterns:
+     - Parallel: All agents process prompt simultaneously, responses aggregated
+     - RoundRobin: Agents take sequential turns building on previous responses
+     - Moderated: Agents submit proposals, moderator synthesizes final answer
+     - Hierarchical: Lead agent coordinates, specialists handle specific aspects
+     - Debate: Agents discuss and challenge each other until convergence
+   - Agent identity system with name, expertise, personality, and optional tool access
+   - Conversation history tracking with CouncilMessage and round metadata
+   - CouncilResponse includes final answer, message history, rounds executed, convergence score, and total tokens used
+ - feat: Tool Protocol Abstraction Layer (tool_protocol.rs)
+   - Flexible abstraction for connecting agents to various tool protocols
+   - ToolProtocol trait with execute(), list_tools(), get_tool_metadata()
+   - Support for MCP (Model Context Protocol), custom functions, and user-defined protocols
+   - ToolResult struct with success status, output, error, and execution metadata
+   - ToolParameter system with support for String, Number, Integer, Boolean, Array, Object types
+   - ToolMetadata with parameter definitions and protocol-specific metadata
+   - ToolRegistry for centralized tool management
+   - Tool and ToolError types for type-safe tool operations
+ - feat: Tool Adapters (tool_adapters.rs)
+   - CustomToolAdapter: Execute user-defined Rust closures as tools
+   - MCPToolAdapter: Integration with Model Context Protocol servers
+   - OpenAIToolAdapter: Compatible with OpenAI function calling format
+   - All adapters implement async ToolProtocol trait
+ - feat: Automatic Tool Execution in Agent Generation
+   - Agents automatically discover and execute tools during response generation
+   - Tool information injected into system prompts with name, description, and parameters
+   - JSON-based tool calling format: {"tool_call": {"name": "...", "parameters": {...}}}
+   - Automatic tool execution loop with max 5 iterations to prevent infinite loops
+   - Tool results fed back to LLM as user messages for continued generation
+   - Token usage tracked cumulatively across all LLM calls and tool executions
+   - New AgentResponse struct returns both content and token usage
+   - Agent::generate_with_tokens() method for internal use with token tracking
+ - feat: Convergence Detection for Debate Mode
+   - Jaccard similarity-based convergence detection for debate termination
+   - Compares word sets between consecutive debate rounds
+   - Configurable convergence threshold (default: 0.75 / 75% similarity)
+   - Early termination when agents reach consensus, saving tokens and cost
+   - Convergence score returned in CouncilResponse for inspection
+   - calculate_convergence_score() and jaccard_similarity() helper methods
+ - feat: Token Usage Tracking in Council Modes
+   - Parallel mode tracks and aggregates tokens from all concurrent agents
+   - RoundRobin mode accumulates tokens across sequential turns
+   - Token usage includes all LLM calls plus tool execution overhead
+   - CouncilResponse.total_tokens_used provides complete cost visibility
+ - feat: Comprehensive Multi-Agent Tutorial (COUNCIL_TUTORIAL.md)
+   - Cookbook-style tutorial with progressive complexity
+   - Five detailed recipes demonstrating each council mode
+   - Real-world carbon capture strategy problem domain
+   - Examples use multiple LLM providers (OpenAI, Claude, Gemini, Grok)
+   - Up to 5 agents per example with distinct expertise and personalities
+   - Tool integration example with MCPToolAdapter
+   - Best practices guide for agent design and council mode selection
+   - Troubleshooting section with common issues and solutions
+   - Complete multi-stage pipeline example combining multiple modes
+ - test: Added comprehensive test coverage
+   - test_agent_with_tool_execution: Validates tool discovery, execution, and result integration
+   - test_debate_mode_convergence: Validates convergence detection with mock agents
+   - test_parallel_execution: Tests concurrent agent execution
+   - test_round_robin_execution: Tests sequential turn-taking
+   - test_moderated_execution: Tests proposal aggregation
+   - test_hierarchical_execution: Tests lead-specialist coordination
+   - test_debate_execution: Tests debate discussion flow
+   - All 12 tests passing
+ - refactor: Code quality improvements
+   - Fixed all compiler warnings
+   - Switched from std::sync::Mutex to tokio::sync::Mutex for async compatibility
+   - Removed unused imports and assignments
+   - Improved error handling in council execution paths
+ - docs: Added inline documentation for council system and tool protocol
+   - Module-level documentation with architecture diagrams
+   - Example code in doc comments
+   - Detailed parameter and return value documentation
+
 0.3.0 OCT/11/2025
  - feat: Add first-class streaming support for LLM responses
    - New MessageChunk type for incremental content delivery
