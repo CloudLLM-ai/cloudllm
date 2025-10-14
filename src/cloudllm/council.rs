@@ -717,26 +717,43 @@ impl Council {
             .get(moderator_id)
             .ok_or_else(|| CouncilError::AgentNotFound(moderator_id.to_string()))?;
 
-        let mut all_messages = Vec::new();
+        let mut all_messages: Vec<CouncilMessage> = Vec::new();
         let mut total_tokens = 0;
 
-        for _round in 0..rounds {
-            // Moderator decides who should speak next
-            let moderator_prompt = format!(
-                "{}\n\nAvailable experts: {}\n\nWhich expert should address this question? \
+        for round_num in 0..rounds {
+            // Build context for moderator including conversation so far
+            let mut moderator_prompt = String::new();
+
+            if round_num == 0 {
+                // First round: use original prompt
+                moderator_prompt.push_str(prompt);
+            } else {
+                // Subsequent rounds: include what's been said so far
+                moderator_prompt.push_str(&format!("Original topic: {}\n\n", prompt));
+                moderator_prompt.push_str("Discussion so far:\n");
+                for msg in &all_messages {
+                    if let Some(name) = &msg.agent_name {
+                        moderator_prompt.push_str(&format!("{}: {}\n\n", name, msg.content));
+                    }
+                }
+                moderator_prompt.push_str("Based on the discussion so far, who should speak next to continue the debate?");
+            }
+
+            moderator_prompt.push_str(&format!(
+                "\n\nAvailable experts: {}\n\nWhich expert should address this question? \
                  Respond with ONLY the expert name.",
-                prompt,
                 self.list_agents()
                     .iter()
                     .filter(|a| a.id != moderator_id)
                     .map(|a| a.name.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
-            );
+            ));
 
             let moderator_result = moderator
                 .generate_with_tokens(
-                    "You are a moderator. Your job is to select the most appropriate expert to answer each question.",
+                    "You are a moderator. Your job is to select the most appropriate expert to answer each question. \
+                     Ensure both sides get fair representation by alternating between different experts.",
                     &moderator_prompt,
                     &self.conversation_history,
                 )
@@ -761,8 +778,23 @@ impl Council {
                 .or_else(|| self.agents.values().find(|a| a.id != moderator_id));
 
             if let Some(agent) = selected_agent {
+                // Build context for the speaking agent
+                let mut agent_prompt = String::new();
+                if all_messages.is_empty() {
+                    agent_prompt = prompt.to_string();
+                } else {
+                    agent_prompt.push_str(&format!("Topic: {}\n\n", prompt));
+                    agent_prompt.push_str("Discussion so far:\n");
+                    for msg in &all_messages {
+                        if let Some(name) = &msg.agent_name {
+                            agent_prompt.push_str(&format!("{}: {}\n\n", name, msg.content));
+                        }
+                    }
+                    agent_prompt.push_str("Now it's your turn to respond.");
+                }
+
                 let agent_result = agent
-                    .generate_with_tokens(&self.system_context, prompt, &self.conversation_history)
+                    .generate_with_tokens(&self.system_context, &agent_prompt, &self.conversation_history)
                     .await?;
 
                 // Track agent tokens
@@ -771,7 +803,8 @@ impl Council {
                 }
 
                 let msg = CouncilMessage::from_agent(agent.id.clone(), agent.name.clone(), agent_result.content)
-                    .with_metadata("moderator", moderator_id.to_string());
+                    .with_metadata("moderator", moderator_id.to_string())
+                    .with_metadata("round", round_num.to_string());
 
                 all_messages.push(msg.clone());
                 self.conversation_history.push(msg);
