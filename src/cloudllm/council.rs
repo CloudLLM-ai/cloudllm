@@ -718,6 +718,7 @@ impl Council {
             .ok_or_else(|| CouncilError::AgentNotFound(moderator_id.to_string()))?;
 
         let mut all_messages = Vec::new();
+        let mut total_tokens = 0;
 
         for _round in 0..rounds {
             // Moderator decides who should speak next
@@ -733,13 +734,21 @@ impl Council {
                     .join(", ")
             );
 
-            let selection = moderator
-                .generate(
+            let moderator_result = moderator
+                .generate_with_tokens(
                     "You are a moderator. Your job is to select the most appropriate expert to answer each question.",
                     &moderator_prompt,
                     &self.conversation_history,
                 )
                 .await?;
+
+            // Extract content before consuming tokens_used
+            let selection = moderator_result.content.clone();
+
+            // Track moderator tokens
+            if let Some(usage) = moderator_result.tokens_used {
+                total_tokens += usage.total_tokens;
+            }
 
             // Find the selected agent (fuzzy match on name)
             let selected_agent = self
@@ -752,11 +761,16 @@ impl Council {
                 .or_else(|| self.agents.values().find(|a| a.id != moderator_id));
 
             if let Some(agent) = selected_agent {
-                let response = agent
-                    .generate(&self.system_context, prompt, &self.conversation_history)
+                let agent_result = agent
+                    .generate_with_tokens(&self.system_context, prompt, &self.conversation_history)
                     .await?;
 
-                let msg = CouncilMessage::from_agent(agent.id.clone(), agent.name.clone(), response)
+                // Track agent tokens
+                if let Some(usage) = agent_result.tokens_used {
+                    total_tokens += usage.total_tokens;
+                }
+
+                let msg = CouncilMessage::from_agent(agent.id.clone(), agent.name.clone(), agent_result.content)
                     .with_metadata("moderator", moderator_id.to_string());
 
                 all_messages.push(msg.clone());
@@ -769,7 +783,7 @@ impl Council {
             round: rounds,
             is_complete: true,
             convergence_score: None,
-            total_tokens_used: 0,
+            total_tokens_used: total_tokens,
         })
     }
 
@@ -781,6 +795,7 @@ impl Council {
     ) -> Result<CouncilResponse, Box<dyn Error + Send + Sync>> {
         let mut all_messages = Vec::new();
         let mut layer_results = prompt.to_string();
+        let mut total_tokens = 0;
 
         for (layer_idx, layer_agent_ids) in layers.iter().enumerate() {
             let mut layer_messages = Vec::new();
@@ -814,7 +829,7 @@ impl Council {
 
                 tasks.push(tokio::spawn(async move {
                     let result = temp_agent
-                        .generate(&system_prompt, &current_prompt, &history)
+                        .generate_with_tokens(&system_prompt, &current_prompt, &history)
                         .await;
                     (agent_id, agent_name, result)
                 }));
@@ -829,11 +844,21 @@ impl Council {
                     ))) as Box<dyn Error + Send + Sync>
                 })?;
 
-                if let Ok(content) = result {
-                    let msg = CouncilMessage::from_agent(agent_id, agent_name, content)
-                        .with_metadata("layer", layer_idx.to_string());
-                    layer_messages.push(msg.clone());
-                    self.conversation_history.push(msg);
+                match result {
+                    Ok(agent_response) => {
+                        // Track tokens
+                        if let Some(usage) = agent_response.tokens_used {
+                            total_tokens += usage.total_tokens;
+                        }
+
+                        let msg = CouncilMessage::from_agent(agent_id, agent_name, agent_response.content)
+                            .with_metadata("layer", layer_idx.to_string());
+                        layer_messages.push(msg.clone());
+                        self.conversation_history.push(msg);
+                    }
+                    Err(e) => {
+                        eprintln!("Agent {} failed: {}", agent_id, e);
+                    }
                 }
             }
 
@@ -863,7 +888,7 @@ impl Council {
             round: layers.len(),
             is_complete: true,
             convergence_score: None,
-            total_tokens_used: 0,
+            total_tokens_used: total_tokens,
         })
     }
 
@@ -879,6 +904,7 @@ impl Council {
         let mut converged = false;
         let mut final_convergence_score = None;
         let mut actual_rounds = 0;
+        let mut total_tokens = 0;
 
         for round in 0..max_rounds {
             actual_rounds = round + 1;
@@ -904,15 +930,25 @@ impl Council {
                 );
 
                 let result = agent
-                    .generate(&self.system_context, &debate_prompt, &self.conversation_history)
+                    .generate_with_tokens(&self.system_context, &debate_prompt, &self.conversation_history)
                     .await;
 
-                if let Ok(content) = result {
-                    let msg =
-                        CouncilMessage::from_agent(agent.id.clone(), agent.name.clone(), content)
-                            .with_metadata("round", round.to_string());
-                    round_messages.push(msg.clone());
-                    self.conversation_history.push(msg);
+                match result {
+                    Ok(agent_response) => {
+                        // Track tokens
+                        if let Some(usage) = agent_response.tokens_used {
+                            total_tokens += usage.total_tokens;
+                        }
+
+                        let msg =
+                            CouncilMessage::from_agent(agent.id.clone(), agent.name.clone(), agent_response.content)
+                                .with_metadata("round", round.to_string());
+                        round_messages.push(msg.clone());
+                        self.conversation_history.push(msg);
+                    }
+                    Err(e) => {
+                        eprintln!("Agent {} failed: {}", agent_id, e);
+                    }
                 }
             }
 
@@ -937,7 +973,7 @@ impl Council {
             round: actual_rounds,
             is_complete: converged || actual_rounds >= max_rounds,
             convergence_score: final_convergence_score,
-            total_tokens_used: 0,
+            total_tokens_used: total_tokens,
         })
     }
 
