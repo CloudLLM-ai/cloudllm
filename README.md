@@ -181,6 +181,7 @@ Additional examples in the `examples/` directory:
 - `streaming_example.rs` - Streaming responses
 - `council_demo.rs` - Multi-agent councils with all modes
 - `venezuela_regime_change_debate.rs` - Strategic debate with 5 specialized agents analyzing geopolitical scenarios
+- `digimon_vs_pokemon_debate.rs` - Fun moderated debate between two experts arguing Digimon vs Pokemon
 
 ## Contributing
 
