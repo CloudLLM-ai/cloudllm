@@ -180,6 +180,7 @@ Additional examples in the `examples/` directory:
 - `interactive_session.rs` - Basic LLM session
 - `streaming_example.rs` - Streaming responses
 - `council_demo.rs` - Multi-agent councils with all modes
+- `venezuela_regime_change_debate.rs` - Strategic debate with 5 specialized agents analyzing geopolitical scenarios
 
 ## Contributing
 
