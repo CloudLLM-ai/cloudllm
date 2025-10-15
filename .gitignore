@@ -15,4 +15,4 @@ Cargo.lock
 
 .idea/
 run_example
-run_interactive_example
+run_streaming_example
