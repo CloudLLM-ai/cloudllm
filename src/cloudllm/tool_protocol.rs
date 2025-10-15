@@ -251,9 +251,7 @@ impl Tool {
         key: impl Into<String>,
         value: serde_json::Value,
     ) -> Self {
-        self.metadata
-            .protocol_metadata
-            .insert(key.into(), value);
+        self.metadata.protocol_metadata.insert(key.into(), value);
         self
     }
 

@@ -61,6 +61,6 @@ pub use cloudllm::clients;
 pub use cloudllm::llm_session::LLMSession;
 
 // Re-export tool protocol and council functionality
-pub use cloudllm::tool_protocol;
-pub use cloudllm::tool_adapters;
 pub use cloudllm::council;
+pub use cloudllm::tool_adapters;
+pub use cloudllm::tool_protocol;

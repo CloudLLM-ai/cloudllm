@@ -26,11 +26,11 @@
 //! The Moderated mode means the moderator selects speakers, creating a more
 //! dynamic conversation flow.
 
-use cloudllm::council::{Agent, Council, CouncilMode};
 use cloudllm::clients::claude::ClaudeClient;
 use cloudllm::clients::openai::OpenAIClient;
-use std::sync::Arc;
+use cloudllm::council::{Agent, Council, CouncilMode};
 use std::error::Error as StdError;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn StdError>> {
@@ -40,10 +40,8 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         .init();
 
     // Get API keys from environment
-    let openai_key = std::env::var("OPENAI_API_KEY")
-        .expect("OPENAI_API_KEY must be set");
-    let anthropic_key = std::env::var("ANTHROPIC_API_KEY")
-        .expect("ANTHROPIC_API_KEY must be set");
+    let openai_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
 
     println!("\n{}", "=".repeat(80));
     println!("  🎮 THE GREAT DEBATE: Digimon vs Pokemon 🎮");
@@ -56,11 +54,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let moderator = Agent::new(
         "moderator",
         "Debate Moderator",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
+        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o")),
     )
-    .with_expertise(
-        "Professional debate moderator with deep knowledge of anime and gaming culture"
-    )
+    .with_expertise("Professional debate moderator with deep knowledge of anime and gaming culture")
     .with_personality(
         "You are a neutral, professional moderator. Your role is to:\n\
          - Ask probing questions that get to the heart of each franchise's strengths\n\
@@ -68,7 +64,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          - Highlight interesting points of comparison\n\
          - Keep the debate civil and fun\n\
          - Summarize key arguments\n\
-         Don't take sides, but do encourage specific examples and concrete comparisons."
+         Don't take sides, but do encourage specific examples and concrete comparisons.",
     );
 
     // Create the Digimon expert
@@ -95,10 +91,13 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let pokemon_expert = Agent::new(
         "pokemon",
         "Pokemon Master",
-        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-sonnet-4-20250514"))
+        Arc::new(ClaudeClient::new_with_model_str(
+            &anthropic_key,
+            "claude-sonnet-4-20250514",
+        )),
     )
     .with_expertise(
-        "Pokemon expert with encyclopedic knowledge of all generations, competitive play, and lore"
+        "Pokemon expert with encyclopedic knowledge of all generations, competitive play, and lore",
     )
     .with_personality(
         "You believe Pokemon is the superior franchise. Your key arguments:\n\
@@ -109,7 +108,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          - Better world-building with consistent lore\n\
          - Games are more replayable and mechanically deep\n\
          - Music is iconic (Lavender Town, Champion themes, etc.)\n\
-         Be confident but acknowledge Digimon's strengths. Use specific examples."
+         Be confident but acknowledge Digimon's strengths. Use specific examples.",
     );
 
     // Create council in Moderated mode
@@ -120,7 +119,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         .with_system_context(
             "This is a friendly but spirited debate about two beloved anime franchises. \
              Be respectful, enthusiastic, and back up your arguments with specific examples. \
-             The goal is to have a fun, informative discussion that fans of both sides can enjoy."
+             The goal is to have a fun, informative discussion that fans of both sides can enjoy.",
         );
 
     // Add all agents
@@ -134,8 +133,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     println!("   ⚡ Pokemon Side: Pokemon Master (claude-sonnet-4)\n");
 
     // Opening question
-    let opening_question =
-        "Welcome to the great debate: Digimon vs Pokemon! \n\n\
+    let opening_question = "Welcome to the great debate: Digimon vs Pokemon! \n\n\
          Today we're settling the age-old question - which franchise is truly better? \n\n\
          Let's start with the fundamentals. I want each side to make their opening argument \
          covering these key areas:\n\
@@ -158,7 +156,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     io::stdout().flush().unwrap();
 
     // Run debate for 5 rounds
-    let response = council.discuss(opening_question, 5).await
+    let response = council
+        .discuss(opening_question, 5)
+        .await
         .map_err(|e| format!("Debate failed: {}", e))?;
 
     println!("✅ Complete!\n");
@@ -178,10 +178,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             };
 
             println!("\n{}", "-".repeat(80));
-            println!("{} Exchange {} - {} speaks:",
-                emoji,
-                exchange_num,
-                agent_name
+            println!(
+                "{} Exchange {} - {} speaks:",
+                emoji, exchange_num, agent_name
             );
             println!("{}", "-".repeat(80));
 

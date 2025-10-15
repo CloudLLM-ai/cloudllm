@@ -263,9 +263,8 @@ impl Agent {
                                 format!(
                                     "Tool '{}' executed successfully. Result: {}",
                                     tool_call.name,
-                                    serde_json::to_string_pretty(&result.output).unwrap_or_else(
-                                        |_| format!("{:?}", result.output)
-                                    )
+                                    serde_json::to_string_pretty(&result.output)
+                                        .unwrap_or_else(|_| format!("{:?}", result.output))
                                 )
                             } else {
                                 format!(
@@ -320,7 +319,9 @@ impl Agent {
         user_message: &str,
         conversation_history: &[CouncilMessage],
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let response = self.generate_with_tokens(system_prompt, user_message, conversation_history).await?;
+        let response = self
+            .generate_with_tokens(system_prompt, user_message, conversation_history)
+            .await?;
         Ok(response.content)
     }
 
@@ -635,7 +636,11 @@ impl Council {
                             total_tokens += usage.total_tokens;
                         }
 
-                        let msg = CouncilMessage::from_agent(agent_id, agent_name, agent_response.content);
+                        let msg = CouncilMessage::from_agent(
+                            agent_id,
+                            agent_name,
+                            agent_response.content,
+                        );
                         round_messages.push(msg.clone());
                         self.conversation_history.push(msg);
                     }
@@ -682,7 +687,11 @@ impl Council {
                 }
 
                 let result = agent
-                    .generate_with_tokens(&self.system_context, &round_prompt, &self.conversation_history)
+                    .generate_with_tokens(
+                        &self.system_context,
+                        &round_prompt,
+                        &self.conversation_history,
+                    )
                     .await;
 
                 match result {
@@ -747,7 +756,9 @@ impl Council {
                         moderator_prompt.push_str(&format!("{}: {}\n\n", name, msg.content));
                     }
                 }
-                moderator_prompt.push_str("Based on the discussion so far, who should speak next to continue the debate?");
+                moderator_prompt.push_str(
+                    "Based on the discussion so far, who should speak next to continue the debate?",
+                );
             }
 
             moderator_prompt.push_str(&format!(
@@ -805,7 +816,11 @@ impl Council {
                 }
 
                 let agent_result = agent
-                    .generate_with_tokens(&self.system_context, &agent_prompt, &self.conversation_history)
+                    .generate_with_tokens(
+                        &self.system_context,
+                        &agent_prompt,
+                        &self.conversation_history,
+                    )
                     .await?;
 
                 // Track agent tokens
@@ -813,9 +828,13 @@ impl Council {
                     total_tokens += usage.total_tokens;
                 }
 
-                let msg = CouncilMessage::from_agent(agent.id.clone(), agent.name.clone(), agent_result.content)
-                    .with_metadata("moderator", moderator_id.to_string())
-                    .with_metadata("round", round_num.to_string());
+                let msg = CouncilMessage::from_agent(
+                    agent.id.clone(),
+                    agent.name.clone(),
+                    agent_result.content,
+                )
+                .with_metadata("moderator", moderator_id.to_string())
+                .with_metadata("round", round_num.to_string());
 
                 all_messages.push(msg.clone());
                 self.conversation_history.push(msg);
@@ -848,9 +867,10 @@ impl Council {
             let mut tasks = Vec::new();
 
             for agent_id in layer_agent_ids {
-                let agent = self.agents.get(agent_id).ok_or_else(|| {
-                    CouncilError::AgentNotFound(agent_id.clone())
-                })?;
+                let agent = self
+                    .agents
+                    .get(agent_id)
+                    .ok_or_else(|| CouncilError::AgentNotFound(agent_id.clone()))?;
 
                 let system_prompt = self.system_context.clone();
                 let history = self.conversation_history.clone();
@@ -897,8 +917,12 @@ impl Council {
                             total_tokens += usage.total_tokens;
                         }
 
-                        let msg = CouncilMessage::from_agent(agent_id, agent_name, agent_response.content)
-                            .with_metadata("layer", layer_idx.to_string());
+                        let msg = CouncilMessage::from_agent(
+                            agent_id,
+                            agent_name,
+                            agent_response.content,
+                        )
+                        .with_metadata("layer", layer_idx.to_string());
                         layer_messages.push(msg.clone());
                         self.conversation_history.push(msg);
                     }
@@ -916,11 +940,7 @@ impl Council {
                     layer_idx,
                     layer_messages
                         .iter()
-                        .map(|m| format!(
-                            "{}: {}",
-                            m.agent_name.as_ref().unwrap(),
-                            m.content
-                        ))
+                        .map(|m| format!("{}: {}", m.agent_name.as_ref().unwrap(), m.content))
                         .collect::<Vec<_>>()
                         .join("\n\n")
                 );
@@ -976,7 +996,11 @@ impl Council {
                 );
 
                 let result = agent
-                    .generate_with_tokens(&self.system_context, &debate_prompt, &self.conversation_history)
+                    .generate_with_tokens(
+                        &self.system_context,
+                        &debate_prompt,
+                        &self.conversation_history,
+                    )
                     .await;
 
                 match result {
@@ -986,9 +1010,12 @@ impl Council {
                             total_tokens += usage.total_tokens;
                         }
 
-                        let msg =
-                            CouncilMessage::from_agent(agent.id.clone(), agent.name.clone(), agent_response.content)
-                                .with_metadata("round", round.to_string());
+                        let msg = CouncilMessage::from_agent(
+                            agent.id.clone(),
+                            agent.name.clone(),
+                            agent_response.content,
+                        )
+                        .with_metadata("round", round.to_string());
                         round_messages.push(msg.clone());
                         self.conversation_history.push(msg);
                     }
@@ -1000,7 +1027,8 @@ impl Council {
 
             // Check for convergence after the first round
             if round > 0 && !round_messages.is_empty() {
-                let convergence_score = self.calculate_convergence_score(&all_messages, &round_messages);
+                let convergence_score =
+                    self.calculate_convergence_score(&all_messages, &round_messages);
                 final_convergence_score = Some(convergence_score);
 
                 if convergence_score >= threshold {
@@ -1032,12 +1060,7 @@ impl Council {
     ) -> f32 {
         // Get messages from the previous round
         let num_agents = self.agents.len();
-        let previous_round: Vec<_> = all_messages
-            .iter()
-            .rev()
-            .take(num_agents)
-            .rev()
-            .collect();
+        let previous_round: Vec<_> = all_messages.iter().rev().take(num_agents).rev().collect();
 
         if previous_round.len() != current_round.len() {
             return 0.0;
@@ -1048,14 +1071,9 @@ impl Council {
         let mut comparison_count = 0;
 
         for i in 0..previous_round.len() {
-            if let (Some(prev_msg), Some(curr_msg)) = (
-                previous_round.get(i),
-                current_round.get(i),
-            ) {
-                let similarity = self.jaccard_similarity(
-                    &prev_msg.content,
-                    &curr_msg.content,
-                );
+            if let (Some(prev_msg), Some(curr_msg)) = (previous_round.get(i), current_round.get(i))
+            {
+                let similarity = self.jaccard_similarity(&prev_msg.content, &curr_msg.content);
                 total_similarity += similarity;
                 comparison_count += 1;
             }
@@ -1182,8 +1200,8 @@ mod tests {
             }),
         );
 
-        let mut council = Council::new("test-council", "Test Council")
-            .with_mode(CouncilMode::Parallel);
+        let mut council =
+            Council::new("test-council", "Test Council").with_mode(CouncilMode::Parallel);
 
         council.add_agent(agent1).unwrap();
         council.add_agent(agent2).unwrap();
@@ -1214,8 +1232,8 @@ mod tests {
             }),
         );
 
-        let mut council = Council::new("test-council", "Test Council")
-            .with_mode(CouncilMode::RoundRobin);
+        let mut council =
+            Council::new("test-council", "Test Council").with_mode(CouncilMode::RoundRobin);
 
         council.add_agent(agent1).unwrap();
         council.add_agent(agent2).unwrap();
@@ -1239,12 +1257,8 @@ mod tests {
         adapter
             .register_tool(
                 ToolMetadata::new("add", "Adds two numbers")
-                    .with_parameter(
-                        ToolParameter::new("a", ToolParameterType::Number).required(),
-                    )
-                    .with_parameter(
-                        ToolParameter::new("b", ToolParameterType::Number).required(),
-                    ),
+                    .with_parameter(ToolParameter::new("a", ToolParameterType::Number).required())
+                    .with_parameter(ToolParameter::new("b", ToolParameterType::Number).required()),
                 Arc::new(|params| {
                     let a = params["a"].as_f64().unwrap_or(0.0);
                     let b = params["b"].as_f64().unwrap_or(0.0);
@@ -1277,8 +1291,13 @@ mod tests {
                     let system_msg = &messages[0];
                     // The system message should contain the tool name and description
                     let system_content = system_msg.content.as_ref();
-                    if !system_content.contains("add") || !system_content.contains("Adds two numbers") {
-                        panic!("System message doesn't contain tool information. Content:\n{}", system_content);
+                    if !system_content.contains("add")
+                        || !system_content.contains("Adds two numbers")
+                    {
+                        panic!(
+                            "System message doesn't contain tool information. Content:\n{}",
+                            system_content
+                        );
                     }
 
                     // Return tool call
@@ -1288,7 +1307,10 @@ mod tests {
                     let last_msg = messages.last().unwrap();
                     let last_content = last_msg.content.as_ref();
                     if !last_content.contains("Tool 'add' executed successfully") {
-                        panic!("Last message doesn't contain tool result. Content:\n{}", last_content);
+                        panic!(
+                            "Last message doesn't contain tool result. Content:\n{}",
+                            last_content
+                        );
                     }
 
                     "The sum is 8"
@@ -1349,9 +1371,18 @@ mod tests {
                 // Simulate agents converging on a solution over multiple rounds
                 let response = match *count {
                     1 => format!("Agent {}: I think we should use approach A", self.agent_id),
-                    2 => format!("Agent {}: Approach A seems reasonable but needs refinement", self.agent_id),
-                    3 => format!("Agent {}: After consideration approach A with refinement is best solution", self.agent_id),
-                    _ => format!("Agent {}: I agree approach A with refinement is the best solution", self.agent_id),
+                    2 => format!(
+                        "Agent {}: Approach A seems reasonable but needs refinement",
+                        self.agent_id
+                    ),
+                    3 => format!(
+                        "Agent {}: After consideration approach A with refinement is best solution",
+                        self.agent_id
+                    ),
+                    _ => format!(
+                        "Agent {}: I agree approach A with refinement is the best solution",
+                        self.agent_id
+                    ),
                 };
 
                 Ok(Message {
@@ -1387,8 +1418,8 @@ mod tests {
             }),
         );
 
-        let mut council = Council::new("debate-council", "Debate Council")
-            .with_mode(CouncilMode::Debate {
+        let mut council =
+            Council::new("debate-council", "Debate Council").with_mode(CouncilMode::Debate {
                 max_rounds: 5,
                 convergence_threshold: Some(0.6), // 60% similarity threshold
             });
@@ -1396,7 +1427,10 @@ mod tests {
         council.add_agent(agent1).unwrap();
         council.add_agent(agent2).unwrap();
 
-        let response = council.discuss("What approach should we use?", 5).await.unwrap();
+        let response = council
+            .discuss("What approach should we use?", 5)
+            .await
+            .unwrap();
 
         // Should converge before max rounds (5)
         assert!(response.round < 5);

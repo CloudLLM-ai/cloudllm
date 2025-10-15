@@ -17,8 +17,14 @@ pub type ToolFunction =
 
 /// Type alias for async custom tool function implementations
 pub type AsyncToolFunction = Arc<
-    dyn Fn(JsonValue) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ToolResult, Box<dyn Error + Send + Sync>>> + Send>>
-        + Send
+    dyn Fn(
+            JsonValue,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<ToolResult, Box<dyn Error + Send + Sync>>>
+                    + Send,
+            >,
+        > + Send
         + Sync,
 >;
 
@@ -131,10 +137,9 @@ impl ToolProtocol for CustomToolAdapter {
         tool_name: &str,
     ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
         let tools = self.tools.read().await;
-        tools
-            .get(tool_name)
-            .cloned()
-            .ok_or_else(|| Box::new(ToolError::NotFound(tool_name.to_string())) as Box<dyn Error + Send + Sync>)
+        tools.get(tool_name).cloned().ok_or_else(|| {
+            Box::new(ToolError::NotFound(tool_name.to_string())) as Box<dyn Error + Send + Sync>
+        })
     }
 
     fn protocol_name(&self) -> &str {
@@ -257,10 +262,11 @@ impl ToolProtocol for McpAdapter {
         }
 
         let cache = self.tools_cache.read().await;
-        cache
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| Box::new(ToolError::ProtocolError("Tools cache not initialized".to_string())) as Box<dyn Error + Send + Sync>)
+        cache.as_ref().cloned().ok_or_else(|| {
+            Box::new(ToolError::ProtocolError(
+                "Tools cache not initialized".to_string(),
+            )) as Box<dyn Error + Send + Sync>
+        })
     }
 
     async fn get_tool_metadata(
@@ -271,7 +277,9 @@ impl ToolProtocol for McpAdapter {
         tools
             .into_iter()
             .find(|t| t.name == tool_name)
-            .ok_or_else(|| Box::new(ToolError::NotFound(tool_name.to_string())) as Box<dyn Error + Send + Sync>)
+            .ok_or_else(|| {
+                Box::new(ToolError::NotFound(tool_name.to_string())) as Box<dyn Error + Send + Sync>
+            })
     }
 
     fn protocol_name(&self) -> &str {
@@ -382,10 +390,9 @@ impl ToolProtocol for OpenAIFunctionAdapter {
         tool_name: &str,
     ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
         let tools = self.tools.read().await;
-        tools
-            .get(tool_name)
-            .cloned()
-            .ok_or_else(|| Box::new(ToolError::NotFound(tool_name.to_string())) as Box<dyn Error + Send + Sync>)
+        tools.get(tool_name).cloned().ok_or_else(|| {
+            Box::new(ToolError::NotFound(tool_name.to_string())) as Box<dyn Error + Send + Sync>
+        })
     }
 
     fn protocol_name(&self) -> &str {
@@ -482,12 +489,11 @@ mod tests {
     async fn test_openai_function_adapter() {
         let adapter = OpenAIFunctionAdapter::new();
 
-        let metadata = ToolMetadata::new("search", "Searches the web")
-            .with_parameter(
-                ToolParameter::new("query", ToolParameterType::String)
-                    .with_description("The search query")
-                    .required(),
-            );
+        let metadata = ToolMetadata::new("search", "Searches the web").with_parameter(
+            ToolParameter::new("query", ToolParameterType::String)
+                .with_description("The search query")
+                .required(),
+        );
 
         adapter
             .register_function(

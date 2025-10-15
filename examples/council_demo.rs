@@ -15,10 +15,12 @@
 //!
 //! Then run: cargo run --example council_demo
 
-use cloudllm::council::{Agent, Council, CouncilMode};
 use cloudllm::clients::openai::OpenAIClient;
+use cloudllm::council::{Agent, Council, CouncilMode};
 use cloudllm::tool_adapters::CustomToolAdapter;
-use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult};
+use cloudllm::tool_protocol::{
+    ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult,
+};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -72,7 +74,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent1 = Agent::new(
         "architect",
         "System Architect",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_expertise("Distributed systems, scalability, microservices architecture")
     .with_personality("Analytical, focuses on long-term maintainability");
@@ -80,7 +85,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent2 = Agent::new(
         "security",
         "Security Expert",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_expertise("Application security, threat modeling, secure coding practices")
     .with_personality("Cautious, emphasizes security-first design");
@@ -88,7 +96,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent3 = Agent::new(
         "performance",
         "Performance Engineer",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_expertise("Performance optimization, caching strategies, database tuning")
     .with_personality("Data-driven, focuses on metrics and benchmarks")
@@ -118,7 +129,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Err(e) => eprintln!("Parallel mode error: {}. This is expected if OPENAI_KEY is not set.", e),
+        Err(e) => eprintln!(
+            "Parallel mode error: {}. This is expected if OPENAI_KEY is not set.",
+            e
+        ),
     }
 
     // Demo 2: Round-Robin Mode - Iterative Discussion
@@ -128,7 +142,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_a = Agent::new(
         "frontend",
         "Frontend Developer",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_expertise("React, TypeScript, UI/UX design")
     .with_personality("User-focused, pragmatic");
@@ -136,7 +153,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_b = Agent::new(
         "backend",
         "Backend Developer",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_expertise("Node.js, databases, API design")
     .with_personality("Systematic, detail-oriented");
@@ -163,7 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Err(e) => eprintln!("Round-robin mode error: {}. This is expected if OPENAI_KEY is not set.", e),
+        Err(e) => eprintln!(
+            "Round-robin mode error: {}. This is expected if OPENAI_KEY is not set.",
+            e
+        ),
     }
 
     // Demo 3: Hierarchical Mode - Multi-Layer Problem Solving
@@ -173,19 +196,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker1 = Agent::new(
         "db-analyst",
         "Database Analyst",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     );
 
     let worker2 = Agent::new(
         "api-analyst",
         "API Analyst",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     );
 
     let supervisor = Agent::new(
         "tech-lead",
         "Technical Lead",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_expertise("System integration, architectural decisions");
 
@@ -216,7 +248,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Err(e) => eprintln!("Hierarchical mode error: {}. This is expected if OPENAI_KEY is not set.", e),
+        Err(e) => eprintln!(
+            "Hierarchical mode error: {}. This is expected if OPENAI_KEY is not set.",
+            e
+        ),
     }
 
     // Demo 4: Debate Mode - Convergence Through Discussion
@@ -226,14 +261,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let debater1 = Agent::new(
         "optimist",
         "Optimistic Engineer",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_personality("Innovative, focuses on opportunities");
 
     let debater2 = Agent::new(
         "realist",
         "Pragmatic Engineer",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            "gpt-4o-mini",
+        )),
     )
     .with_personality("Practical, considers constraints");
 
@@ -262,7 +303,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Err(e) => eprintln!("Debate mode error: {}. This is expected if OPENAI_KEY is not set.", e),
+        Err(e) => eprintln!(
+            "Debate mode error: {}. This is expected if OPENAI_KEY is not set.",
+            e
+        ),
     }
 
     println!("\n=== Council Demonstration Complete ===");
