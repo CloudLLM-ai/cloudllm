@@ -1,3 +1,35 @@
+//! xAI Grok client wrapper routed through the OpenAI-compatible surface.
+//!
+//! The `GrokClient` connects to xAI's Grok models using the same transport as the OpenAI client.
+//! It is therefore straightforward to reuse existing session or council code while targeting the
+//! Grok family of models.
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+//! use cloudllm::clients::grok::{GrokClient, Model};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("XAI_KEY")?;
+//!     let client = GrokClient::new_with_model_enum(&key, Model::Grok3Mini);
+//!     let reply = client
+//!         .send_message(
+//!             &[Message {
+//!                 role: Role::User,
+//!                 content: Arc::<str>::from("Give me a witty coding tip."),
+//!             }],
+//!             None,
+//!         )
+//!         .await?;
+//!     println!("{}", reply.content);
+//!     Ok(())
+//! }
+//! ```
+
 use crate::client_wrapper::TokenUsage;
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, Message};

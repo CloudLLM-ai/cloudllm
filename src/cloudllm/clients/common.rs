@@ -1,3 +1,84 @@
+//! Shared utilities used across provider client implementations.
+//!
+//! The helpers in this module are useful when implementing additional providers that expose an
+//! OpenAI-compatible HTTP surface.  They provide a tuned [`reqwest`] client, convenience
+//! functions for sending chat requests, and adapters for streaming responses.
+//!
+//! # Example: building a custom wrapper
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use async_trait::async_trait;
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+//! use cloudllm::clients::common::{get_shared_http_client, send_and_track};
+//! use openai_rust2 as openai_rust;
+//! use tokio::sync::Mutex;
+//!
+//! struct MyHostedClient {
+//!     client: openai_rust::Client,
+//!     model: String,
+//!     usage: Mutex<Option<TokenUsage>>,
+//! }
+//!
+//! impl MyHostedClient {
+//!     fn new(key: &str, base_url: &str, model: &str) -> Self {
+//!         Self {
+//!             client: openai_rust::Client::new_with_client_and_base_url(
+//!                 key,
+//!                 get_shared_http_client().clone(),
+//!                 base_url,
+//!             ),
+//!             model: model.to_owned(),
+//!             usage: Mutex::new(None),
+//!         }
+//!     }
+//! }
+//!
+//! #[async_trait]
+//! impl ClientWrapper for MyHostedClient {
+//!     fn model_name(&self) -> &str {
+//!         &self.model
+//!     }
+//!
+//!     async fn send_message(
+//!         &self,
+//!         messages: &[Message],
+//!         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+//!     ) -> Result<Message, Box<dyn std::error::Error>> {
+//!         let formatted = messages
+//!             .iter()
+//!             .map(|msg| openai_rust::chat::Message {
+//!                 role: match msg.role {
+//!                     Role::System => "system".into(),
+//!                     Role::User => "user".into(),
+//!                     Role::Assistant => "assistant".into(),
+//!                 },
+//!                 content: msg.content.as_ref().to_owned(),
+//!             })
+//!             .collect();
+//!
+//!         let reply = send_and_track(
+//!             &self.client,
+//!             &self.model,
+//!             formatted,
+//!             Some("/v1/chat/completions".to_string()),
+//!             &self.usage,
+//!             optional_search_parameters,
+//!         )
+//!         .await?;
+//!
+//!         Ok(Message {
+//!             role: Role::Assistant,
+//!             content: Arc::<str>::from(reply),
+//!         })
+//!     }
+//! }
+//! ```
+//!
+//! The same helpers can be combined with [`chunks_to_stream`] to wire streaming support into the
+//! custom client.
+
 use crate::client_wrapper::{MessageChunk, TokenUsage};
 use lazy_static::lazy_static;
 use openai_rust::chat;

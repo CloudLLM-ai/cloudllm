@@ -1,3 +1,65 @@
+//! Shared primitives for provider-agnostic LLM clients.
+//!
+//! Applications typically interact with CloudLLM through the [`ClientWrapper`] trait and the
+//! lightweight data types defined in this module.  The trait abstracts over concrete vendor
+//! implementations while the supporting structs describe chat messages, streaming chunks, and
+//! token accounting.
+//!
+//! # Basic request/response
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+//! use cloudllm::clients::openai::{Model, OpenAIClient};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("OPEN_AI_SECRET")?;
+//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Nano);
+//!
+//!     let response = client
+//!         .send_message(
+//!             &[Message {
+//!                 role: Role::User,
+//!                 content: Arc::from("Who are you?"),
+//!             }],
+//!             None,
+//!         )
+//!         .await?;
+//!
+//!     println!("Assistant: {}", response.content);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! # Streaming quick start
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+//! use cloudllm::clients::openai::{Model, OpenAIClient};
+//! use futures_util::StreamExt;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("OPEN_AI_SECRET")?;
+//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Mini);
+//!     let request = [Message {
+//!         role: Role::User,
+//!         content: Arc::from("Explain Rust lifetimes in a sentence."),
+//!     }];
+//!
+//!     if let Some(mut chunks) = client.send_message_stream(&request, None).await? {
+//!         while let Some(chunk) = chunks.next().await {
+//!             print!("{}", chunk?.content);
+//!         }
+//!     }
+//!     Ok(())
+//! }
+//! ```
+
 use async_trait::async_trait;
 use futures_util::stream::Stream;
 use openai_rust2 as openai_rust;

@@ -1,3 +1,36 @@
+//! Anthropic Claude client wrapper built on the OpenAI-compatible transport.
+//!
+//! Use this module when you want to call Anthropic's Claude models through the same
+//! [`ClientWrapper`] interface used by the rest of the
+//! crate.  The wrapper delegates HTTP concerns to the shared OpenAI implementation, so swapping
+//! from OpenAI to Claude only requires a different constructor.
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+//! use cloudllm::clients::claude::{ClaudeClient, Model};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("ANTHROPIC_KEY")?;
+//!     let client = ClaudeClient::new_with_model_enum(&key, Model::ClaudeSonnet4);
+//!     let reply = client
+//!         .send_message(
+//!             &[Message {
+//!                 role: Role::User,
+//!                 content: Arc::<str>::from("List three Claude capabilities."),
+//!             }],
+//!             None,
+//!         )
+//!         .await?;
+//!     println!("{}", reply.content);
+//!     Ok(())
+//! }
+//! ```
+
 use crate::client_wrapper::TokenUsage;
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, Message};

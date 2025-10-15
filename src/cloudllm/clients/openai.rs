@@ -1,16 +1,16 @@
-//! The `OpenAIClient` struct implements `ClientWrapper` for OpenAI’s Chat API,
-//! capturing both the assistant response and detailed token usage (input vs output)
-//! for cost tracking.
+//! OpenAI Chat Completions client that captures token usage statistics.
 //!
 //! # Key Features
 //!
-//! - **send_message(...)**: unchanged signature; returns a `Message` as before.
-//! - **Automatic Usage Capture**: stores the latest `TokenUsage` (input_tokens, output_tokens, total_tokens) internally.
-//! - **Inspect Usage**: call `get_last_usage()` after `send_message()` to retrieve actual usage stats.
+//! - **`send_message`**: returns a `Message` compatible with the higher level [`LLMSession`](crate::LLMSession) API.
+//! - **Automatic usage capture**: the last token accounting is stored in a shared slot.
+//! - **Streaming support**: `send_message_stream` converts streamed responses into [`MessageChunk`] values.
 //!
 //! # Example
 //!
 //! ```rust
+//! use std::sync::Arc;
+//!
 //! use cloudllm::clients::openai::{OpenAIClient, Model};
 //! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 //!
@@ -22,8 +22,8 @@
 //!
 //!     // Send system + user messages.
 //!     let resp = client.send_message(&vec![
-//!         Message { role: Role::System,    content: "You are an assistant.".into() },
-//!         Message { role: Role::User,      content: "Hello!".into() },
+//!         Message { role: Role::System,    content: Arc::<str>::from("You are an assistant.") },
+//!         Message { role: Role::User,      content: Arc::<str>::from("Hello!") },
 //!     ], None).await.unwrap();
 //!     println!("Assistant: {}", resp.content);
 //!
@@ -34,6 +34,33 @@
 //!             usage.input_tokens, usage.output_tokens, usage.total_tokens
 //!         );
 //!     }
+//! }
+//! ```
+//!
+//! # Streaming usage
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+//! use cloudllm::clients::openai::{Model, OpenAIClient};
+//! use futures_util::StreamExt;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("OPEN_AI_SECRET")?;
+//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Mini);
+//!     let request = [Message {
+//!         role: Role::User,
+//!         content: Arc::<str>::from("Stream a limerick about async Rust."),
+//!     }];
+//!
+//!     if let Some(mut stream) = client.send_message_stream(&request, None).await? {
+//!         while let Some(chunk) = stream.next().await {
+//!             print!("{}", chunk?.content);
+//!         }
+//!     }
+//!     Ok(())
 //! }
 //! ```
 //!

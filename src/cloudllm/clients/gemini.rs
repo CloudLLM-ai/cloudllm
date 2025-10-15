@@ -1,3 +1,34 @@
+//! Google Gemini client wrapper exposing the `ClientWrapper` trait.
+//!
+//! The `GeminiClient` connects to Google's Generative Language (Gemini) API using the
+//! same message structures and token accounting abstractions employed by the rest of CloudLLM.
+//!
+//! # Selecting a model and sending a message
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+//! use cloudllm::clients::gemini::{GeminiClient, Model};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("GEMINI_KEY")?;
+//!     let client = GeminiClient::new_with_model_enum(&key, Model::Gemini20Flash);
+//!     let reply = client
+//!         .send_message(
+//!             &[Message {
+//!                 role: Role::User,
+//!                 content: Arc::<str>::from("What industries benefit most from Gemini?"),
+//!             }],
+//!             None,
+//!         )
+//!         .await?;
+//!     println!("{}", reply.content);
+//!     Ok(())
+//! }
+//! ```
+
 use crate::client_wrapper::TokenUsage;
 use crate::clients::common::send_and_track;
 use crate::{ClientWrapper, Message, Role};
