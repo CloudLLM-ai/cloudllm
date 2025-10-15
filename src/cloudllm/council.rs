@@ -40,6 +40,7 @@
 use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 use crate::cloudllm::tool_protocol::ToolRegistry;
 use chrono::{DateTime, Utc};
+use openai_rust2::chat::SearchParameters;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
@@ -68,6 +69,7 @@ pub struct Agent {
     pub personality: Option<String>,
     pub metadata: HashMap<String, String>,
     pub tool_registry: Option<Arc<ToolRegistry>>,
+    pub search_parameters: Option<SearchParameters>,
 }
 
 impl Agent {
@@ -84,6 +86,7 @@ impl Agent {
             personality: None,
             metadata: HashMap::new(),
             tool_registry: None,
+            search_parameters: None,
         }
     }
 
@@ -104,6 +107,11 @@ impl Agent {
 
     pub fn with_tools(mut self, registry: Arc<ToolRegistry>) -> Self {
         self.tool_registry = Some(registry);
+        self
+    }
+
+    pub fn with_search_parameters(mut self, search_parameters: SearchParameters) -> Self {
+        self.search_parameters = Some(search_parameters);
         self
     }
 
@@ -203,9 +211,10 @@ impl Agent {
 
         loop {
             // Send to LLM
+            let search_parameters = self.search_parameters.clone();
             let response = self
                 .client
-                .send_message(&messages, None)
+                .send_message(&messages, search_parameters)
                 .await
                 .map_err(|e| {
                     Box::new(CouncilError::ExecutionFailed(e.to_string()))
@@ -587,6 +596,7 @@ impl Council {
                 let client = agent.client.clone();
                 let expertise = agent.expertise.clone();
                 let personality = agent.personality.clone();
+                let search_parameters = agent.search_parameters.clone();
                 let prompt_clone = prompt_owned.clone();
 
                 // Create temporary agent for task
@@ -598,6 +608,7 @@ impl Council {
                     personality: personality.clone(),
                     metadata: HashMap::new(),
                     tool_registry: None,
+                    search_parameters,
                 };
 
                 tasks.push(tokio::spawn(async move {
@@ -849,6 +860,7 @@ impl Council {
                 let client = agent.client.clone();
                 let expertise = agent.expertise.clone();
                 let personality = agent.personality.clone();
+                let search_parameters = agent.search_parameters.clone();
 
                 let temp_agent = Agent {
                     id: agent_id.clone(),
@@ -858,6 +870,7 @@ impl Council {
                     personality: personality.clone(),
                     metadata: HashMap::new(),
                     tool_registry: None,
+                    search_parameters,
                 };
 
                 tasks.push(tokio::spawn(async move {
