@@ -1,4 +1,4 @@
-// src/cloudllm/mod.rs
+//! Internal module tree housing the building blocks exposed via `cloudllm`.
 
 pub mod client_wrapper;
 pub mod clients;

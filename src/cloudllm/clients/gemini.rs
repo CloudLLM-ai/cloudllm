@@ -8,13 +8,20 @@ use openai_rust2 as openai_rust;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Client wrapper for Google Gemini (Generative Language) chat-style endpoints.
 pub struct GeminiClient {
+    /// Underlying OpenAI compatible client pointed at the Gemini base URL.
     client: openai_rust::Client,
+    /// Model identifier used for subsequent requests.
     pub model: String,
+    /// Storage for the most recent token usage report.
     token_usage: Mutex<Option<TokenUsage>>,
 }
 
-// Models returned by the API as of feb.23.2025
+/// Gemini model identifiers returned by the public API (February 2025 snapshot).
+///
+/// Every variant maps 1:1 to the hyphenated model name that the API expects.  Use
+/// [`model_to_string`] when you need the string literal.
 pub enum Model {
     Gemini20Flash,
     Gemini20FlashExp,
@@ -77,6 +84,7 @@ pub enum Model {
     Gemini25FlashLitePreview0617,
 }
 
+/// Convert a strongly typed [`Model`] into the string literal expected by the Gemini endpoint.
 pub fn model_to_string(model: Model) -> String {
     match model {
         Model::Gemini20Flash => "gemini-2.0-flash".to_string(),
@@ -144,6 +152,7 @@ pub fn model_to_string(model: Model) -> String {
 }
 
 impl GeminiClient {
+    /// Construct a client using the default Gemini base URL and an explicit model name.
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
         GeminiClient {
@@ -157,6 +166,7 @@ impl GeminiClient {
         }
     }
 
+    /// Construct a client from an API key and [`Model`] variant.
     pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
         Self::new_with_model_string(secret_key, &model_to_string(model))
     }
@@ -176,6 +186,7 @@ impl GeminiClient {
         }
     }
 
+    /// Variant of [`GeminiClient::new_with_base_url`] that accepts a strongly typed [`Model`].
     pub fn new_with_base_url_and_model_enum(
         secret_key: &str,
         model: Model,
@@ -191,6 +202,7 @@ impl ClientWrapper for GeminiClient {
         &self.model
     }
 
+    /// Send a synchronous message to the Gemini endpoint.
     async fn send_message(
         &self,
         messages: &[Message],
@@ -236,8 +248,9 @@ impl ClientWrapper for GeminiClient {
         }
     }
 
-    /// This function is used to get the token usage for the last request, otherwise there will be no tracking for token usage available
-    /// because default trait implementation of `usage_slot()` returns `None`
+    /// Expose the storage slot used by [`ClientWrapper::get_last_usage`].
+    ///
+    /// Returning `Some(...)` enables downstream consumers to pull accurate Gemini billing data.
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }

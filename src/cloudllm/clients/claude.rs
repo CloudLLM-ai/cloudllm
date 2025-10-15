@@ -6,20 +6,29 @@ use openai_rust2 as openai_rust;
 use std::error::Error;
 use tokio::sync::Mutex;
 
+/// Client wrapper for Anthropic's Claude API routed through the OpenAI compatible surface.
 pub struct ClaudeClient {
+    /// Delegated client that handles the HTTP interactions.
     delegate_client: OpenAIClient,
+    /// Exposed model name.
     model: String,
 }
 
-// Models available in Claude API as of jan.2025
+/// Anthropic Claude models available through the compatibility layer (Jan 2025 snapshot).
 pub enum Model {
+    /// `claude-opus-4-1` – flagship reasoning tier.
     ClaudeOpus41,
+    /// `claude-opus-4-0` – previous Opus generation.
     ClaudeOpus4,
+    /// `claude-sonnet-4-0` – balanced reasoning + throughput.
     ClaudeSonnet4,
+    /// `claude-sonnet-3-7-sonnet-latest` – latest Sonnet iteration.
     ClaudeSonnet37,
+    /// `claude-haiku-3-5-haiku-latest` – fastest Claude tier.
     ClaudeHaiku35,
 }
 
+/// Convert a [`Model`] variant into its public string identifier.
 fn model_to_string(model: Model) -> String {
     match model {
         Model::ClaudeOpus41 => "claude-opus-4-1".to_string(),
@@ -31,10 +40,12 @@ fn model_to_string(model: Model) -> String {
 }
 
 impl ClaudeClient {
+    /// Create a client from an API key and strongly typed model variant.
     pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
         Self::new_with_model_str(secret_key, &model_to_string(model))
     }
 
+    /// Create a client from an API key and explicit model string.
     pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
         ClaudeClient {
             // we reuse the OpenAIClient for Claude and delegate the calls to it
@@ -47,6 +58,7 @@ impl ClaudeClient {
         }
     }
 
+    /// Create a client pointing at a custom Claude-compatible base URL.
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         ClaudeClient {
             delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, base_url),
@@ -54,6 +66,7 @@ impl ClaudeClient {
         }
     }
 
+    /// Variant of [`ClaudeClient::new_with_base_url`] that accepts a [`Model`] variant.
     pub fn new_with_base_url_and_model_enum(
         secret_key: &str,
         model: Model,

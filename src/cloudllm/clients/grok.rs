@@ -6,26 +6,41 @@ use openai_rust2 as openai_rust;
 use std::error::Error;
 use tokio::sync::Mutex;
 
+/// Client wrapper for xAI's Grok models accessed via the OpenAI-style API surface.
 pub struct GrokClient {
+    /// Delegated OpenAI-compatible client.
     delegate_client: OpenAIClient,
+    /// Selected Grok model name.
     model: String,
 }
 
-// Models returned by the xAI API as of apr.14.2025
+/// Grok model identifiers available as of April 2025.
 pub enum Model {
+    /// `grok-2` – production Grok 2 multi-modal model.
     Grok2,
+    /// `grok-2-latest` – most recent Grok 2 drop.
     Grok2Latest,
-    Grok21212,             // $2/MMT input $10/MMT output
-    Grok3MiniFast,         // $0.60/MMT input $4.00/MMT output
-    Grok3Mini,             // $0.30/MMT input $0.50/MMT output
-    Grok3Fast,             // $5/MMT input $25/MMT output
-    Grok3,                 // $3/MMT input $15/MMT output
-    Grok4_0709,            // $3/MMT input $15/MMT output
-    Grok4FastReasoning,    // #$0.2/MMT input $0.50/MMT output
-    Grok4FastNonReasoning, // #$0.2/MMT input $0.50/MMT output
-    GrokCodeFast1,         // #$0.2/MMT input $1.50/MMT output
+    /// `grok-2-1212` – Grok 2 tuned for low latency, priced at $2/MMT input.
+    Grok21212,
+    /// `grok-3-mini-fast` – quick reasoning Grok 3 mini tier.
+    Grok3MiniFast,
+    /// `grok-3-mini` – economical Grok 3 mini.
+    Grok3Mini,
+    /// `grok-3-fast` – high throughput Grok 3.
+    Grok3Fast,
+    /// `grok-3` – general Grok 3 release.
+    Grok3,
+    /// `grok-4-0709` – midsummer 2024 Grok 4 release.
+    Grok4_0709,
+    /// `grok-4-fast-reasoning` – reasoning tuned fast Grok 4.
+    Grok4FastReasoning,
+    /// `grok-4-fast-nonreasoning` – non-reasoning Grok 4 fast tier.
+    Grok4FastNonReasoning,
+    /// `grok-code-fast-1` – code-focused Grok fast tier.
+    GrokCodeFast1,
 }
 
+/// Convert a [`Model`] variant into the identifier expected by the xAI API.
 fn model_to_string(model: Model) -> String {
     match model {
         Model::Grok2 => "grok-2".to_string(),
@@ -43,10 +58,12 @@ fn model_to_string(model: Model) -> String {
 }
 
 impl GrokClient {
+    /// Construct a client from an API key and typed model variant.
     pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
         Self::new_with_model_str(secret_key, &model_to_string(model))
     }
 
+    /// Construct a client from an API key and explicit model name.
     pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
         GrokClient {
             // we reuse the OpenAIClient for Grok and delegate the calls to it
@@ -59,6 +76,7 @@ impl GrokClient {
         }
     }
 
+    /// Construct a client for Grok-compatible endpoints hosted at a custom base URL.
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         GrokClient {
             delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, base_url),
@@ -66,6 +84,7 @@ impl GrokClient {
         }
     }
 
+    /// Convenience wrapper around [`GrokClient::new_with_base_url`].
     pub fn new_with_base_url_and_model_enum(
         secret_key: &str,
         model: Model,

@@ -10,7 +10,7 @@
 //!
 //! ## Quickstart
 //!
-//! ```rust
+//! ```rust,no_run
 //! use std::sync::Arc;
 //! use tokio::runtime::Runtime;
 //! use cloudllm::client_wrapper::Role;
@@ -56,35 +56,35 @@ use bumpalo::Bump;
 use openai_rust2 as openai_rust;
 use std::sync::Arc;
 
-/// A conversation session with an LLM, including:
-///
-/// - `client`: your `ClientWrapper` (e.g. `OpenAIClient`).
-/// - `system_prompt`: the context-steering system message.
-/// - `conversation_history`: all user & assistant messages (excluding system prompt).
-/// - `cached_token_counts`: cached token estimates for each message in conversation_history.
-/// - `max_tokens`: your configured context window size.
-/// - `total_input_tokens`: sum of all prompt tokens sent so far.
-/// - `total_output_tokens`: sum of all completion tokens received so far.
-/// - `total_context_tokens`: shortcut for input + output totals.
-/// - `total_token_count`: total tokens used in the current session.
-/// - `arena`: bump allocator for efficient message body allocation.
-/// - `request_buffer`: reusable buffer for building request messages, reducing allocations.
 pub struct LLMSession {
+    /// Provider specific client used to execute messages.
     client: Arc<dyn ClientWrapper>,
+    /// System priming message that is always prepended to requests.
     system_prompt: Message,
+    /// Rolling conversation history excluding the system prompt.
     conversation_history: Vec<Message>,
+    /// Cached token estimates for each entry in `conversation_history`.
     cached_token_counts: Vec<usize>,
+    /// Hard limit on context window size in tokens.
     max_tokens: usize,
+    /// Sum of prompt tokens consumed across the session (as reported by the provider).
     total_input_tokens: usize,
+    /// Sum of completion tokens consumed across the session (as reported by the provider).
     total_output_tokens: usize,
+    /// Total tokens consumed combining input and output counts.
     total_token_count: usize,
+    /// Arena allocator used to back message content allocations without repeated heap traffic.
     arena: Bump,
+    /// Scratch buffer reused when assembling the request payload sent to the provider.
     request_buffer: Vec<Message>,
 }
 
 impl LLMSession {
-    /// Creates a new `LLMSession` with the given client and system prompt.
-    /// Initializes the conversation history and sets a default maximum token limit.
+    /// Create a new session for the provided client, system prompt, and token budget.
+    ///
+    /// The `max_tokens` argument should reflect the effective context window of the underlying
+    /// provider.  The session will proactively prune conversation history to remain within that
+    /// limit.
     pub fn new(client: Arc<dyn ClientWrapper>, system_prompt: String, max_tokens: usize) -> Self {
         let arena = Bump::new();
 
@@ -112,17 +112,19 @@ impl LLMSession {
         }
     }
 
-    /// Sends a user/system message, receives the assistant's reply, and
-    /// automatically:
-    /// 1. Adds the message to history
-    /// 2. Trims oldest messages if estimated tokens exceed `max_tokens` (pre-transmission)
-    /// 3. Calls into your client's `send_message(...)` with trimmed history
-    /// 4. Pulls real token usage via `client.get_last_usage()`
-    /// 5. Updates `total_input_tokens`, `total_output_tokens`
-    /// 6. Trims again if actual usage exceeds `max_tokens` (post-response)
+    /// Send a message, update the session history, and return the assistant reply.
     ///
-    /// Returns the assistant's `Message`; call `session.token_usage()`
-    /// to see your cumulative usage.
+    /// The method performs several steps automatically:
+    ///
+    /// 1. Append the caller supplied message to the history.
+    /// 2. Estimate cumulative token usage and trim oldest exchanges if the soft limit would be
+    ///    breached.
+    /// 3. Dispatch the request via the wrapped [`ClientWrapper`].
+    /// 4. Persist the response in the conversation history.
+    /// 5. Pull provider reported token usage and update the session counters.
+    /// 6. Perform a second pruning pass if the provider indicates the hard cap was exceeded.
+    ///
+    /// Inspect [`LLMSession::token_usage`] to read the cumulative accounting.
     pub async fn send_message(
         &mut self,
         role: Role,
@@ -210,18 +212,14 @@ impl LLMSession {
         Ok(response_to_return)
     }
 
-    /// Sends a user/system message and returns a stream of MessageChunk items.
-    /// This method provides first-class streaming support, delivering tokens as they arrive
-    /// from the LLM provider.
+    /// Send a message and return a stream of partial responses when the provider supports it.
     ///
-    /// The stream will contain incremental content chunks that can be displayed in real-time.
-    /// The final chunk will include a finish_reason.
+    /// The session keeps the optimistic trimming behaviour of [`LLMSession::send_message`] but
+    /// does **not** automatically append the streamed chunks to the history.  Callers that wish
+    /// to persist the streamed output should collect it and feed the result back through
+    /// [`LLMSession::send_message`].
     ///
-    /// Note: Token usage tracking is not automatically available for streaming responses.
-    /// The caller is responsible for accumulating the streamed content and optionally
-    /// adding it to conversation history by calling send_message() with the accumulated text.
-    ///
-    /// Returns None if the underlying client does not support streaming.
+    /// Returning `Ok(None)` indicates that the wrapped client does not support streaming.
     pub async fn send_message_stream(
         &mut self,
         role: Role,
@@ -284,8 +282,10 @@ impl LLMSession {
         Ok(stream_result)
     }
 
-    /// Sets a new system prompt for the session.
-    /// Updates the token count accordingly.
+    /// Replace the system prompt that prefixes every request.
+    ///
+    /// Note that changing the system prompt does **not** attempt to re-estimate token usage –
+    /// the provided prompt should respect the configured `max_tokens` limit.
     pub fn set_system_prompt(&mut self, prompt: String) {
         // Allocate prompt in arena and create Arc<str>
         let prompt_str = self.arena.alloc_str(&prompt);
@@ -297,7 +297,7 @@ impl LLMSession {
         };
     }
 
-    /// Returns the current token usage statistics
+    /// Return the cumulative token usage statistics tracked for this session.
     pub fn token_usage(&self) -> client_wrapper::TokenUsage {
         client_wrapper::TokenUsage {
             input_tokens: self.total_input_tokens,
@@ -306,40 +306,44 @@ impl LLMSession {
         }
     }
 
-    /// Returns the model identifier used by the underlying client.
+    /// Return the model identifier exposed by the underlying client.
     pub fn model_name(&self) -> String {
         self.client.model_name().to_string()
     }
 
-    /// Returns the latest token usage reported by the upstream client, if available.
+    /// Ask the wrapped client for the most recent token usage report.
     pub async fn last_token_usage(&self) -> Option<client_wrapper::TokenUsage> {
         self.client.get_last_usage().await
     }
 
+    /// Current maximum token budget configured for the session.
     pub fn get_max_tokens(&self) -> usize {
         self.max_tokens
     }
 
+    /// Borrow the conversation history (excluding the system prompt).
     pub fn get_conversation_history(&self) -> &Vec<Message> {
         &self.conversation_history
     }
 
+    /// Borrow the cached token counts for each entry in the conversation history.
     pub fn get_cached_token_counts(&self) -> &Vec<usize> {
         &self.cached_token_counts
     }
 
+    /// Borrow the system prompt message currently in use.
     pub fn get_system_prompt(&self) -> &Message {
         &self.system_prompt
     }
 }
 
 /// Estimates the number of tokens in a string.
-/// Uses an approximate formula: one token per 4 characters.
+/// Uses the common approximation of one token per four UTF-8 characters with a floor of one.
 pub fn estimate_token_count(text: &str) -> usize {
     (text.len() / 4).max(1)
 }
 
-/// Estimates the number of tokens in a Message, including role annotations.
+/// Estimate tokens for a [`Message`] by combining role overhead and body length.
 pub fn estimate_message_token_count(message: &Message) -> usize {
     // Assuming the role adds some fixed number of tokens, e.g., 1 token
     let role_token_count = 1;

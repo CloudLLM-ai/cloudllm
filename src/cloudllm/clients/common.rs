@@ -9,8 +9,9 @@ use tokio::sync::Mutex;
 
 lazy_static! {
     /// Shared HTTP client with persistent connection pooling.
-    /// This maintains persistent connections, disables per-request DNS/TLS churn,
-    /// and provides efficient connection reuse across all client instances.
+    ///
+    /// The single client instance keeps TLS sessions and DNS lookups warm which significantly
+    /// reduces latency when many concurrent requests are issued to upstream providers.
     static ref SHARED_HTTP_CLIENT: reqwest::Client = {
         reqwest::ClientBuilder::new()
             .pool_idle_timeout(Some(Duration::from_secs(90)))
@@ -23,13 +24,17 @@ lazy_static! {
     };
 }
 
-/// Get a reference to the shared HTTP client with persistent connections.
-/// All clients should use this to benefit from connection pooling.
+/// Borrow the lazily initialised shared [`reqwest::Client`].
+///
+/// The returned reference can be cloned and reused by individual client wrappers.
 pub fn get_shared_http_client() -> &'static reqwest::Client {
     &SHARED_HTTP_CLIENT
 }
 
-/// Send a chat request, record its usage, and return the assistant’s content.
+/// Send a chat completion request, persist token usage, and surface the assistant content.
+///
+/// The helper captures the common logic shared by OpenAI-compatible endpoints (OpenAI, Anthropic
+/// via the Claude proxy, Gemini, xAI Grok, etc.).
 pub async fn send_and_track(
     api: &openai_rust::Client,
     model: &str,
@@ -72,7 +77,7 @@ pub async fn send_and_track(
     }
 }
 
-/// A simple error type that's Send + Sync
+/// Thin error wrapper used when streaming responses fail mid-flight.
 #[derive(Debug, Clone)]
 pub struct StreamError(pub String);
 
@@ -84,7 +89,8 @@ impl std::fmt::Display for StreamError {
 
 impl Error for StreamError {}
 
-/// Helper to convert collected chunks into a Send-able stream
+/// Convert eagerly collected message chunks into a boxed stream suitable for [`ClientWrapper`](crate::client_wrapper::ClientWrapper)
+/// implementations.
 pub fn chunks_to_stream(
     chunks: Vec<Result<MessageChunk, Box<dyn Error + Send>>>,
 ) -> crate::client_wrapper::MessageChunkStream {

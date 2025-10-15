@@ -11,11 +11,11 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Type alias for custom tool function implementations
+/// Type alias for synchronous tool functions exposed via the custom adapter.
 pub type ToolFunction =
     Arc<dyn Fn(JsonValue) -> Result<ToolResult, Box<dyn Error + Send + Sync>> + Send + Sync>;
 
-/// Type alias for async custom tool function implementations
+/// Type alias for asynchronous tool functions exposed via the custom adapter.
 pub type AsyncToolFunction = Arc<
     dyn Fn(
             JsonValue,
@@ -65,6 +65,7 @@ pub struct CustomToolAdapter {
 }
 
 impl CustomToolAdapter {
+    /// Create an empty adapter ready to accept new tool registrations.
     pub fn new() -> Self {
         Self {
             tools: Arc::new(RwLock::new(HashMap::new())),
@@ -73,21 +74,23 @@ impl CustomToolAdapter {
         }
     }
 
-    /// Register a synchronous tool function
+    /// Register a synchronous tool function.
+    ///
+    /// Subsequent calls will overwrite any existing tool with the same name.
     pub async fn register_tool(&self, metadata: ToolMetadata, function: ToolFunction) {
         let name = metadata.name.clone();
         self.tools.write().await.insert(name.clone(), metadata);
         self.sync_functions.write().await.insert(name, function);
     }
 
-    /// Register an asynchronous tool function
+    /// Register an asynchronous tool function.
     pub async fn register_async_tool(&self, metadata: ToolMetadata, function: AsyncToolFunction) {
         let name = metadata.name.clone();
         self.tools.write().await.insert(name.clone(), metadata);
         self.async_functions.write().await.insert(name, function);
     }
 
-    /// Remove a tool from the adapter
+    /// Remove a tool from the adapter.
     pub async fn unregister_tool(&self, name: &str) {
         self.tools.write().await.remove(name);
         self.sync_functions.write().await.remove(name);
@@ -172,6 +175,7 @@ pub struct McpAdapter {
 }
 
 impl McpAdapter {
+    /// Create an adapter that fetches tool metadata and executes calls against a MCP HTTP relay.
     pub fn new(endpoint: String) -> Self {
         Self {
             endpoint,
@@ -185,6 +189,7 @@ impl McpAdapter {
         }
     }
 
+    /// Override the default request timeout for subsequent HTTP calls.
     pub fn with_timeout(mut self, timeout_secs: u64) -> Self {
         self.client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_secs))
@@ -193,6 +198,7 @@ impl McpAdapter {
         self
     }
 
+    /// Override the cache TTL (in seconds) for the tool metadata snapshot.
     pub fn with_cache_ttl(mut self, ttl_secs: u64) -> Self {
         self.cache_ttl_secs = ttl_secs;
         self
@@ -309,6 +315,7 @@ pub struct OpenAIFunctionAdapter {
 }
 
 impl OpenAIFunctionAdapter {
+    /// Create an adapter that exposes tools using the OpenAI function calling interface.
     pub fn new() -> Self {
         Self {
             tools: Arc::new(RwLock::new(HashMap::new())),
@@ -316,13 +323,14 @@ impl OpenAIFunctionAdapter {
         }
     }
 
+    /// Register a new async function that can be invoked by the protocol.
     pub async fn register_function(&self, metadata: ToolMetadata, function: AsyncToolFunction) {
         let name = metadata.name.clone();
         self.tools.write().await.insert(name.clone(), metadata);
         self.functions.write().await.insert(name, function);
     }
 
-    /// Get tools in OpenAI function calling format
+    /// Render registered tools into the JSON structure expected by OpenAI's function calling API.
     pub async fn get_openai_functions(&self) -> Vec<JsonValue> {
         let tools = self.tools.read().await;
         tools

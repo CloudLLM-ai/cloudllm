@@ -43,6 +43,7 @@ pub struct ToolResult {
 }
 
 impl ToolResult {
+    /// Convenience constructor for successful tool execution.
     pub fn success(output: serde_json::Value) -> Self {
         Self {
             success: true,
@@ -52,6 +53,7 @@ impl ToolResult {
         }
     }
 
+    /// Convenience constructor for failed tool execution.
     pub fn failure(error: String) -> Self {
         Self {
             success: false,
@@ -61,6 +63,7 @@ impl ToolResult {
         }
     }
 
+    /// Attach protocol or application specific metadata to the result.
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.metadata.insert(key.into(), value);
         self
@@ -95,6 +98,7 @@ pub struct ToolParameter {
 }
 
 impl ToolParameter {
+    /// Define a new tool parameter with the provided name and type.
     pub fn new(name: impl Into<String>, param_type: ToolParameterType) -> Self {
         Self {
             name: name.into(),
@@ -107,26 +111,31 @@ impl ToolParameter {
         }
     }
 
+    /// Add a human readable description that will surface in generated schemas.
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
     }
 
+    /// Mark the argument as required.
     pub fn required(mut self) -> Self {
         self.required = true;
         self
     }
 
+    /// Provide a default value that will be used when the LLM omits the parameter.
     pub fn with_default(mut self, default: serde_json::Value) -> Self {
         self.default = Some(default);
         self
     }
 
+    /// For array parameters, declare the type of the contained items.
     pub fn with_items(mut self, item_type: ToolParameterType) -> Self {
         self.items = Some(Box::new(item_type));
         self
     }
 
+    /// For object parameters, describe the nested properties.
     pub fn with_properties(mut self, properties: HashMap<String, ToolParameter>) -> Self {
         self.properties = Some(properties);
         self
@@ -144,6 +153,7 @@ pub struct ToolMetadata {
 }
 
 impl ToolMetadata {
+    /// Create metadata with the supplied identifier and description.
     pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -153,11 +163,13 @@ impl ToolMetadata {
         }
     }
 
+    /// Append a parameter definition to the tool metadata.
     pub fn with_parameter(mut self, param: ToolParameter) -> Self {
         self.parameters.push(param);
         self
     }
 
+    /// Add protocol specific metadata (e.g. MCP capability flags).
     pub fn with_protocol_metadata(
         mut self,
         key: impl Into<String>,
@@ -204,9 +216,13 @@ pub trait ToolProtocol: Send + Sync {
 /// Error types for tool operations
 #[derive(Debug, Clone)]
 pub enum ToolError {
+    /// Requested tool is not registered in the current registry/protocol.
     NotFound(String),
+    /// Tool execution completed with an application level failure.
     ExecutionFailed(String),
+    /// The provided JSON parameters failed validation or deserialization.
     InvalidParameters(String),
+    /// A lower level protocol/transport error occurred.
     ProtocolError(String),
 }
 
@@ -225,11 +241,14 @@ impl Error for ToolError {}
 
 /// A tool that can be used by agents
 pub struct Tool {
+    /// Metadata describing the tool interface.
     metadata: ToolMetadata,
+    /// Underlying protocol implementation that actually executes the tool.
     protocol: Arc<dyn ToolProtocol>,
 }
 
 impl Tool {
+    /// Create a new tool bound to the supplied protocol implementation.
     pub fn new(
         name: impl Into<String>,
         description: impl Into<String>,
@@ -241,11 +260,13 @@ impl Tool {
         }
     }
 
+    /// Add a parameter definition to the tool builder.
     pub fn with_parameter(mut self, param: ToolParameter) -> Self {
         self.metadata.parameters.push(param);
         self
     }
 
+    /// Attach protocol specific metadata to the tool builder.
     pub fn with_protocol_metadata(
         mut self,
         key: impl Into<String>,
@@ -255,10 +276,12 @@ impl Tool {
         self
     }
 
+    /// Borrow the static metadata for the tool.
     pub fn metadata(&self) -> &ToolMetadata {
         &self.metadata
     }
 
+    /// Execute the tool using the configured protocol.
     pub async fn execute(
         &self,
         parameters: serde_json::Value,
@@ -274,6 +297,7 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
+    /// Build a registry powered by the provided protocol implementation.
     pub fn new(protocol: Arc<dyn ToolProtocol>) -> Self {
         Self {
             tools: HashMap::new(),
@@ -281,22 +305,27 @@ impl ToolRegistry {
         }
     }
 
+    /// Insert or replace a tool definition.
     pub fn add_tool(&mut self, tool: Tool) {
         self.tools.insert(tool.metadata.name.clone(), tool);
     }
 
+    /// Remove a tool by name returning the owned entry if present.
     pub fn remove_tool(&mut self, name: &str) -> Option<Tool> {
         self.tools.remove(name)
     }
 
+    /// Borrow a tool by name.
     pub fn get_tool(&self, name: &str) -> Option<&Tool> {
         self.tools.get(name)
     }
 
+    /// List metadata for registered tools (iteration order follows the underlying map).
     pub fn list_tools(&self) -> Vec<&ToolMetadata> {
         self.tools.values().map(|t| &t.metadata).collect()
     }
 
+    /// Execute a named tool with serialized parameters.
     pub async fn execute_tool(
         &self,
         tool_name: &str,
@@ -310,6 +339,7 @@ impl ToolRegistry {
         tool.execute(parameters).await
     }
 
+    /// Borrow the registry level protocol implementation.
     pub fn protocol(&self) -> &Arc<dyn ToolProtocol> {
         &self.protocol
     }

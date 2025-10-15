@@ -46,33 +46,46 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-/// Represents a parsed tool call from an LLM response
+/// Parsed representation of a tool call emitted by an agent.
 #[derive(Debug, Clone)]
 struct ToolCall {
+    /// Name of the tool to execute.
     name: String,
+    /// JSON payload describing the arguments.
     parameters: serde_json::Value,
 }
 
-/// Response from an agent generation including token usage
+/// Response body returned after asking an agent to generate content.
 #[derive(Debug, Clone)]
 struct AgentResponse {
+    /// Final message content produced across tool iterations.
     content: String,
+    /// Optional token usage aggregated across all tool iterations.
     tokens_used: Option<TokenUsage>,
 }
 
-/// Represents an agent with identity, expertise, and optional tool access
+/// Represents an agent with identity, expertise, and optional tool access.
 pub struct Agent {
+    /// Stable identifier referenced inside council orchestration.
     pub id: String,
+    /// Human readable display name for logging and UI surfaces.
     pub name: String,
+    /// Underlying client used to communicate with the model backing this agent.
     pub client: Arc<dyn ClientWrapper>,
+    /// Free-form description of the agent's strengths that will be embedded into prompts.
     pub expertise: Option<String>,
+    /// Persona hints that help diversify the tone of generated responses.
     pub personality: Option<String>,
+    /// Arbitrary metadata associated with the agent (e.g. department, region).
     pub metadata: HashMap<String, String>,
+    /// Optional registry of tools the agent may invoke during generation.
     pub tool_registry: Option<Arc<ToolRegistry>>,
+    /// Optional vector search configuration to forward to compatible providers.
     pub search_parameters: Option<SearchParameters>,
 }
 
 impl Agent {
+    /// Create a new agent with the mandatory identity information.
     pub fn new(
         id: impl Into<String>,
         name: impl Into<String>,
@@ -90,32 +103,37 @@ impl Agent {
         }
     }
 
+    /// Attach a brief description of the agent's domain expertise.
     pub fn with_expertise(mut self, expertise: impl Into<String>) -> Self {
         self.expertise = Some(expertise.into());
         self
     }
 
+    /// Attach a personality descriptor used to diversify prompts.
     pub fn with_personality(mut self, personality: impl Into<String>) -> Self {
         self.personality = Some(personality.into());
         self
     }
 
+    /// Add arbitrary metadata to the agent definition.
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
         self
     }
 
+    /// Grant the agent access to a registry of tools.
     pub fn with_tools(mut self, registry: Arc<ToolRegistry>) -> Self {
         self.tool_registry = Some(registry);
         self
     }
 
+    /// Forward search parameters to the underlying client wrapper if supported.
     pub fn with_search_parameters(mut self, search_parameters: SearchParameters) -> Self {
         self.search_parameters = Some(search_parameters);
         self
     }
 
-    /// Generate the system prompt augmented with agent's expertise and personality
+    /// Generate the system prompt augmented with the agent's expertise and personality.
     fn augment_system_prompt(&self, base_prompt: &str) -> String {
         let mut prompt = String::new();
 
@@ -135,7 +153,7 @@ impl Agent {
         prompt
     }
 
-    /// Send a message and get a response from this agent with token tracking
+    /// Send a message to the backing model and capture the response plus token usage.
     async fn generate_with_tokens(
         &self,
         system_prompt: &str,
@@ -312,7 +330,7 @@ impl Agent {
         })
     }
 
-    /// Send a message and get a response from this agent (convenience wrapper)
+    /// Convenience wrapper around `generate_with_tokens` that discards usage data.
     pub async fn generate(
         &self,
         system_prompt: &str,
@@ -325,8 +343,10 @@ impl Agent {
         Ok(response.content)
     }
 
-    /// Parse tool call from LLM response
-    /// Looks for JSON in format: {"tool_call": {"name": "tool_name", "parameters": {...}}}
+    /// Parse a tool call emitted by a model response.
+    ///
+    /// The method looks for JSON fragments in the format
+    /// `{ "tool_call": { "name": "...", "parameters": { ... }}}`.
     fn parse_tool_call(&self, response: &str) -> Option<ToolCall> {
         // Try to find JSON object in the response
         // Look for the pattern {"tool_call": ...}
@@ -391,11 +411,17 @@ pub enum CouncilMode {
 /// A message in a council discussion
 #[derive(Debug, Clone)]
 pub struct CouncilMessage {
+    /// Timestamp the message was added to the conversation.
     pub timestamp: DateTime<Utc>,
+    /// Identifier of the agent that generated the message (if any).
     pub agent_id: Option<String>,
+    /// Display name of the contributing agent (if any).
     pub agent_name: Option<String>,
+    /// Message role (system/user/assistant).
     pub role: Role,
+    /// Message body.
     pub content: Arc<str>,
+    /// Arbitrary metadata associated with the message.
     pub metadata: HashMap<String, String>,
 }
 
@@ -435,19 +461,28 @@ impl CouncilMessage {
 /// Response from a council discussion
 #[derive(Debug)]
 pub struct CouncilResponse {
+    /// Messages generated during the discussion.
     pub messages: Vec<CouncilMessage>,
+    /// Number of rounds executed.
     pub round: usize,
+    /// Whether the council completed according to the selected mode's termination criteria.
     pub is_complete: bool,
+    /// Optional convergence metric for debate mode.
     pub convergence_score: Option<f32>,
+    /// Approximate total tokens consumed across all agents.
     pub total_tokens_used: usize,
 }
 
 /// Error types for council operations
 #[derive(Debug, Clone)]
 pub enum CouncilError {
+    /// Requested agent identifier could not be found.
     AgentNotFound(String),
+    /// Invalid configuration encountered for the selected collaboration mode.
     InvalidMode(String),
+    /// Underlying execution error surfaced while gathering responses.
     ExecutionFailed(String),
+    /// Attempt to run a council action without any members.
     NoAgents,
 }
 
@@ -466,17 +501,26 @@ impl Error for CouncilError {}
 
 /// A council managing multiple agents in various collaboration modes
 pub struct Council {
+    /// Stable identifier for integrations and logging.
     pub id: String,
+    /// Human readable name of the council.
     pub name: String,
+    /// Storage for registered agents keyed by identifier.
     agents: HashMap<String, Agent>,
+    /// Insertion order of agents used for deterministic iteration.
     agent_order: Vec<String>, // Preserve insertion order for round-robin
+    /// Collaboration strategy used by the council.
     mode: CouncilMode,
+    /// Ongoing conversation history maintained across rounds.
     conversation_history: Vec<CouncilMessage>,
+    /// Global system context shared by all agents.
     system_context: String,
+    /// Soft token budget used for pre-trimming.
     max_tokens: usize,
 }
 
 impl Council {
+    /// Create a council with the provided identifiers and default to [`CouncilMode::Parallel`].
     pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -492,21 +536,25 @@ impl Council {
         }
     }
 
+    /// Select the collaboration mode the council will use during [`Council::discuss`].
     pub fn with_mode(mut self, mode: CouncilMode) -> Self {
         self.mode = mode;
         self
     }
 
+    /// Override the default system context prompt shared across agents.
     pub fn with_system_context(mut self, context: impl Into<String>) -> Self {
         self.system_context = context.into();
         self
     }
 
+    /// Override the soft token budget used for context trimming.
     pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
         self.max_tokens = max_tokens;
         self
     }
 
+    /// Register a new agent with the council.
     pub fn add_agent(&mut self, agent: Agent) -> Result<(), CouncilError> {
         let id = agent.id.clone();
         if self.agents.contains_key(&id) {
@@ -520,15 +568,18 @@ impl Council {
         Ok(())
     }
 
+    /// Remove and return an agent by identifier.
     pub fn remove_agent(&mut self, id: &str) -> Option<Agent> {
         self.agent_order.retain(|aid| aid != id);
         self.agents.remove(id)
     }
 
+    /// Borrow an agent by identifier.
     pub fn get_agent(&self, id: &str) -> Option<&Agent> {
         self.agents.get(id)
     }
 
+    /// List agents in their insertion order.
     pub fn list_agents(&self) -> Vec<&Agent> {
         self.agent_order
             .iter()
@@ -536,7 +587,11 @@ impl Council {
             .collect()
     }
 
-    /// Main entry point for council discussions
+    /// Execute a discussion according to the configured [`CouncilMode`].
+    ///
+    /// The `prompt` is broadcast to the council according to the active mode.  The `rounds`
+    /// parameter controls how many iterations to run for deterministic modes (parallel and
+    /// round-robin).  Other modes interpret the value as a safety bound.
     pub async fn discuss(
         &mut self,
         prompt: &str,
@@ -1126,6 +1181,7 @@ impl Council {
         &self.conversation_history
     }
 
+    /// Remove all historical messages, resetting the council state.
     pub fn clear_history(&mut self) {
         self.conversation_history.clear();
     }

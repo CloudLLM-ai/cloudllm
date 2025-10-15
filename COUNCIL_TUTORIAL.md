@@ -43,7 +43,7 @@ async fn parallel_carbon_capture_analysis() -> Result<(), Box<dyn std::error::Er
     let agent_chemistry = Agent::new(
         "chemistry-expert",
         "Dr. Chen (Chemistry Specialist)",
-        Arc::new(ClaudeClient::new_with_model_string(
+        Arc::new(ClaudeClient::new_with_model_str(
             &anthropic_key,
             "claude-3-5-sonnet-20241022"
         ))
@@ -135,7 +135,7 @@ async fn round_robin_deployment_strategy() -> Result<(), Box<dyn std::error::Err
     let agent_scientist = Agent::new(
         "climate-scientist",
         "Dr. Thompson (Climate Scientist)",
-        Arc::new(ClaudeClient::new_with_model_string(
+        Arc::new(ClaudeClient::new_with_model_str(
             &anthropic_key,
             "claude-3-5-sonnet-20241022"
         ))
@@ -168,7 +168,7 @@ async fn round_robin_deployment_strategy() -> Result<(), Box<dyn std::error::Err
     let agent_innovator = Agent::new(
         "tech-innovator",
         "Dr. Zhang (Innovation Strategist)",
-        Arc::new(GrokClient::new_with_model_string(
+        Arc::new(GrokClient::new_with_model_str(
             &xai_key,
             "grok-beta"
         ))
@@ -265,7 +265,7 @@ async fn moderated_qa_session() -> Result<(), Box<dyn std::error::Error>> {
     let agent_chemical = Agent::new(
         "chemical-expert",
         "Dr. Liu (Chemical Processes)",
-        Arc::new(ClaudeClient::new_with_model_string(
+        Arc::new(ClaudeClient::new_with_model_str(
             &anthropic_key,
             "claude-3-5-sonnet-20241022"
         ))
@@ -287,7 +287,7 @@ async fn moderated_qa_session() -> Result<(), Box<dyn std::error::Error>> {
     let agent_storage = Agent::new(
         "storage-expert",
         "Dr. Bjorn (Geological Storage)",
-        Arc::new(GrokClient::new_with_model_string(
+        Arc::new(GrokClient::new_with_model_str(
             &xai_key,
             "grok-beta"
         ))
@@ -381,7 +381,7 @@ async fn hierarchical_technology_selection() -> Result<(), Box<dyn std::error::E
     let worker_europe = Agent::new(
         "worker-eu",
         "Analysis Team: Europe",
-        Arc::new(ClaudeClient::new_with_model_string(&anthropic_key, "claude-3-haiku-20240307"))
+        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-haiku-20240307"))
     )
     .with_expertise("European carbon markets, renewable integration, environmental regulations")
     .with_personality("Compliance-focused, sustainability-driven");
@@ -399,7 +399,7 @@ async fn hierarchical_technology_selection() -> Result<(), Box<dyn std::error::E
     let supervisor_tech = Agent::new(
         "supervisor-tech",
         "Technical Supervisor",
-        Arc::new(ClaudeClient::new_with_model_string(&anthropic_key, "claude-3-5-sonnet-20241022"))
+        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-5-sonnet-20241022"))
     )
     .with_expertise("Technology assessment, comparative analysis, technical feasibility")
     .with_personality("Synthesizes technical details, identifies patterns across regions");
@@ -538,7 +538,7 @@ async fn debate_carbon_pricing() -> Result<(), Box<dyn std::error::Error>> {
     let agent_climate_hawk = Agent::new(
         "climate-hawk",
         "Dr. Andersson (Climate Emergency Advocate)",
-        Arc::new(ClaudeClient::new_with_model_string(
+        Arc::new(ClaudeClient::new_with_model_str(
             &anthropic_key,
             "claude-3-5-sonnet-20241022"
         ))
@@ -565,7 +565,7 @@ async fn debate_carbon_pricing() -> Result<(), Box<dyn std::error::Error>> {
     let agent_industry_realist = Agent::new(
         "industry-realist",
         "Dr. Mueller (Industrial Engineer)",
-        Arc::new(GrokClient::new_with_model_string(&xai_key, "grok-beta"))
+        Arc::new(GrokClient::new_with_model_str(&xai_key, "grok-beta"))
     )
     .with_expertise("Industrial processes, capital investment cycles, competitiveness")
     .with_personality(
@@ -852,7 +852,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     stage1_council.add_agent(Agent::new(
         "tech1", "Technology Analyst A",
-        Arc::new(ClaudeClient::new_with_model_string(&anthropic_key, "claude-3-5-sonnet-20241022"))
+        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-5-sonnet-20241022"))
     ).with_expertise("Direct Air Capture"))?;
 
     stage1_council.add_agent(Agent::new(
@@ -885,7 +885,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     stage2_council.add_agent(Agent::new(
         "advocate2", "Point Source Advocate",
-        Arc::new(GrokClient::new_with_model_string(&xai_key, "grok-beta"))
+        Arc::new(GrokClient::new_with_model_str(&xai_key, "grok-beta"))
     ))?;
 
     let stage2_result = stage2_council.discuss(
@@ -917,7 +917,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     stage3_council.add_agent(Agent::new(
         "regional2", "Regional Planner EU",
-        Arc::new(ClaudeClient::new_with_model_string(&anthropic_key, "claude-3-haiku-20240307"))
+        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-haiku-20240307"))
     ))?;
 
     stage3_council.add_agent(Agent::new(

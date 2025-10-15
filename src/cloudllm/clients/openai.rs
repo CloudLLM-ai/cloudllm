@@ -53,30 +53,54 @@ use crate::clients::common::{chunks_to_stream, send_and_track, StreamError};
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use tokio::sync::Mutex;
 
+/// Official model identifiers supported by OpenAI's Chat Completions API.
+#[allow(non_camel_case_types)]
 pub enum Model {
-    GPT5, // Higher Reasoning, Medium speed, Text+Image input, Text output; input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
-    GPT5Mini, // High Reasoning, Fast speed, Text+Image input, Text output; input $0.25/1M tokens, cached input $0.025/1M tokens, output $2/1M tokens
-    GPT5Nano, // Average Reasoning, Very fast speed, Text+Image input, Text output; input $0.05/1M tokens, cached input $0.005/1M tokens, output $0.4/1M tokens
-    GPT5ChatLatest, // High-Reasoning, Medium speed, Text+Image input, Text output; used in ChatGPT, input $1.25/1M tokens, cached input $0.125/1M tokens, output $10/1M tokens
-    GPT4o,          // input $2.5/1M tokens, cached input $1.25/1M tokens, output $10/1M tokens
-    ChatGPT4oLatest, // latest used in ChatGPT
+    /// `gpt-5` – high reasoning, medium latency, text or multimodal input.
+    GPT5,
+    /// `gpt-5-mini` – fast variant of GPT-5 with balanced cost and quality.
+    GPT5Mini,
+    /// `gpt-5-nano` – lowest latency GPT-5 configuration.
+    GPT5Nano,
+    /// `gpt-5-chat-latest` – ChatGPT's production deployment of GPT-5.
+    GPT5ChatLatest,
+    /// `gpt-4o` – Omni model with text + image inputs.
+    GPT4o,
+    /// `chatgpt-4o-latest` – the ChatGPT tuned interface to GPT-4o.
+    ChatGPT4oLatest,
+    /// `gpt-4o-mini` – cost effective GPT-4o derivative.
     GPt4oMini,
+    /// `o1` – reasoning-focused O-series frontier model.
     O1,
+    /// `o1-mini` – faster/cheaper O-series offering.
     O1Mini,
+    /// `o1-preview` – preview build of the O1 family.
     O1Preview,
+    /// `o3-mini` – compact successor in the O-series.
     O3Mini,
+    /// `o4-mini` – newest O-series low-latency tier.
     O4Mini,
+    /// `o4-mini-high` – higher accuracy variant of `o4-mini`.
     O4MiniHigh,
+    /// `o3` – general availability O-series release.
     O3,
+    /// `gpt-4o-realtime-preview` – realtime WebRTC capable GPT-4o.
     GPT4oRealtimePreview,
+    /// `gpt-4o-mini-realtime-preview` – lightweight realtime GPT-4o.
     GPT4oMiniRealtimePreview,
+    /// `gpt-4o-audio-preview` – GPT-4o tuned for audio conversations.
     GPT4oAudioPreview,
-    GPT45Preview, // input $75/1M tokens, cached input $37.5/1M tokens, output $150/1M tokens
-    GPT41,        // input $2/1M tokens, cached input $0.5/1M tokens, output $8/1M tokens
-    GPT41Mini,    // input $0.4/1M tokens, cached input $0.1/1M tokens, output $1.6/1M tokens
-    GPT41Nano,    // input $0.1/1M tokens, cached input $0.025/1M tokens, output $0.4/1M tokens
+    /// `gpt-4.5-preview` – preview of the 4.5 Omni upgrade.
+    GPT45Preview,
+    /// `gpt-4.1` – general availability GPT-4.1.
+    GPT41,
+    /// `gpt-4.1-mini` – reduced cost GPT-4.1 tier.
+    GPT41Mini,
+    /// `gpt-4.1-nano` – ultra low cost GPT-4.1 derivative.
+    GPT41Nano,
 }
 
+/// Convert a [`Model`] variant into the string identifier expected by the REST API.
 pub fn model_to_string(model: Model) -> String {
     match model {
         Model::GPT5 => "gpt-5".to_string(),
@@ -103,17 +127,30 @@ pub fn model_to_string(model: Model) -> String {
     }
 }
 
+/// Client wrapper for OpenAI's Chat Completions API.
+///
+/// The wrapper maintains the selected model identifier plus an internal [`TokenUsage`] slot so
+/// callers can inspect how many tokens each request consumed.  It reuses the shared HTTP client
+/// configured in [`crate::cloudllm::clients::common`].
 pub struct OpenAIClient {
+    /// Underlying SDK client pointing at the REST endpoint.
     client: openai_rust::Client,
+    /// Model name that will be injected into each request.
     model: String,
+    /// Storage for the token usage returned by the most recent request.
     token_usage: Mutex<Option<TokenUsage>>,
 }
 
 impl OpenAIClient {
+    /// Construct a new client using the provided API key and [`Model`] variant.
     pub fn new_with_model_enum(secret_key: &str, model: Model) -> Self {
         Self::new_with_model_string(secret_key, &model_to_string(model))
     }
 
+    /// Construct a new client using the provided API key and explicit model name.
+    ///
+    /// This is the most general constructor and can be used for unofficial model identifiers
+    /// (e.g. OpenAI compatible self-hosted deployments).
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
         OpenAIClient {
@@ -126,6 +163,7 @@ impl OpenAIClient {
         }
     }
 
+    /// Construct a client targeting a custom OpenAI compatible base URL.
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
         OpenAIClient {
@@ -139,6 +177,7 @@ impl OpenAIClient {
         }
     }
 
+    /// Convenience helper wrapping [`OpenAIClient::new_with_base_url`] for strongly typed models.
     pub fn new_with_base_url_and_model_enum(
         secret_key: &str,
         model: Model,
