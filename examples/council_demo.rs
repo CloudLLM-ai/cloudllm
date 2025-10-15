@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== CloudLLM Council Demonstration ===\n");
 
     // Setup: Create a simple calculator tool
-    let mut tool_adapter = CustomToolAdapter::new();
+    let tool_adapter = CustomToolAdapter::new();
 
     tool_adapter
         .register_tool(
