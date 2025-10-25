@@ -2,24 +2,58 @@
 //!
 //! This module provides a flexible abstraction for connecting agents to various tool protocols.
 //! It supports multiple standards including MCP (Model Context Protocol), custom function calling,
-//! and allows users to implement their own tool communication mechanisms.
+//! Memory persistence, and allows users to implement their own tool communication mechanisms.
 //!
 //! # Architecture
 //!
+//! **Single Protocol** (traditional):
 //! ```text
-//! Agent → ToolRegistry → ToolProtocol (trait) → [MCP | Custom | User-defined]
+//! Agent → ToolRegistry → ToolProtocol → Single Tool Source
 //! ```
 //!
-//! # Example
+//! **Multi-Protocol** (new in 0.5.0):
+//! ```text
+//! Agent → ToolRegistry → [Protocol1, Protocol2, Protocol3]
+//!         (routing map)     ↓          ↓          ↓
+//!                        Local      YouTube    GitHub
+//!                        Tools      Server     Server
+//! ```
+//!
+//! # Key Components
+//!
+//! - **ToolProtocol trait**: Define how tools are executed, discovered, and described
+//! - **ToolRegistry**: Single or multi-protocol tool aggregation with transparent routing
+//! - **ToolMetadata**: Tool identity, description, parameters
+//! - **ToolParameter**: Type-safe parameter definitions with validation
+//! - **ToolResult**: Structured tool execution results
+//! - **Tool**: Runtime tool instance bound to a protocol
+//!
+//! # Single Protocol Example
 //!
 //! ```rust,no_run
-//! use cloudllm::tool_protocol::{ToolParameter, ToolParameterType};
-//! use serde_json::json;
+//! use cloudllm::tool_protocol::ToolRegistry;
+//! use cloudllm::tool_protocols::CustomToolProtocol;
+//! use std::sync::Arc;
 //!
-//! // Define a tool parameter
-//! let param = ToolParameter::new("expression", ToolParameterType::String)
-//!     .with_description("The mathematical expression to evaluate")
-//!     .required();
+//! let protocol = Arc::new(CustomToolProtocol::new());
+//! let mut registry = ToolRegistry::new(protocol);
+//! registry.discover_tools_from_primary().await?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! # Multi-Protocol Example
+//!
+//! ```rust,no_run
+//! use cloudllm::tool_protocol::ToolRegistry;
+//! use cloudllm::tool_protocols::McpClientProtocol;
+//! use std::sync::Arc;
+//!
+//! let mut registry = ToolRegistry::empty();
+//! registry.add_protocol("local", Arc::new(CustomToolProtocol::new())).await?;
+//! registry.add_protocol("youtube",
+//!     Arc::new(McpClientProtocol::new("http://youtube-mcp:8081".to_string()))
+//! ).await?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 use async_trait::async_trait;

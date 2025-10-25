@@ -3,13 +3,34 @@
 //! This module provides concrete implementations of the ToolProtocol trait
 //! for various tool communication standards and transports.
 //!
-//! Each struct in this module is a complete implementation of ToolProtocol,
-//! representing a different way to communicate with tools:
-//! - CustomToolProtocol: Direct Rust function calls
-//! - McpClientProtocol: HTTP calls to a remote MCP server
-//! - MemoryProtocol: Memory tool via succinct protocol
-//! - OpenAIFunctionsProtocol: OpenAI function calling format
-//! - McpMemoryProtocol: Memory-specific MCP client
+//! Each struct is a complete implementation of ToolProtocol, representing a different
+//! way to communicate with tools. These implementations can be used individually or
+//! combined in a multi-protocol setup via ToolRegistry.
+//!
+//! # Available Implementations
+//!
+//! - **CustomToolProtocol**: Direct Rust function calls (sync and async)
+//! - **McpClientProtocol**: HTTP client for remote MCP servers
+//! - **MemoryProtocol**: TTL-aware in-process memory store with succinct protocol
+//! - **OpenAIFunctionProtocol**: OpenAI-compatible function calling format
+//! - **McpMemoryClient**: HTTP client for remote Memory servers (distributed coordination)
+//!
+//! # Usage Patterns
+//!
+//! ## Single Protocol
+//!
+//! ```ignore
+//! let protocol = Arc::new(CustomToolProtocol::new());
+//! let registry = ToolRegistry::new(protocol);
+//! ```
+//!
+//! ## Multiple Protocols (New in 0.5.0)
+//!
+//! ```ignore
+//! let mut registry = ToolRegistry::empty();
+//! registry.add_protocol("local", Arc::new(CustomToolProtocol::new())).await?;
+//! registry.add_protocol("mcp", Arc::new(McpClientProtocol::new(url))).await?;
+//! ```
 
 use crate::cloudllm::tool_protocol::{
     ToolError, ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolResult,

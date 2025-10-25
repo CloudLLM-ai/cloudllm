@@ -1,17 +1,38 @@
 //! Multi-Agent Council System
 //!
 //! This module provides abstractions for orchestrating multiple LLM agents in various
-//! collaboration patterns including parallel execution, round-robin discussion, moderated
-//! panels, hierarchical problem solving, and debate-style convergence.
+//! collaboration patterns. Each agent can have its own LLM provider, expertise, personality,
+//! and access to tools (single or multi-protocol).
+//!
+//! # Collaboration Modes
+//!
+//! - **Parallel**: All agents process the prompt simultaneously, responses are aggregated
+//! - **RoundRobin**: Agents take sequential turns, each building on previous responses
+//! - **Moderated**: Agents propose ideas, a moderator synthesizes the final answer
+//! - **Hierarchical**: Lead agent coordinates, specialists handle specific aspects
+//! - **Debate**: Agents discuss and challenge each other until convergence is reached
 //!
 //! # Architecture
 //!
 //! ```text
-//! Council
-//!   ├─ Agent 1 (OpenAI GPT-4) + Tools
-//!   ├─ Agent 2 (Claude) + Tools
-//!   └─ Agent 3 (Grok) + Tools
+//! Council (orchestration engine)
+//!   ├─ Agent 1 (OpenAI GPT-4)
+//!   │   ├─ Tools: Local + YouTube MCP Server
+//!   │   └─ Expertise: "Video Analysis"
+//!   │
+//!   ├─ Agent 2 (Claude)
+//!   │   ├─ Tools: Local + GitHub MCP Server
+//!   │   └─ Expertise: "Code Architecture"
+//!   │
+//!   └─ Agent 3 (Grok)
+//!       ├─ Tools: Memory Protocol
+//!       └─ Expertise: "System Coordination"
 //! ```
+//!
+//! # Tool Integration
+//!
+//! Starting in 0.5.0, agents can access tools from multiple protocols simultaneously.
+//! This enables rich multi-source interaction patterns in councils.
 //!
 //! # Example
 //!

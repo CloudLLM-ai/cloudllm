@@ -1,4 +1,15 @@
 //! Internal module tree housing the building blocks exposed via `cloudllm`.
+//!
+//! This module organizes CloudLLM's core functionality:
+//!
+//! - **client_wrapper**: Trait definition for LLM provider implementations
+//! - **clients**: Concrete implementations for OpenAI, Claude, Gemini, Grok, and custom endpoints
+//! - **llm_session**: Stateful conversation management with context trimming
+//! - **tool_protocol**: Protocol-agnostic tool interface and ToolRegistry for multi-protocol support
+//! - **tool_protocols**: Concrete ToolProtocol implementations (Custom, MCP, Memory, OpenAI)
+//! - **tools**: Built-in tools (Memory, Bash, etc.)
+//! - **council**: Multi-agent orchestration system with 5 collaboration modes
+//! - **mcp_server**: Unified MCP server for tool aggregation and routing
 
 pub mod client_wrapper;
 pub mod clients;
