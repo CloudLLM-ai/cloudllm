@@ -671,3 +671,175 @@ impl MemoryToolAdapter {
         }
     }
 }
+
+/// MCP (Model Context Protocol) Client for Memory Tool
+///
+/// Provides a client-side adapter that connects to a remote Memory service via MCP protocol.
+/// This enables distributed agents to interact with a centralized memory store.
+///
+/// The MCP Memory Client is designed to work with MCP servers that expose the Memory tool,
+/// allowing agents across different processes or machines to share persistent state.
+///
+/// # Architecture
+///
+/// The MCP Memory Client interacts with a remote MCP server through standard HTTP:
+/// - `GET /tools` - Discover available tools
+/// - `POST /execute` - Execute memory commands on the remote server
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use cloudllm::tool_adapters::McpMemoryClient;
+/// use cloudllm::tool_protocol::ToolProtocol;
+///
+/// # async {
+/// let client = McpMemoryClient::new("http://localhost:8080".to_string());
+/// let result = client.execute("memory",
+///     serde_json::json!({"command": "P my_key my_value 3600"})).await;
+/// # };
+/// ```
+///
+/// # Use Cases
+///
+/// - **Distributed Agents**: Multiple agents sharing memory across network
+/// - **Microservices**: Different services coordinating through shared Memory
+/// - **Multi-Region Deployments**: Centralized memory for geographically distributed systems
+/// - **Agent Clusters**: Coordinating state across a cluster of agent instances
+#[derive(Clone)]
+pub struct McpMemoryClient {
+    /// The base URL of the remote MCP server
+    /// Example: "http://localhost:8080"
+    endpoint: String,
+    /// HTTP client for making requests to the remote server
+    client: reqwest::Client,
+}
+
+impl McpMemoryClient {
+    /// Create a new MCP Memory Client connecting to a remote server
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - The base URL of the MCP server (e.g., "http://localhost:8080")
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::tool_adapters::McpMemoryClient;
+    ///
+    /// let client = McpMemoryClient::new("http://localhost:8080".to_string());
+    /// let client_with_custom_port = McpMemoryClient::new("http://192.168.1.100:3000".to_string());
+    /// ```
+    pub fn new(endpoint: String) -> Self {
+        Self {
+            endpoint,
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("Failed to build HTTP client"),
+        }
+    }
+
+    /// Create an MCP Memory Client with a custom timeout
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - The base URL of the MCP server
+    /// * `timeout_secs` - Custom timeout in seconds for HTTP requests
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::tool_adapters::McpMemoryClient;
+    ///
+    /// let client = McpMemoryClient::with_timeout(
+    ///     "http://localhost:8080".to_string(),
+    ///     60
+    /// );
+    /// ```
+    pub fn with_timeout(endpoint: String, timeout_secs: u64) -> Self {
+        Self {
+            endpoint,
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(timeout_secs))
+                .build()
+                .expect("Failed to build HTTP client"),
+        }
+    }
+
+    /// Get the endpoint this client is connected to
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    /// Helper to make HTTP requests to the MCP server
+    async fn send_request<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        method: &str,
+        body: Option<JsonValue>,
+    ) -> Result<T, Box<dyn Error + Send + Sync>> {
+        let url = format!("{}{}", self.endpoint, path);
+        let response = match method {
+            "GET" => self.client.get(&url).send().await?,
+            "POST" => {
+                let mut req = self.client.post(&url);
+                if let Some(b) = body {
+                    req = req.json(&b);
+                }
+                req.send().await?
+            }
+            _ => {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Unsupported HTTP method: {}", method),
+                )) as Box<dyn Error + Send + Sync>)
+            }
+        };
+
+        if !response.status().is_success() {
+            return Err(Box::new(ToolError::ProtocolError(format!(
+                "MCP server returned status: {}",
+                response.status()
+            ))));
+        }
+
+        Ok(response.json().await?)
+    }
+}
+
+#[async_trait]
+impl ToolProtocol for McpMemoryClient {
+    async fn execute(
+        &self,
+        tool_name: &str,
+        parameters: JsonValue,
+    ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+        let request = serde_json::json!({
+            "tool": tool_name,
+            "parameters": parameters
+        });
+
+        self.send_request("/execute", "POST", Some(request)).await
+    }
+
+    async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
+        self.send_request("/tools", "GET", None).await
+    }
+
+    async fn get_tool_metadata(
+        &self,
+        tool_name: &str,
+    ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+        let tools = self.list_tools().await?;
+        tools
+            .into_iter()
+            .find(|t| t.name == tool_name)
+            .ok_or_else(|| {
+                Box::new(ToolError::NotFound(tool_name.to_string())) as Box<dyn Error + Send + Sync>
+            })
+    }
+
+    fn protocol_name(&self) -> &str {
+        "mcp-memory-client"
+    }
+}
