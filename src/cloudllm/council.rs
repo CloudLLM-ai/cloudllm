@@ -79,6 +79,10 @@ pub struct Agent {
     /// Arbitrary metadata associated with the agent (e.g. department, region).
     pub metadata: HashMap<String, String>,
     /// Optional registry of tools the agent may invoke during generation.
+    ///
+    /// The registry supports both single-protocol (for backward compatibility)
+    /// and multi-protocol (multiple MCP servers) modes. Tools are transparently
+    /// routed to the appropriate protocol based on tool ownership.
     pub tool_registry: Option<Arc<ToolRegistry>>,
     /// Optional vector search configuration to forward to compatible providers.
     pub search_parameters: Option<SearchParameters>,
@@ -122,6 +126,28 @@ impl Agent {
     }
 
     /// Grant the agent access to a registry of tools.
+    ///
+    /// The registry can contain tools from a single protocol or from multiple
+    /// protocols (local, MCP servers, etc.). Tools are transparently routed to
+    /// the appropriate protocol when executed.
+    ///
+    /// # Example: Single Protocol
+    ///
+    /// ```ignore
+    /// let registry = Arc::new(ToolRegistry::new(
+    ///     Arc::new(CustomToolProtocol::new())
+    /// ));
+    /// agent.with_tools(registry);
+    /// ```
+    ///
+    /// # Example: Multiple Protocols
+    ///
+    /// ```ignore
+    /// let mut registry = ToolRegistry::empty();
+    /// registry.add_protocol("local", Arc::new(local_protocol)).await?;
+    /// registry.add_protocol("youtube", Arc::new(youtube_mcp)).await?;
+    /// agent.with_tools(Arc::new(registry));
+    /// ```
     pub fn with_tools(mut self, registry: Arc<ToolRegistry>) -> Self {
         self.tool_registry = Some(registry);
         self

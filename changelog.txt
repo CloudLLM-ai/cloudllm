@@ -1,3 +1,79 @@
+0.5.0 OCT/25/2025
+ - feat: Multi-Protocol ToolRegistry for Agents
+   - Extended ToolRegistry to support agents connecting to multiple MCP servers simultaneously
+   - Agents transparently access tools from all connected sources as if they were local
+   - New API methods for dynamic protocol management:
+     - `ToolRegistry::empty()` - Create registry for multi-protocol mode
+     - `add_protocol(name, protocol)` - Register protocols with auto-tool discovery
+     - `remove_protocol(name)` - Remove protocols and cascade-delete their tools
+     - `get_tool_protocol(tool_name)` - Query which protocol handles a tool
+     - `list_protocols()` - Get all registered protocol names
+     - `discover_tools_from_primary()` - Manually discover tools from primary protocol
+   - Automatic tool routing via `tool_to_protocol` HashMap
+   - Tool discovery on protocol registration
+   - Full backwards compatibility with single-protocol code
+ - feat: Unified MCP Server Implementation
+   - New UnifiedMcpServer struct implementing ToolProtocol trait
+   - Aggregates multiple tools and routes tool calls to appropriate implementations
+   - Suitable for deployment as HTTP service accessed by multiple agents
+   - Thread-safe via Arc<RwLock<>> for concurrent tool executions
+   - API methods:
+     - `register_tool(tool_name, protocol)` - Register a tool
+     - `unregister_tool(tool_name)` - Remove a tool
+     - `list_tools()` - Discover all available tools
+ - feat: Enhanced Tool Discovery and Execution
+   - ToolRegistry now auto-discovers tools when protocols are added
+   - Agent tool system prompts include all available tools from all protocols
+   - Tool execution transparently routes to correct protocol
+   - Support for both single and multi-protocol agent configurations
+ - feat: Renamed Tool Adapters for Clarity
+   - Renamed tool_adapters.rs to tool_protocols.rs (adapters are ToolProtocol implementations)
+   - All adapter classes renamed:
+     - CustomToolAdapter → CustomToolProtocol
+     - McpAdapter → McpClientProtocol
+     - MemoryToolAdapter → MemoryProtocol
+     - McpMemoryClient → McpMemoryClient (unchanged - already correct)
+     - OpenAIFunctionAdapter → OpenAIFunctionProtocol
+   - Backwards compatibility maintained with deprecated re-exports
+ - feat: Agent Tool Discovery Enhancements
+   - Agent.with_tools() documentation enhanced with multi-protocol examples
+   - Tool registry field documentation clarifies single and multi-protocol modes
+   - Council module updated to support multi-protocol tool registries
+ - example: New Multi-MCP Agent Example
+   - examples/multi_mcp_agent.rs demonstrates connecting to 3 MCP servers:
+     - Local MCP server (custom tools)
+     - Remote YouTube MCP server (youtube_search, youtube_get_transcript)
+     - Remote GitHub MCP server (github_search_repos, github_get_issues)
+   - Shows how agent transparently uses tools from all sources
+   - Demonstrates dynamic protocol registration at runtime
+ - docs: Enhanced Multi-Protocol Documentation
+   - README.md updated with multi-protocol ToolRegistry section
+   - Includes basic usage examples and key features
+   - Shows comparison between single and multi-protocol modes
+   - examples/MULTI_MCP_ARCHITECTURE.md comprehensive architecture guide
+   - Examples show tool routing, aggregation, and composition patterns
+ - test: Comprehensive Multi-Protocol Test Coverage
+   - 9 new tests in tool_protocol.rs (26 total library tests):
+     - test_empty_registry_creation
+     - test_add_single_protocol_to_empty_registry
+     - test_add_multiple_protocols
+     - test_remove_protocol
+     - test_get_tool_protocol
+     - test_remove_protocol_removes_tools
+     - test_execute_tool_through_registry
+     - test_backwards_compatibility_single_protocol
+     - test_discover_tools_from_primary
+   - 7 existing UnifiedMcpServer tests continue to pass
+   - All tests verify tool routing, discovery, and protocol management
+ - fix: Tool Protocol Documentation
+   - Fixed HTML tag warning in mcp_server.rs documentation
+   - Improved docstring formatting across tool_protocol.rs
+   - Enhanced examples in README.md with working code snippets
+ - docs: Updated HANDOFF.md
+   - Comprehensive session summary of multi-protocol implementation
+   - Quick API reference for both single and multi-protocol modes
+   - Complete feature list and backwards compatibility notes
+
 0.4.0 OCT/13/2025
  - feat: Multi-Agent Council System
    - New council.rs module implementing collaborative multi-agent orchestration

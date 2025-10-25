@@ -61,7 +61,7 @@ use tokio::sync::RwLock;
 /// # Thread Safety
 ///
 /// The server is thread-safe and can be shared across multiple concurrent
-/// tool executions using Arc<UnifiedMcpServer>.
+/// tool executions using `Arc<UnifiedMcpServer>`.
 #[derive(Clone)]
 pub struct UnifiedMcpServer {
     /// Map of tool name to its ToolProtocol implementation

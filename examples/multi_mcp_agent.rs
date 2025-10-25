@@ -60,7 +60,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Create the LLM client
     println!("Step 1: Creating OpenAI client...");
     let api_key = std::env::var("OPEN_AI_SECRET")?;
-    let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Nano));
+    let client = Arc::new(OpenAIClient::new_with_model_enum(
+        &api_key,
+        Model::GPT41Nano,
+    ));
 
     // Step 2: Create an empty ToolRegistry for multi-protocol support
     println!("\nStep 2: Creating multi-protocol ToolRegistry...");
@@ -72,9 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Add local MCP server (running on port 8080)
     println!("  - Adding local MCP server (http://localhost:8080)");
     println!("    Expected tools: memory, bash");
-    let local_protocol = Arc::new(McpClientProtocol::new(
-        "http://localhost:8080".to_string(),
-    ));
+    let local_protocol = Arc::new(McpClientProtocol::new("http://localhost:8080".to_string()));
     match registry.add_protocol("local", local_protocol).await {
         Ok(_) => println!("    ✓ Local server connected"),
         Err(e) => println!("    ⚠ Could not connect to local server: {}", e),
@@ -128,14 +129,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 6: Create Agent with access to all tools
     println!("\nStep 6: Creating agent with access to all tools...");
-    let mut agent = Agent::new("research-agent", "Research Agent", client);
-
-    agent = agent
+    let _agent = Agent::new("research-agent", "Research Agent", client)
         .with_expertise("Finding information using multiple sources")
-        .with_personality("Curious and methodical");
-
-    // Attach the multi-protocol registry to the agent
-    agent = agent.with_tools(Arc::new(registry));
+        .with_personality("Curious and methodical")
+        .with_tools(Arc::new(registry));
 
     // Step 7: Example agent interaction
     println!("\n=== Agent Capabilities ===\n");

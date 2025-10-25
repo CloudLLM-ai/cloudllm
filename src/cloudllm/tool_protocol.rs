@@ -414,14 +414,19 @@ impl ToolRegistry {
         let discovered_tools = protocol.list_tools().await?;
 
         // Register the protocol
-        self.protocols.insert(protocol_name.to_string(), protocol.clone());
+        self.protocols
+            .insert(protocol_name.to_string(), protocol.clone());
 
         // Register discovered tools
         for tool_meta in discovered_tools {
             let tool_name = tool_meta.name.clone();
 
             // Create a Tool that routes through this protocol
-            let tool = Tool::new(tool_name.clone(), tool_meta.description.clone(), protocol.clone());
+            let tool = Tool::new(
+                tool_name.clone(),
+                tool_meta.description.clone(),
+                protocol.clone(),
+            );
 
             // Copy over any additional parameters and metadata
             let mut tool = tool;
@@ -434,7 +439,8 @@ impl ToolRegistry {
 
             // Register the tool and its routing
             self.tools.insert(tool_name.clone(), tool);
-            self.tool_to_protocol.insert(tool_name, protocol_name.to_string());
+            self.tool_to_protocol
+                .insert(tool_name, protocol_name.to_string());
         }
 
         Ok(())
@@ -639,7 +645,10 @@ mod tests {
         let mut registry = ToolRegistry::empty();
 
         // Add protocol
-        registry.add_protocol("mock", protocol.clone()).await.unwrap();
+        registry
+            .add_protocol("mock", protocol.clone())
+            .await
+            .unwrap();
 
         // Verify protocol was added
         assert_eq!(registry.list_protocols().len(), 1);

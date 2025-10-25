@@ -395,6 +395,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The McpMemoryClient connects to a remote MCP Memory Server (which exposes a Memory instance via HTTP), allowing distributed agents to coordinate decisions and maintain shared state.
 
+### Multi-Protocol ToolRegistry (Using Multiple MCP Servers)
+
+CloudLLM supports agents connecting to multiple MCP servers simultaneously. Agents transparently access
+tools from all connected sources as if they were available locally.
+
+#### Basic Usage
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::council::Agent;
+use cloudllm::clients::openai::{Model, OpenAIClient};
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocols::McpClientProtocol;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create an empty multi-protocol registry
+    let mut registry = ToolRegistry::empty();
+
+    // Add local tools
+    let local_tools = Arc::new(CustomToolProtocol::new());
+    registry.add_protocol("local", local_tools).await?;
+
+    // Add remote MCP servers
+    let youtube = Arc::new(McpClientProtocol::new(
+        "http://youtube-mcp:8081".to_string()
+    ));
+    registry.add_protocol("youtube", youtube).await?;
+
+    let github = Arc::new(McpClientProtocol::new(
+        "http://github-mcp:8082".to_string()
+    ));
+    registry.add_protocol("github", github).await?;
+
+    // Create agent with all tools available
+    let agent = Agent::new(
+        "researcher",
+        "Research Agent",
+        Arc::new(OpenAIClient::new_with_model_enum(
+            &std::env::var("OPEN_AI_SECRET")?,
+            Model::GPT41Mini
+        )),
+    )
+    .with_tools(Arc::new(registry));
+
+    // Agent can now use tools from all three sources transparently!
+    Ok(())
+}
+```
+
+#### Key Features
+
+- **Dynamic Protocol Registration**: Add/remove protocols at runtime via `add_protocol()` and `remove_protocol()`
+- **Transparent Tool Routing**: Registry automatically routes tool calls to the correct protocol
+- **Auto Tool Discovery**: Each protocol is queried for available tools when added
+- **Backwards Compatible**: Existing single-protocol code continues to work unchanged
+
+#### Single-Protocol Mode (Existing Code)
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocols::CustomToolProtocol;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let protocol = Arc::new(CustomToolProtocol::new());
+    let mut registry = ToolRegistry::new(protocol);
+    registry.discover_tools_from_primary().await?;
+    Ok(())
+}
+```
+
 ### Creating Custom Protocol Adapters
 
 Implement the [`ToolProtocol`](https://docs.rs/cloudllm/latest/cloudllm/tool_protocol/trait.ToolProtocol.html) trait to support new protocols:
