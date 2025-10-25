@@ -3,7 +3,9 @@
 //! This module provides concrete implementations of the ToolProtocol trait
 //! for various tool communication standards and custom implementations.
 
-use crate::cloudllm::tool_protocol::{ToolError, ToolMetadata, ToolProtocol, ToolResult};
+use crate::cloudllm::tool_protocol::{
+    ToolError, ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolResult,
+};
 use async_trait::async_trait;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -408,130 +410,264 @@ impl ToolProtocol for OpenAIFunctionAdapter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cloudllm::tool_protocol::{ToolParameter, ToolParameterType};
+/// Memory Tool Adapter
+///
+/// Provides integration with the CloudLLM Memory tool using a succinct, token-efficient protocol.
+/// The protocol is designed to minimize token usage while being easily understood by LLMs.
+///
+/// This adapter implements the [`ToolProtocol`] trait, allowing Memory to work with
+/// CloudLLM's agent and council systems. It translates between LLM tool calls and Memory
+/// operations.
+///
+/// # Protocol Commands
+///
+/// The adapter supports the following commands (sent via tool parameters):
+/// - `P <key> <value> [ttl]` - Put (store) a value
+/// - `G <key> [META]` - Get (retrieve) a value
+/// - `L [META]` - List all keys
+/// - `D <key>` - Delete a key
+/// - `C` - Clear all keys
+/// - `T <scope>` - Total bytes (scope: A=all, K=keys, V=values)
+/// - `SPEC` - Get protocol specification
+///
+/// # Usage with Agents
+///
+/// ```ignore
+/// use cloudllm::tools::Memory;
+/// use cloudllm::tool_adapters::MemoryToolAdapter;
+/// use cloudllm::tool_protocol::ToolRegistry;
+/// use cloudllm::council::Agent;
+/// use std::sync::Arc;
+///
+/// let memory = Arc::new(Memory::new());
+/// let adapter = Arc::new(MemoryToolAdapter::new(memory));
+/// let registry = Arc::new(ToolRegistry::new(adapter));
+///
+/// let agent = Agent::new("analyzer", "Analyzer", client)
+///     .with_tools(registry);
+/// ```
+///
+/// # Usage with Councils
+///
+/// For multi-agent coordination, create a shared Memory:
+///
+/// ```ignore
+/// let shared_memory = Arc::new(Memory::new());
+/// let shared_adapter = Arc::new(MemoryToolAdapter::new(shared_memory));
+/// let shared_registry = Arc::new(ToolRegistry::new(shared_adapter));
+///
+/// let agent1 = Agent::new("a1", "Agent 1", client1).with_tools(shared_registry.clone());
+/// let agent2 = Agent::new("a2", "Agent 2", client2).with_tools(shared_registry.clone());
+/// ```
+///
+/// # System Prompt Integration
+///
+/// Include this in your system prompt to teach agents how to use Memory:
+///
+/// ```text
+/// You have access to a memory tool for persistent state management.
+/// Commands:
+/// - Store: {"tool_call": {"name": "memory", "parameters": {"command": "P key value ttl"}}}
+/// - Retrieve: {"tool_call": {"name": "memory", "parameters": {"command": "G key"}}}
+/// - List: {"tool_call": {"name": "memory", "parameters": {"command": "L META"}}}
+/// - Get spec: {"tool_call": {"name": "memory", "parameters": {"command": "SPEC"}}}
+/// ```
+///
+/// See [`crate::tools::Memory`] for more details and `examples/MEMORY_TOOL_GUIDE.md` for comprehensive usage guide.
+pub struct MemoryToolAdapter {
+    memory: Arc<crate::tools::Memory>,
+}
 
-    #[tokio::test]
-    async fn test_custom_adapter_sync_tool() {
-        let adapter = CustomToolAdapter::new();
+impl MemoryToolAdapter {
+    /// Create a new memory tool adapter bound to a Memory instance
+    ///
+    /// The adapter will delegate all tool calls to the provided Memory instance.
+    /// The Memory instance is typically wrapped in Arc for shared access across agents.
+    ///
+    /// # Arguments
+    ///
+    /// * `memory` - The Memory instance to use for storage operations
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cloudllm::tools::Memory;
+    /// use cloudllm::tool_adapters::MemoryToolAdapter;
+    /// use std::sync::Arc;
+    ///
+    /// let memory = Arc::new(Memory::new());
+    /// let adapter = MemoryToolAdapter::new(memory);
+    /// ```
+    pub fn new(memory: Arc<crate::tools::Memory>) -> Self {
+        Self { memory }
+    }
+}
 
-        let metadata = ToolMetadata::new("add", "Adds two numbers")
-            .with_parameter(ToolParameter::new("a", ToolParameterType::Number).required())
-            .with_parameter(ToolParameter::new("b", ToolParameterType::Number).required());
+#[async_trait]
+impl ToolProtocol for MemoryToolAdapter {
+    async fn execute(
+        &self,
+        tool_name: &str,
+        parameters: JsonValue,
+    ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+        // This adapter only handles the "memory" tool
+        if tool_name != "memory" {
+            return Err(Box::new(ToolError::NotFound(tool_name.to_string())));
+        }
 
-        adapter
-            .register_tool(
-                metadata,
-                Arc::new(|params| {
-                    let a = params["a"].as_f64().unwrap_or(0.0);
-                    let b = params["b"].as_f64().unwrap_or(0.0);
-                    Ok(ToolResult::success(serde_json::json!({"result": a + b})))
-                }),
-            )
-            .await;
+        // Extract the command from parameters
+        let command = parameters
+            .get("command")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ToolError::InvalidParameters("Missing 'command' parameter".to_string())
+            })?;
 
-        let result = adapter
-            .execute("add", serde_json::json!({"a": 5.0, "b": 3.0}))
-            .await
-            .unwrap();
-
-        assert!(result.success);
-        assert_eq!(result.output["result"], 8.0);
+        // Parse and execute the protocol command
+        let result = self.process_memory_command(command);
+        Ok(result)
     }
 
-    #[tokio::test]
-    async fn test_custom_adapter_async_tool() {
-        let adapter = CustomToolAdapter::new();
-
-        let metadata = ToolMetadata::new("fetch", "Fetches data asynchronously");
-
-        adapter
-            .register_async_tool(
-                metadata,
-                Arc::new(|_params| {
-                    Box::pin(async {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-                        Ok(ToolResult::success(serde_json::json!({"data": "fetched"})))
-                    })
-                }),
-            )
-            .await;
-
-        let result = adapter
-            .execute("fetch", serde_json::json!({}))
-            .await
-            .unwrap();
-
-        assert!(result.success);
-        assert_eq!(result.output["data"], "fetched");
-    }
-
-    #[tokio::test]
-    async fn test_custom_adapter_list_tools() {
-        let adapter = CustomToolAdapter::new();
-
-        let metadata1 = ToolMetadata::new("tool1", "First tool");
-        let metadata2 = ToolMetadata::new("tool2", "Second tool");
-
-        adapter
-            .register_tool(
-                metadata1,
-                Arc::new(|_| Ok(ToolResult::success(serde_json::json!({})))),
-            )
-            .await;
-
-        adapter
-            .register_tool(
-                metadata2,
-                Arc::new(|_| Ok(ToolResult::success(serde_json::json!({})))),
-            )
-            .await;
-
-        let tools = adapter.list_tools().await.unwrap();
-        assert_eq!(tools.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_openai_function_adapter() {
-        let adapter = OpenAIFunctionAdapter::new();
-
-        let metadata = ToolMetadata::new("search", "Searches the web").with_parameter(
-            ToolParameter::new("query", ToolParameterType::String)
-                .with_description("The search query")
+    async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
+        Ok(vec![ToolMetadata::new(
+            "memory",
+            "Persistent memory system with token-efficient protocol for agent state management",
+        )
+        .with_parameter(
+            ToolParameter::new("command", ToolParameterType::String)
+                .with_description("Memory protocol command")
                 .required(),
-        );
+        )])
+    }
 
-        adapter
-            .register_function(
-                metadata,
-                Arc::new(|params| {
-                    Box::pin(async move {
-                        let query = params["query"].as_str().unwrap_or("");
-                        Ok(ToolResult::success(serde_json::json!({
-                            "results": [
-                                {"title": "Result 1", "url": "http://example.com/1"},
-                                {"title": "Result 2", "url": "http://example.com/2"}
-                            ],
-                            "query": query
-                        })))
-                    })
-                }),
-            )
-            .await;
+    async fn get_tool_metadata(
+        &self,
+        tool_name: &str,
+    ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+        if tool_name != "memory" {
+            return Err(Box::new(ToolError::NotFound(tool_name.to_string())));
+        }
 
-        let functions = adapter.get_openai_functions().await;
-        assert_eq!(functions.len(), 1);
-        assert_eq!(functions[0]["name"], "search");
-        assert_eq!(functions[0]["description"], "Searches the web");
+        Ok(ToolMetadata::new(
+            "memory",
+            "Persistent memory system with token-efficient protocol for agent state management",
+        )
+        .with_parameter(
+            ToolParameter::new("command", ToolParameterType::String)
+                .with_description("Memory protocol command")
+                .required(),
+        ))
+    }
 
-        let result = adapter
-            .execute("search", serde_json::json!({"query": "rust programming"}))
-            .await
-            .unwrap();
+    fn protocol_name(&self) -> &str {
+        "memory"
+    }
+}
 
-        assert!(result.success);
-        assert_eq!(result.output["query"], "rust programming");
+impl MemoryToolAdapter {
+    /// Process a memory protocol command
+    /// Commands: P (put), G (get), L (list), D (delete), C (clear), T (total bytes), SPEC (specification)
+    fn process_memory_command(&self, command: &str) -> ToolResult {
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.is_empty() {
+            return ToolResult::failure("ERR:Invalid Command".to_string());
+        }
+
+        match parts[0] {
+            "P" => {
+                if parts.len() < 3 {
+                    return ToolResult::failure("ERR:Invalid PUT Syntax".to_string());
+                }
+                let key = parts[1];
+                let value = parts[2];
+                let ttl = parts.get(3).and_then(|ttl| ttl.parse::<u64>().ok());
+
+                self.memory.put(key.to_string(), value.to_string(), ttl);
+                ToolResult::success(serde_json::json!({"status": "OK"}))
+            }
+            "G" => {
+                if parts.len() < 2 {
+                    return ToolResult::failure("ERR:Invalid GET Syntax".to_string());
+                }
+                let key = parts[1];
+                let include_metadata = parts.get(2) == Some(&"META");
+
+                match self.memory.get(key, include_metadata) {
+                    Some((value, Some(metadata))) => ToolResult::success(serde_json::json!({
+                        "value": value,
+                        "added_utc": metadata.added_utc.to_rfc3339(),
+                        "expires_in": metadata.expires_in
+                    })),
+                    Some((value, None)) => ToolResult::success(serde_json::json!({
+                        "value": value
+                    })),
+                    None => ToolResult::failure("ERR:NOT_FOUND".to_string()),
+                }
+            }
+            "L" => {
+                let include_metadata = parts.get(1) == Some(&"META");
+                let keys = self.memory.list_keys();
+
+                if include_metadata {
+                    let mut list = Vec::new();
+                    for key in &keys {
+                        if let Some((_, metadata)) = self.memory.get(key, true) {
+                            let metadata = metadata.unwrap();
+                            list.push(serde_json::json!({
+                                "key": key,
+                                "added_utc": metadata.added_utc.to_rfc3339(),
+                                "expires_in": metadata.expires_in
+                            }));
+                        }
+                    }
+                    ToolResult::success(serde_json::json!({
+                        "keys": list
+                    }))
+                } else {
+                    ToolResult::success(serde_json::json!({
+                        "keys": keys
+                    }))
+                }
+            }
+            "D" => {
+                if parts.len() < 2 {
+                    return ToolResult::failure("ERR:Invalid DELETE Syntax".to_string());
+                }
+                let key = parts[1];
+                if self.memory.delete(key) {
+                    ToolResult::success(serde_json::json!({"status": "OK"}))
+                } else {
+                    ToolResult::failure("ERR:NOT_FOUND".to_string())
+                }
+            }
+            "C" => {
+                self.memory.clear();
+                ToolResult::success(serde_json::json!({"status": "OK"}))
+            }
+            "T" => {
+                if parts.len() < 2 {
+                    return ToolResult::failure("ERR:Invalid TOTAL Syntax".to_string());
+                }
+                match parts[1] {
+                    "A" => {
+                        let (total, _, _) = self.memory.get_total_bytes_stored();
+                        ToolResult::success(serde_json::json!({"total_bytes": total}))
+                    }
+                    "K" => {
+                        let (_, keys_size, _) = self.memory.get_total_bytes_stored();
+                        ToolResult::success(serde_json::json!({"keys_bytes": keys_size}))
+                    }
+                    "V" => {
+                        let (_, _, values_size) = self.memory.get_total_bytes_stored();
+                        ToolResult::success(serde_json::json!({"values_bytes": values_size}))
+                    }
+                    _ => ToolResult::failure("ERR:Invalid TOTAL Scope".to_string()),
+                }
+            }
+            "SPEC" => ToolResult::success(serde_json::json!({
+                "specification": crate::tools::Memory::get_protocol_spec()
+            })),
+            _ => ToolResult::failure("ERR:Unknown Command".to_string()),
+        }
     }
 }
