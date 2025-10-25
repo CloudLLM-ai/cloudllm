@@ -331,7 +331,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #### 4. MemoryToolAdapter (Persistent Agent State)
 
-For maintaining state across sessions:
+For maintaining state across sessions within a single process:
 
 ```rust,no_run
 use std::sync::Arc;
@@ -356,6 +356,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+#### 5. McpMemoryClient (Distributed Agent Coordination)
+
+For coordinating multiple agents across different processes or machines via a remote Memory service:
+
+```rust,no_run
+use cloudllm::tool_adapters::McpMemoryClient;
+use cloudllm::tool_protocol::ToolProtocol;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Connect to a remote MCP Memory Server
+    let client = McpMemoryClient::new("http://localhost:8080".to_string());
+
+    // Store data on the remote server
+    let store_result = client.execute(
+        "memory",
+        serde_json::json!({"command": "P agent_state research_complete 3600"})
+    ).await?;
+
+    // Retrieve data from the remote server
+    let get_result = client.execute(
+        "memory",
+        serde_json::json!({"command": "G agent_state META"})
+    ).await?;
+
+    println!("Agent state: {}", get_result.output);
+    Ok(())
+}
+```
+
+**Use Cases:**
+- **Agent Fleets**: Multiple agents sharing memory across network
+- **Microservices**: Different services coordinating through shared Memory
+- **Multi-Region**: Centralized memory for geographically distributed systems
+- **Agent Clusters**: Coordinating state across a cluster of agent instances
+
+The McpMemoryClient connects to a remote MCP Memory Server (which exposes a Memory instance via HTTP), allowing distributed agents to coordinate decisions and maintain shared state.
 
 ### Creating Custom Protocol Adapters
 
