@@ -291,27 +291,182 @@ impl Tool {
 }
 
 /// Registry for managing tools available to agents
+///
+/// Supports single or multiple tool protocols, enabling agents to transparently
+/// access tools from multiple sources (local functions, MCP servers, etc.)
+///
+/// # Single Protocol
+///
+/// ```rust,no_run
+/// use cloudllm::tool_protocol::ToolRegistry;
+/// use cloudllm::tool_protocols::CustomToolProtocol;
+/// use std::sync::Arc;
+///
+/// let protocol = Arc::new(CustomToolProtocol::new());
+/// let registry = ToolRegistry::new(protocol);
+/// ```
+///
+/// # Multiple Protocols
+///
+/// ```rust,no_run
+/// use cloudllm::tool_protocol::ToolRegistry;
+/// use cloudllm::tool_protocols::{CustomToolProtocol, McpClientProtocol};
+/// use std::sync::Arc;
+///
+/// # async {
+/// let mut registry = ToolRegistry::empty();
+///
+/// // Add local tools
+/// registry.add_protocol(
+///     "local",
+///     Arc::new(CustomToolProtocol::new())
+/// ).await.ok();
+///
+/// // Add remote MCP server
+/// registry.add_protocol(
+///     "youtube",
+///     Arc::new(McpClientProtocol::new("http://youtube-mcp:8081".to_string()))
+/// ).await.ok();
+///
+/// // Agent transparently accesses both
+/// # };
+/// ```
 pub struct ToolRegistry {
+    /// All discovered tools from all protocols
     tools: HashMap<String, Tool>,
-    protocol: Arc<dyn ToolProtocol>,
+    /// Mapping of tool_name -> protocol_name for routing
+    tool_to_protocol: HashMap<String, String>,
+    /// All registered protocols
+    protocols: HashMap<String, Arc<dyn ToolProtocol>>,
+    /// Primary protocol (for backwards compatibility with single-protocol code)
+    primary_protocol: Option<Arc<dyn ToolProtocol>>,
 }
 
 impl ToolRegistry {
-    /// Build a registry powered by the provided protocol implementation.
+    /// Build a registry powered by a single protocol implementation.
+    ///
+    /// This is the traditional single-protocol mode. Use `empty()` and `add_protocol()`
+    /// for multi-protocol support.
     pub fn new(protocol: Arc<dyn ToolProtocol>) -> Self {
         Self {
             tools: HashMap::new(),
-            protocol,
+            tool_to_protocol: HashMap::new(),
+            protocols: {
+                let mut m = HashMap::new();
+                m.insert("primary".to_string(), protocol.clone());
+                m
+            },
+            primary_protocol: Some(protocol),
         }
     }
 
-    /// Insert or replace a tool definition.
+    /// Create an empty registry ready to accept multiple protocols.
+    ///
+    /// Use `add_protocol()` to register protocols.
+    pub fn empty() -> Self {
+        Self {
+            tools: HashMap::new(),
+            tool_to_protocol: HashMap::new(),
+            protocols: HashMap::new(),
+            primary_protocol: None,
+        }
+    }
+
+    /// Register a protocol and discover its tools.
+    ///
+    /// # Arguments
+    ///
+    /// * `protocol_name` - Unique identifier for this protocol (e.g., "local", "youtube", "github")
+    /// * `protocol` - The ToolProtocol implementation
+    ///
+    /// # Tool Discovery
+    ///
+    /// This method calls `protocol.list_tools()` to discover available tools
+    /// and automatically registers them in the registry.
+    ///
+    /// # Conflicts
+    ///
+    /// If a tool with the same name already exists, it will be replaced.
+    /// The new protocol's tool takes precedence.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::tool_protocol::ToolRegistry;
+    /// use cloudllm::tool_protocols::McpClientProtocol;
+    /// use std::sync::Arc;
+    ///
+    /// # async {
+    /// let mut registry = ToolRegistry::empty();
+    /// registry.add_protocol(
+    ///     "memory_server",
+    ///     Arc::new(McpClientProtocol::new("http://localhost:8080".to_string()))
+    /// ).await?;
+    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    /// # };
+    /// ```
+    pub async fn add_protocol(
+        &mut self,
+        protocol_name: &str,
+        protocol: Arc<dyn ToolProtocol>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Discover tools from this protocol
+        let discovered_tools = protocol.list_tools().await?;
+
+        // Register the protocol
+        self.protocols.insert(protocol_name.to_string(), protocol.clone());
+
+        // Register discovered tools
+        for tool_meta in discovered_tools {
+            let tool_name = tool_meta.name.clone();
+
+            // Create a Tool that routes through this protocol
+            let tool = Tool::new(tool_name.clone(), tool_meta.description.clone(), protocol.clone());
+
+            // Copy over any additional parameters and metadata
+            let mut tool = tool;
+            for param in &tool_meta.parameters {
+                tool = tool.with_parameter(param.clone());
+            }
+            for (key, value) in &tool_meta.protocol_metadata {
+                tool = tool.with_protocol_metadata(key.clone(), value.clone());
+            }
+
+            // Register the tool and its routing
+            self.tools.insert(tool_name.clone(), tool);
+            self.tool_to_protocol.insert(tool_name, protocol_name.to_string());
+        }
+
+        Ok(())
+    }
+
+    /// Remove a protocol and all its tools from the registry.
+    pub fn remove_protocol(&mut self, protocol_name: &str) {
+        self.protocols.remove(protocol_name);
+
+        // Collect tool names to remove
+        let tools_to_remove: Vec<String> = self
+            .tool_to_protocol
+            .iter()
+            .filter(|(_, pn)| *pn == protocol_name)
+            .map(|(tn, _)| tn.clone())
+            .collect();
+
+        // Remove the tools
+        for tool_name in tools_to_remove {
+            self.tools.remove(&tool_name);
+            self.tool_to_protocol.remove(&tool_name);
+        }
+    }
+
+    /// Insert or replace a tool definition (for manual tool registration).
     pub fn add_tool(&mut self, tool: Tool) {
         self.tools.insert(tool.metadata.name.clone(), tool);
     }
 
     /// Remove a tool by name returning the owned entry if present.
     pub fn remove_tool(&mut self, name: &str) -> Option<Tool> {
+        self.tool_to_protocol.remove(name);
         self.tools.remove(name)
     }
 
@@ -323,6 +478,52 @@ impl ToolRegistry {
     /// List metadata for registered tools (iteration order follows the underlying map).
     pub fn list_tools(&self) -> Vec<&ToolMetadata> {
         self.tools.values().map(|t| &t.metadata).collect()
+    }
+
+    /// Discover tools from the primary protocol (for single-protocol registries).
+    ///
+    /// This is useful after registering tools with the protocol to populate the registry.
+    /// For multi-protocol registries, use `add_protocol()` instead.
+    pub async fn discover_tools_from_primary(
+        &mut self,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(protocol) = &self.primary_protocol {
+            let discovered_tools = protocol.list_tools().await?;
+            for tool_meta in discovered_tools {
+                let tool_name = tool_meta.name.clone();
+                let tool = Tool::new(
+                    tool_name.clone(),
+                    tool_meta.description.clone(),
+                    protocol.clone(),
+                );
+
+                // Copy over parameters and metadata
+                let mut tool = tool;
+                for param in &tool_meta.parameters {
+                    tool = tool.with_parameter(param.clone());
+                }
+                for (key, value) in &tool_meta.protocol_metadata {
+                    tool = tool.with_protocol_metadata(key.clone(), value.clone());
+                }
+
+                self.tools.insert(tool_name.clone(), tool);
+                self.tool_to_protocol
+                    .insert(tool_name, "primary".to_string());
+            }
+            Ok(())
+        } else {
+            Err("No primary protocol available".into())
+        }
+    }
+
+    /// Get which protocol handles a specific tool.
+    pub fn get_tool_protocol(&self, tool_name: &str) -> Option<&str> {
+        self.tool_to_protocol.get(tool_name).map(|s| s.as_str())
+    }
+
+    /// Get all registered protocol names.
+    pub fn list_protocols(&self) -> Vec<&str> {
+        self.protocols.keys().map(|s| s.as_str()).collect()
     }
 
     /// Execute a named tool with serialized parameters.
@@ -339,9 +540,11 @@ impl ToolRegistry {
         tool.execute(parameters).await
     }
 
-    /// Borrow the registry level protocol implementation.
-    pub fn protocol(&self) -> &Arc<dyn ToolProtocol> {
-        &self.protocol
+    /// Borrow the primary protocol implementation (for single-protocol mode).
+    ///
+    /// Returns None if registry was created with `empty()` or has multiple protocols.
+    pub fn protocol(&self) -> Option<&Arc<dyn ToolProtocol>> {
+        self.primary_protocol.as_ref()
     }
 }
 
@@ -420,5 +623,221 @@ mod tests {
             .await
             .unwrap();
         assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn test_empty_registry_creation() {
+        let registry = ToolRegistry::empty();
+        assert_eq!(registry.list_tools().len(), 0);
+        assert_eq!(registry.list_protocols().len(), 0);
+        assert!(registry.protocol().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_add_single_protocol_to_empty_registry() {
+        let protocol = Arc::new(MockProtocol);
+        let mut registry = ToolRegistry::empty();
+
+        // Add protocol
+        registry.add_protocol("mock", protocol.clone()).await.unwrap();
+
+        // Verify protocol was added
+        assert_eq!(registry.list_protocols().len(), 1);
+        assert!(registry.list_protocols().contains(&"mock"));
+    }
+
+    #[tokio::test]
+    async fn test_add_multiple_protocols() {
+        let protocol1 = Arc::new(MockProtocol);
+        let protocol2 = Arc::new(MockProtocol);
+        let mut registry = ToolRegistry::empty();
+
+        // Add two protocols
+        registry
+            .add_protocol("protocol1", protocol1.clone())
+            .await
+            .unwrap();
+        registry
+            .add_protocol("protocol2", protocol2.clone())
+            .await
+            .unwrap();
+
+        // Verify both protocols are registered
+        assert_eq!(registry.list_protocols().len(), 2);
+        assert!(registry.list_protocols().contains(&"protocol1"));
+        assert!(registry.list_protocols().contains(&"protocol2"));
+    }
+
+    #[tokio::test]
+    async fn test_remove_protocol() {
+        let protocol = Arc::new(MockProtocol);
+        let mut registry = ToolRegistry::empty();
+
+        // Add protocol
+        registry
+            .add_protocol("protocol1", protocol.clone())
+            .await
+            .unwrap();
+        assert_eq!(registry.list_protocols().len(), 1);
+
+        // Remove protocol
+        registry.remove_protocol("protocol1");
+        assert_eq!(registry.list_protocols().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_tool_protocol() {
+        let protocol = Arc::new(MockProtocol);
+        let mut registry = ToolRegistry::empty();
+
+        // Add protocol with a tool
+        registry
+            .add_protocol("local", protocol.clone())
+            .await
+            .unwrap();
+
+        // Add a tool manually for testing
+        let tool = Tool::new("calculator", "Performs calculations", protocol.clone());
+        registry.add_tool(tool);
+        registry
+            .tool_to_protocol
+            .insert("calculator".to_string(), "local".to_string());
+
+        // Verify tool-to-protocol mapping
+        assert_eq!(registry.get_tool_protocol("calculator"), Some("local"));
+        assert_eq!(registry.get_tool_protocol("nonexistent"), None);
+    }
+
+    #[tokio::test]
+    async fn test_remove_protocol_removes_tools() {
+        let protocol = Arc::new(MockProtocol);
+        let mut registry = ToolRegistry::empty();
+
+        // Add protocol and tools
+        registry
+            .add_protocol("protocol1", protocol.clone())
+            .await
+            .unwrap();
+
+        let tool1 = Tool::new("tool1", "First tool", protocol.clone());
+        registry.add_tool(tool1);
+        registry
+            .tool_to_protocol
+            .insert("tool1".to_string(), "protocol1".to_string());
+
+        let tool2 = Tool::new("tool2", "Second tool", protocol.clone());
+        registry.add_tool(tool2);
+        registry
+            .tool_to_protocol
+            .insert("tool2".to_string(), "protocol1".to_string());
+
+        assert_eq!(registry.list_tools().len(), 2);
+
+        // Remove protocol
+        registry.remove_protocol("protocol1");
+
+        // Verify all tools from that protocol are removed
+        assert_eq!(registry.list_tools().len(), 0);
+        assert_eq!(registry.get_tool_protocol("tool1"), None);
+        assert_eq!(registry.get_tool_protocol("tool2"), None);
+    }
+
+    #[tokio::test]
+    async fn test_execute_tool_through_registry() {
+        let protocol = Arc::new(MockProtocol);
+        let mut registry = ToolRegistry::empty();
+
+        // Add protocol
+        registry
+            .add_protocol("mock", protocol.clone())
+            .await
+            .unwrap();
+
+        // Add and execute tool
+        let tool = Tool::new("test_tool", "A test tool", protocol.clone());
+        registry.add_tool(tool);
+
+        let result = registry
+            .execute_tool("test_tool", serde_json::json!({}))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.output["tool"], "test_tool");
+    }
+
+    #[tokio::test]
+    async fn test_backwards_compatibility_single_protocol() {
+        let protocol = Arc::new(MockProtocol);
+        let registry = ToolRegistry::new(protocol.clone());
+
+        // Single-protocol registry should have primary_protocol set
+        assert!(registry.protocol().is_some());
+        assert_eq!(registry.list_protocols().len(), 1);
+        assert!(registry.list_protocols().contains(&"primary"));
+    }
+
+    #[tokio::test]
+    async fn test_discover_tools_from_primary() {
+        struct TestProtocol {
+            tools: Vec<ToolMetadata>,
+        }
+
+        #[async_trait]
+        impl ToolProtocol for TestProtocol {
+            async fn execute(
+                &self,
+                tool_name: &str,
+                _parameters: serde_json::Value,
+            ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+                Ok(ToolResult::success(serde_json::json!({
+                    "tool": tool_name,
+                })))
+            }
+
+            async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
+                Ok(self.tools.clone())
+            }
+
+            async fn get_tool_metadata(
+                &self,
+                tool_name: &str,
+            ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+                self.tools
+                    .iter()
+                    .find(|t| t.name == tool_name)
+                    .cloned()
+                    .ok_or_else(|| "Tool not found".into())
+            }
+
+            fn protocol_name(&self) -> &str {
+                "test"
+            }
+        }
+
+        // Create protocol with tools
+        let protocol = Arc::new(TestProtocol {
+            tools: vec![
+                ToolMetadata::new("tool1", "First tool"),
+                ToolMetadata::new("tool2", "Second tool"),
+            ],
+        });
+
+        let mut registry = ToolRegistry::new(protocol.clone());
+
+        // Initially, registry has no tools (they haven't been discovered)
+        assert_eq!(registry.list_tools().len(), 0);
+
+        // Discover tools
+        registry.discover_tools_from_primary().await.unwrap();
+
+        // Now registry should have the tools
+        assert_eq!(registry.list_tools().len(), 2);
+        assert!(registry.get_tool("tool1").is_some());
+        assert!(registry.get_tool("tool2").is_some());
+
+        // Tools should be mapped to primary protocol
+        assert_eq!(registry.get_tool_protocol("tool1"), Some("primary"));
+        assert_eq!(registry.get_tool_protocol("tool2"), Some("primary"));
     }
 }

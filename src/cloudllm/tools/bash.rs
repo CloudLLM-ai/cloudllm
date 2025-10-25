@@ -371,7 +371,7 @@ impl BashTool {
 
             if !is_allowed {
                 return Err(BashError::CommandDenied(
-                    "Command not in allowed list".to_string()
+                    "Command not in allowed list".to_string(),
                 ));
             }
         }

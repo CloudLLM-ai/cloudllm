@@ -168,33 +168,32 @@ impl Agent {
         // System message with tool information if available
         let mut system_with_tools = augmented_system.clone();
         if let Some(registry) = &self.tool_registry {
-            // Get tools from the protocol
-            if let Ok(tools) = registry.protocol().list_tools().await {
-                if !tools.is_empty() {
-                    system_with_tools.push_str("\n\nYou have access to the following tools:\n");
-                    for tool_metadata in tools {
-                        system_with_tools.push_str(&format!(
-                            "- {}: {}\n",
-                            tool_metadata.name, tool_metadata.description
-                        ));
-                        if !tool_metadata.parameters.is_empty() {
-                            system_with_tools.push_str("  Parameters:\n");
-                            for param in &tool_metadata.parameters {
-                                system_with_tools.push_str(&format!(
-                                    "    - {} ({:?}): {}\n",
-                                    param.name,
-                                    param.param_type,
-                                    param.description.as_deref().unwrap_or("No description")
-                                ));
-                            }
+            // Get tools from the registry (works for both single and multi-protocol)
+            let tools = registry.list_tools();
+            if !tools.is_empty() {
+                system_with_tools.push_str("\n\nYou have access to the following tools:\n");
+                for tool_metadata in tools {
+                    system_with_tools.push_str(&format!(
+                        "- {}: {}\n",
+                        tool_metadata.name, tool_metadata.description
+                    ));
+                    if !tool_metadata.parameters.is_empty() {
+                        system_with_tools.push_str("  Parameters:\n");
+                        for param in &tool_metadata.parameters {
+                            system_with_tools.push_str(&format!(
+                                "    - {} ({:?}): {}\n",
+                                param.name,
+                                param.param_type,
+                                param.description.as_deref().unwrap_or("No description")
+                            ));
                         }
                     }
-                    system_with_tools.push_str(
-                        "\nTo use a tool, respond with a JSON object in the following format:\n\
-                         {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-                         After tool execution, I'll provide the result and you can continue.\n",
-                    );
                 }
+                system_with_tools.push_str(
+                    "\nTo use a tool, respond with a JSON object in the following format:\n\
+                     {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
+                     After tool execution, I'll provide the result and you can continue.\n",
+                );
             }
         }
 
@@ -262,10 +261,9 @@ impl Agent {
 
                     tool_iteration += 1;
 
-                    // Execute the tool via the protocol
+                    // Execute the tool via the registry
                     let tool_result = registry
-                        .protocol()
-                        .execute(&tool_call.name, tool_call.parameters)
+                        .execute_tool(&tool_call.name, tool_call.parameters)
                         .await;
 
                     // Add assistant's tool call to messages
@@ -1323,7 +1321,10 @@ mod tests {
             )
             .await;
 
-        let registry = Arc::new(ToolRegistry::new(Arc::new(adapter)));
+        let mut registry = ToolRegistry::new(Arc::new(adapter));
+        // Discover tools from the adapter
+        registry.discover_tools_from_primary().await.unwrap();
+        let registry = Arc::new(registry);
 
         // Create a mock client that will respond with a tool call
         struct ToolCallingMockClient {
