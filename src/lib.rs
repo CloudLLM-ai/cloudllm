@@ -101,3 +101,4 @@ pub use cloudllm::llm_session::LLMSession;
 pub use cloudllm::council;
 pub use cloudllm::tool_adapters;
 pub use cloudllm::tool_protocol;
+pub use cloudllm::tools;
