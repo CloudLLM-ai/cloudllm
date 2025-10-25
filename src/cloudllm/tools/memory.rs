@@ -57,12 +57,12 @@
 //!
 //! ```ignore
 //! use cloudllm::tools::Memory;
-//! use cloudllm::tool_adapters::MemoryToolAdapter;
+//! use cloudllm::tool_protocols::MemoryProtocol;
 //! use cloudllm::tool_protocol::ToolRegistry;
 //! use std::sync::Arc;
 //!
 //! let memory = Arc::new(Memory::new());
-//! let adapter = Arc::new(MemoryToolAdapter::new(memory));
+//! let adapter = Arc::new(MemoryProtocol::new(memory));
 //! let registry = Arc::new(ToolRegistry::new(adapter));
 //!
 //! // Execute via protocol

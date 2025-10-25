@@ -1,9 +1,9 @@
-//! Documentation tests for Memory tool and MemoryToolAdapter
+//! Documentation tests for Memory tool and MemoryProtocol
 //!
 //! These tests verify the examples in the documentation work correctly
 
-use cloudllm::tool_adapters::MemoryToolAdapter;
 use cloudllm::tool_protocol::ToolProtocol;
+use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ async fn test_memory_basic_operations() {
 #[tokio::test]
 async fn test_memory_tool_protocol_adapter() {
     let memory = Arc::new(Memory::new());
-    let adapter = Arc::new(MemoryToolAdapter::new(memory));
+    let adapter = Arc::new(MemoryProtocol::new(memory));
 
     // Execute via adapter directly - Put operation
     let result = adapter
@@ -65,7 +65,7 @@ async fn test_memory_adapter_get_operation() {
     memory.put("key".to_string(), "value".to_string(), None);
 
     // Retrieve via adapter
-    let adapter = Arc::new(MemoryToolAdapter::new(memory));
+    let adapter = Arc::new(MemoryProtocol::new(memory));
 
     let result = adapter
         .execute("memory", serde_json::json!({"command": "G key"}))
@@ -85,7 +85,7 @@ async fn test_memory_adapter_list_operation() {
     memory.put("key1".to_string(), "value1".to_string(), None);
     memory.put("key2".to_string(), "value2".to_string(), None);
 
-    let adapter = Arc::new(MemoryToolAdapter::new(memory));
+    let adapter = Arc::new(MemoryProtocol::new(memory));
 
     let result = adapter
         .execute("memory", serde_json::json!({"command": "L"}))
@@ -102,7 +102,7 @@ async fn test_memory_adapter_list_operation() {
 #[tokio::test]
 async fn test_memory_adapter_spec_command() {
     let memory = Arc::new(Memory::new());
-    let adapter = Arc::new(MemoryToolAdapter::new(memory));
+    let adapter = Arc::new(MemoryProtocol::new(memory));
 
     let result = adapter
         .execute("memory", serde_json::json!({"command": "SPEC"}))
@@ -120,7 +120,7 @@ async fn test_memory_adapter_spec_command() {
 #[tokio::test]
 async fn test_memory_adapter_with_ttl() {
     let memory = Arc::new(Memory::new());
-    let adapter = Arc::new(MemoryToolAdapter::new(memory));
+    let adapter = Arc::new(MemoryProtocol::new(memory));
 
     // Store with TTL
     let result = adapter

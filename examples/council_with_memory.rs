@@ -11,8 +11,8 @@
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::council::{Agent, Council, CouncilMode};
-use cloudllm::tool_adapters::MemoryToolAdapter;
 use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shared_memory = Arc::new(Memory::new());
 
     // Create memory adapter and registry - ALL AGENTS WILL SHARE THIS
-    let memory_adapter = Arc::new(MemoryToolAdapter::new(shared_memory.clone()));
+    let memory_adapter = Arc::new(MemoryProtocol::new(shared_memory.clone()));
     let shared_registry = Arc::new(ToolRegistry::new(memory_adapter));
 
     // Create three agents with different roles, all with access to shared memory

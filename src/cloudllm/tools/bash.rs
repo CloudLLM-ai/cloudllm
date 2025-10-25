@@ -44,7 +44,7 @@
 //! ```ignore
 //! use cloudllm::council::Agent;
 //! use cloudllm::tools::BashTool;
-//! use cloudllm::tool_adapters::CustomToolAdapter;
+//! use cloudllm::tool_protocols::CustomToolProtocol;
 //!
 //! let bash = BashTool::new(Platform::Linux).with_timeout(60);
 //! let adapter = BashToolAdapter::new(Arc::new(bash));
@@ -143,7 +143,9 @@ impl std::fmt::Display for BashError {
         match self {
             BashError::Timeout(msg) => write!(f, "Command timeout: {}", msg),
             BashError::CommandDenied(msg) => write!(f, "Command denied: {}", msg),
-            BashError::CwdRestrictionViolated(msg) => write!(f, "CWD restriction violated: {}", msg),
+            BashError::CwdRestrictionViolated(msg) => {
+                write!(f, "CWD restriction violated: {}", msg)
+            }
             BashError::ExecutionFailed(msg) => write!(f, "Execution failed: {}", msg),
             BashError::IoError(e) => write!(f, "IO error: {}", e),
             BashError::OutputTooLarge(msg) => write!(f, "Output too large: {}", msg),
@@ -363,14 +365,14 @@ impl BashTool {
 
         // Check allowed list if present
         if let Some(allowed) = self.allowed_commands.lock().unwrap().as_ref() {
-            let is_allowed = allowed.iter().any(|allowed_cmd| {
-                cmd_lower.starts_with(&allowed_cmd.to_lowercase())
-            });
+            let is_allowed = allowed
+                .iter()
+                .any(|allowed_cmd| cmd_lower.starts_with(&allowed_cmd.to_lowercase()));
 
             if !is_allowed {
-                return Err(BashError::CommandDenied(format!(
-                    "Command not in allowed list"
-                )));
+                return Err(BashError::CommandDenied(
+                    "Command not in allowed list".to_string()
+                ));
             }
         }
 
@@ -422,7 +424,7 @@ impl BashTool {
                 .arg(&cmd)
                 .envs(env_vars)
                 .output()
-                .map_err(|e| BashError::IoError(e))?;
+                .map_err(BashError::IoError)?;
 
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();

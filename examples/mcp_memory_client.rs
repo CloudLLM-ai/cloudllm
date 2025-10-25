@@ -1,6 +1,6 @@
 //! MCP Memory Client Example
 //!
-//! This example demonstrates how to use the McpMemoryClient to interact with
+//! This example demonstrates how to use the McpMemoryProtocol to interact with
 //! a remote Memory service via the Model Context Protocol (MCP).
 //!
 //! # Architecture
@@ -17,7 +17,7 @@
 //! - Network connectivity to the server
 //! - Proper configuration of the server endpoint
 
-use cloudllm::tool_adapters::McpMemoryClient;
+use cloudllm::tool_adapters::McpMemoryProtocol;
 use cloudllm::tool_protocol::ToolProtocol;
 
 #[tokio::main]
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // - http://memory-service.example.com:8080
     // - http://192.168.1.100:3000
     // - http://memory-cluster.region.cloud:443
-    let client = McpMemoryClient::new("http://localhost:8080".to_string());
+    let client = McpMemoryProtocol::new("http://localhost:8080".to_string());
 
     println!("Client Configuration:");
     println!("  Endpoint: {}", client.endpoint());
@@ -184,9 +184,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Agent C: Reads both and makes decisions\n");
 
     println!("All agents connect to the same MCP Memory Server:");
-    println!("  Agent A: McpMemoryClient::new(\"http://memory-server:8080\")");
-    println!("  Agent B: McpMemoryClient::new(\"http://memory-server:8080\")");
-    println!("  Agent C: McpMemoryClient::new(\"http://memory-server:8080\")\n");
+    println!("  Agent A: McpMemoryProtocol::new(\"http://memory-server:8080\")");
+    println!("  Agent B: McpMemoryProtocol::new(\"http://memory-server:8080\")");
+    println!("  Agent C: McpMemoryProtocol::new(\"http://memory-server:8080\")\n");
 
     println!("Communication flow:");
     println!("  1. Agent A executes: \"P research important_findings 3600\"");
@@ -200,20 +200,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("For different deployment scenarios:\n");
 
     println!("Local Development:");
-    println!("  let client = McpMemoryClient::new(\"http://localhost:8080\".to_string());\n");
+    println!("  let client = McpMemoryProtocol::new(\"http://localhost:8080\".to_string());\n");
 
     println!("Private Network:");
-    println!("  let client = McpMemoryClient::new(");
+    println!("  let client = McpMemoryProtocol::new(");
     println!("    \"http://192.168.1.100:3000\".to_string()");
     println!("  );\n");
 
     println!("Cloud Deployment:");
-    println!("  let client = McpMemoryClient::new(");
+    println!("  let client = McpMemoryProtocol::new(");
     println!("    \"https://memory.example.com\".to_string()");
     println!("  );\n");
 
     println!("Custom Timeout (60 seconds):");
-    println!("  let client = McpMemoryClient::with_timeout(");
+    println!("  let client = McpMemoryProtocol::with_timeout(");
     println!("    \"http://localhost:8080\".to_string(),");
     println!("    60");
     println!("  );\n");

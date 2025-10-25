@@ -1,10 +1,10 @@
-use cloudllm::tool_adapters::{CustomToolAdapter, OpenAIFunctionAdapter};
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol};
+use cloudllm::tool_protocols::{CustomToolProtocol, OpenAIFunctionsProtocol};
 use std::sync::Arc;
 
 #[tokio::test]
 async fn test_custom_adapter_sync_tool() {
-    let adapter = CustomToolAdapter::new();
+    let adapter = CustomToolProtocol::new();
 
     let metadata = ToolMetadata::new("add", "Adds two numbers")
         .with_parameter(ToolParameter::new("a", ToolParameterType::Number).required())
@@ -34,7 +34,7 @@ async fn test_custom_adapter_sync_tool() {
 
 #[tokio::test]
 async fn test_custom_adapter_async_tool() {
-    let adapter = CustomToolAdapter::new();
+    let adapter = CustomToolProtocol::new();
 
     let metadata = ToolMetadata::new("fetch", "Fetches data asynchronously");
 
@@ -63,7 +63,7 @@ async fn test_custom_adapter_async_tool() {
 
 #[tokio::test]
 async fn test_custom_adapter_list_tools() {
-    let adapter = CustomToolAdapter::new();
+    let adapter = CustomToolProtocol::new();
 
     let metadata1 = ToolMetadata::new("tool1", "First tool");
     let metadata2 = ToolMetadata::new("tool2", "Second tool");
@@ -96,7 +96,7 @@ async fn test_custom_adapter_list_tools() {
 
 #[tokio::test]
 async fn test_openai_function_adapter() {
-    let adapter = OpenAIFunctionAdapter::new();
+    let adapter = OpenAIFunctionsProtocol::new();
 
     let metadata = ToolMetadata::new("search", "Searches the web").with_parameter(
         ToolParameter::new("query", ToolParameterType::String)

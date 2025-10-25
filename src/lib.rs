@@ -99,6 +99,12 @@ pub use cloudllm::llm_session::LLMSession;
 
 // Re-export tool protocol and council functionality
 pub use cloudllm::council;
-pub use cloudllm::tool_adapters;
+pub use cloudllm::mcp_server;
 pub use cloudllm::tool_protocol;
+pub use cloudllm::tool_protocols;
 pub use cloudllm::tools;
+
+// Backwards compatibility
+#[allow(deprecated)]
+#[deprecated(since = "0.5.0", note = "Use `tool_protocols` instead")]
+pub use cloudllm::tool_adapters;

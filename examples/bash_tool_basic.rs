@@ -22,15 +22,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Command with environment variable
     println!("2. Command with environment variable:");
-    let bash = BashTool::new(Platform::Linux)
-        .with_env_var("GREETING".to_string(), "Welcome".to_string());
+    let bash =
+        BashTool::new(Platform::Linux).with_env_var("GREETING".to_string(), "Welcome".to_string());
     let result = bash.execute("echo $GREETING to Bash Tool").await?;
     println!("   Output: {}", result.stdout.trim());
     println!();
 
     // Multiple commands
     println!("3. Complex command:");
-    let result = bash.execute("for i in {1..3}; do echo \"Item $i\"; done").await?;
+    let result = bash
+        .execute("for i in {1..3}; do echo \"Item $i\"; done")
+        .await?;
     println!("   Output:\n{}", result.stdout);
 
     // With error handling
@@ -41,7 +43,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Stdout and stderr
     println!("5. Capturing stdout and stderr:");
-    let result = bash.execute("echo stdout_line && echo stderr_line >&2").await?;
+    let result = bash
+        .execute("echo stdout_line && echo stderr_line >&2")
+        .await?;
     println!("   Stdout: {}", result.stdout.trim());
     println!("   Stderr: {}", result.stderr.trim());
     println!();
@@ -62,7 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Safe command executed: {}", safe_result.is_ok());
 
     let dangerous_result = restricted_bash.execute("rm -rf /").await;
-    println!("   Dangerous command blocked: {}", dangerous_result.is_err());
+    println!(
+        "   Dangerous command blocked: {}",
+        dangerous_result.is_err()
+    );
     println!();
 
     // Allowed commands

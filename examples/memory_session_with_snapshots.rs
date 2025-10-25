@@ -11,8 +11,8 @@
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::council::Agent;
-use cloudllm::tool_adapters::MemoryToolAdapter;
 use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory = Arc::new(Memory::new());
 
     // Create the memory tool adapter with the succinct protocol
-    let memory_adapter = Arc::new(MemoryToolAdapter::new(memory.clone()));
+    let memory_adapter = Arc::new(MemoryProtocol::new(memory.clone()));
 
     // Create a tool registry with the memory tool
     let registry = Arc::new(ToolRegistry::new(memory_adapter));

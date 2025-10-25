@@ -29,9 +29,9 @@
 //! Response: {"success": true, "output": {"status": "OK"}}
 //! ```
 
-use cloudllm::tools::Memory;
-use cloudllm::tool_adapters::MemoryToolAdapter;
 use cloudllm::tool_protocol::ToolProtocol;
+use cloudllm::tool_protocols::MemoryProtocol;
+use cloudllm::tools::Memory;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Expiration: Automatic background cleanup every 1 second\n");
 
     // Create the adapter
-    let adapter = Arc::new(MemoryToolAdapter::new(memory.clone()));
+    let adapter = Arc::new(MemoryProtocol::new(memory.clone()));
 
     println!("Available Tools:");
     match adapter.list_tools().await {
@@ -139,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Multi-Agent Fleet Pattern:");
     println!("  1. Deploy single MCP Memory Server instance");
-    println!("  2. Each agent gets a McpMemoryClient pointing to the server");
+    println!("  2. Each agent gets a McpMemoryProtocol pointing to the server");
     println!("  3. Agents can coordinate through shared memory");
     println!("  4. Server manages TTL expiration automatically");
     println!("  5. Easy to scale by replicating server and using load balancer\n");
@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("• This example demonstrates the API and command flow");
     println!("• A full implementation would need an HTTP server (e.g., Axum)");
-    println!("• The MemoryToolAdapter handles all protocol command parsing");
+    println!("• The MemoryProtocol handles all protocol command parsing");
     println!("• Memory automatically expires entries based on TTL");
     println!("• All operations are thread-safe and async-compatible\n");
 

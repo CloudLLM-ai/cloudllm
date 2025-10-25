@@ -146,7 +146,10 @@ async fn test_bash_tool_multiple_commands() {
 #[tokio::test]
 async fn test_bash_tool_complex_command() {
     let bash = BashTool::new(Platform::Linux);
-    let result = bash.execute("for i in 1 2 3; do echo $i; done").await.unwrap();
+    let result = bash
+        .execute("for i in 1 2 3; do echo $i; done")
+        .await
+        .unwrap();
 
     assert!(result.success);
     assert!(result.stdout.contains("1"));

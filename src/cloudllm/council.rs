@@ -1302,12 +1302,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_with_tool_execution() {
-        use crate::tool_adapters::CustomToolAdapter;
+        use crate::tool_adapters::CustomToolProtocol;
         use crate::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
         use tokio::sync::Mutex as TokioMutex;
 
         // Create a custom tool adapter
-        let adapter = CustomToolAdapter::new();
+        let adapter = CustomToolProtocol::new();
 
         // Register a simple calculator tool
         adapter
