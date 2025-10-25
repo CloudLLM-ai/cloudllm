@@ -2,7 +2,7 @@
 
 ## Current Status
 
-This document captures the complete state of CloudLLM development as of the current session to enable seamless continuation in a new session.
+This document captures the complete state of CloudLLM development as of the current session to enable seamless continuation in a new session by a cloding agent such as claude code.
 
 ### Session Summary
 
