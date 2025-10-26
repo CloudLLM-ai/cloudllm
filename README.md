@@ -580,6 +580,224 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For comprehensive documentation and more examples, see [`HttpClient` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.HttpClient.html) and run `cargo run --example http_client_example`.
 
+##### Using HTTP Client Tool with Agents
+
+The HTTP Client tool can be exposed to agents through the MCP protocol, allowing agents to make API calls autonomously. Here's how to set it up:
+
+**Step 1: Create an MCP HTTP Server (expose via HTTP)**
+
+First, create a simple MCP server that wraps the HTTP Client tool:
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::tools::HttpClient;
+use cloudllm::tool_protocols::CustomToolProtocol;
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+use serde_json::json;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create HTTP client with security settings
+    let http_client = Arc::new(HttpClient::new());
+
+    // Wrap it with CustomToolProtocol for agent usage
+    let mut protocol = CustomToolProtocol::new();
+
+    // Register HTTP GET tool
+    let client = http_client.clone();
+    protocol.register_async_tool(
+        ToolMetadata::new("http_get", "Make an HTTP GET request to an API")
+            .with_parameter(
+                ToolParameter::new("url", ToolParameterType::String)
+                    .with_description("The URL to fetch")
+                    .required()
+            )
+            .with_parameter(
+                ToolParameter::new("headers", ToolParameterType::Object)
+                    .with_description("Optional headers as JSON object")
+            ),
+        Arc::new(move |params| {
+            let client = client.clone();
+            Box::pin(async move {
+                let url = params["url"].as_str().ok_or("url parameter required")?;
+
+                match client.get(url).await {
+                    Ok(response) => {
+                        if response.is_success() {
+                            Ok(ToolResult::success(json!({
+                                "status": response.status,
+                                "body": response.body
+                            })))
+                        } else {
+                            Ok(ToolResult::error(
+                                format!("HTTP {}: {}", response.status, response.body)
+                            ))
+                        }
+                    }
+                    Err(e) => Ok(ToolResult::error(e.to_string()))
+                }
+            })
+        })
+    ).await;
+
+    Ok(())
+}
+```
+
+**Step 2: Create an Agent that Uses HTTP Client Tools**
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::council::Agent;
+use cloudllm::clients::openai::{OpenAIClient, Model};
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocols::CustomToolProtocol;
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+use serde_json::json;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create protocol with HTTP tools
+    let mut protocol = CustomToolProtocol::new();
+
+    // Register GET tool
+    protocol.register_async_tool(
+        ToolMetadata::new("get_json_api", "Fetch JSON data from an API endpoint"),
+        Arc::new(|params| {
+            Box::pin(async move {
+                let url = params["url"].as_str().unwrap_or("http://api.example.com");
+                Ok(ToolResult::success(json!({"data": "sample"})))
+            })
+        })
+    ).await;
+
+    // Create tool registry
+    let registry = Arc::new(ToolRegistry::new(Arc::new(protocol)));
+
+    // Create agent with HTTP access
+    let mut agent = Agent::new(
+        "api-agent",
+        "API Integration Agent",
+        Arc::new(OpenAIClient::new_with_model_enum(
+            &std::env::var("OPEN_AI_SECRET")?,
+            Model::GPT41Mini
+        )),
+    )
+    .with_expertise("Makes HTTP requests to external APIs")
+    .with_tools(registry);
+
+    // Agent can now make API calls!
+    println!("Agent has HTTP tools available");
+    Ok(())
+}
+```
+
+**Step 3: Configure Agent System Prompt for HTTP Usage**
+
+Teach the agent about available HTTP tools via the system prompt:
+
+```
+You have access to HTTP tools for making API calls:
+
+1. get_json_api(url: string, headers?: object)
+   - Fetches JSON data from an API endpoint
+   - Returns: {status: number, body: string}
+   - Security: Only allowed domains are accessible
+   - Use this to fetch real-time data from external services
+
+2. post_json_api(url: string, data: object, headers?: object)
+   - Posts JSON data to an API endpoint
+   - Use this to submit data to external services
+
+Always check the response status before processing the body.
+When calling APIs, include appropriate headers like Content-Type.
+Never share authentication tokens in logs.
+```
+
+**Step 4: Multi-MCP Setup (Advanced)**
+
+Combine HTTP Client with other tools via multiple MCP servers:
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::council::Agent;
+use cloudllm::clients::openai::{OpenAIClient, Model};
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocols::CustomToolProtocol;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create empty registry for multiple protocols
+    let mut registry = ToolRegistry::empty();
+
+    // Add HTTP tools locally
+    let http_protocol = Arc::new(CustomToolProtocol::new());
+    registry.add_protocol("http", http_protocol).await?;
+
+    // Add memory tools locally
+    let memory_protocol = Arc::new(CustomToolProtocol::new());
+    registry.add_protocol("memory", memory_protocol).await?;
+
+    // Connect to remote MCP servers
+    use cloudllm::tool_protocols::McpClientProtocol;
+
+    let github_mcp = Arc::new(McpClientProtocol::new(
+        "http://localhost:8081".to_string()
+    ));
+    registry.add_protocol("github", github_mcp).await?;
+
+    // Create agent with access to all tools
+    let mut agent = Agent::new(
+        "orchestrator",
+        "Multi-Tool Orchestrator",
+        Arc::new(OpenAIClient::new_with_model_enum(
+            &std::env::var("OPEN_AI_SECRET")?,
+            Model::GPT41Mini
+        )),
+    )
+    .with_tools(Arc::new(registry));
+
+    println!("Agent can now:");
+    println!("  - Make HTTP API calls (http_*)");
+    println!("  - Store/retrieve data in memory (memory_*)");
+    println!("  - Interact with GitHub (github_*)");
+
+    Ok(())
+}
+```
+
+**Security Best Practices:**
+
+1. **Domain Allowlist**: Configure HTTP clients with domain allowlists to prevent unauthorized requests
+   ```rust
+   let mut client = HttpClient::new();
+   client.allow_domain("api.trusted-service.com");
+   client.allow_domain("public-api.example.com");
+   ```
+
+2. **Deny Malicious Domains**: Use blocklists as a second layer
+   ```rust
+   client.deny_domain("malicious.attacker.com");
+   ```
+
+3. **Timeout Protection**: Set reasonable timeouts to prevent hanging requests
+   ```rust
+   use std::time::Duration;
+   client.with_timeout(Duration::from_secs(30));
+   ```
+
+4. **Size Limits**: Limit response sizes to prevent memory exhaustion
+   ```rust
+   client.with_max_response_size(10 * 1024 * 1024); // 10MB
+   ```
+
+5. **Authentication**: Use appropriate auth methods when needed
+   ```rust
+   client.with_basic_auth("username", "password");
+   // or
+   client.with_header("Authorization", "Bearer your-token");
+   ```
+
 #### Bash Tool
 
 Secure command execution on Linux and macOS with timeout and security controls. See [`BashTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.BashTool.html).
