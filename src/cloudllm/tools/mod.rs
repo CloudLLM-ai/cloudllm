@@ -12,6 +12,14 @@
 //!   - Stateless and thread-safe for high-performance concurrent use
 //!   - Can be wrapped with CalculatorProtocol for use in agents
 //!
+//! - **HTTP Client**: Secure REST API client for calling external services
+//!   - All HTTP methods: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
+//!   - JSON payloads and custom headers support
+//!   - Domain allowlist/blocklist for security
+//!   - Basic authentication and bearer token support
+//!   - Configurable timeout and response size limits
+//!   - Thread-safe with connection pooling
+//!
 //! - **Memory**: Persistent, TTL-aware key-value store for maintaining agent state across sessions
 //!   - Succinct command protocol (P/G/L/D/C/T/SPEC)
 //!   - Automatic background expiration
@@ -42,8 +50,10 @@
 
 pub mod bash;
 pub mod calculator;
+pub mod http_client;
 pub mod memory;
 
 pub use bash::{BashError, BashResult, BashTool, Platform};
 pub use calculator::{Calculator, CalculatorError, CalculatorResult};
+pub use http_client::{HttpClient, HttpClientError, HttpResponse};
 pub use memory::{Memory, MemoryMetadata};

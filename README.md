@@ -518,6 +518,68 @@ For comprehensive documentation, see [`Calculator` API docs](https://docs.rs/clo
 
 A persistent, TTL-aware key-value store for maintaining agent state across sessions. See [`Memory` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.Memory.html).
 
+#### HTTP Client Tool
+
+A secure REST API client for calling external services with domain allowlist/blocklist protection. Perfect for agents that need to make HTTP requests to external APIs.
+
+**Features:**
+- All HTTP methods (GET, POST, PUT, DELETE, PATCH, HEAD)
+- Domain security with allowlist/blocklist (blocklist takes precedence)
+- Basic authentication and bearer token support
+- Custom headers and query parameters with automatic URL encoding
+- JSON response parsing
+- Configurable request timeout and response size limits
+- Thread-safe with connection pooling
+- Builder pattern for chainable configuration
+
+**Usage Example:**
+
+```rust,no_run
+use cloudllm::tools::HttpClient;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = HttpClient::new();
+
+    // Security: only allow api.example.com
+    client.allow_domain("api.example.com");
+
+    // Configuration via builder pattern
+    client
+        .with_header("Authorization", "Bearer token123")
+        .with_query_param("format", "json")
+        .with_timeout(Duration::from_secs(30));
+
+    // Make request
+    let response = client.get("https://api.example.com/data").await?;
+
+    // Check status and parse JSON
+    if response.is_success() {
+        let json_data = response.json()?;
+        println!("Data: {}", json_data);
+    }
+
+    Ok(())
+}
+```
+
+**Security Features:**
+
+- **Allowlist**: Restrict requests to trusted domains only
+- **Blocklist**: Explicitly block malicious domains
+- **Precedence**: Blocklist always takes precedence over allowlist
+- **No allowlist = All allowed**: Empty allowlist means any domain is allowed (unless in blocklist)
+
+**More Examples:**
+- Basic auth: `client.with_basic_auth("username", "password")`
+- Custom header: `client.with_header("X-API-Key", "secret123")`
+- Query params: `client.with_query_param("page", "1").with_query_param("limit", "50")`
+- Size limit: `client.with_max_response_size(50 * 1024 * 1024)` (50MB)
+- Short timeout: `client.with_timeout(Duration::from_secs(5))`
+
+For comprehensive documentation and more examples, see [`HttpClient` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.HttpClient.html) and run `cargo run --example http_client_example`.
+
 #### Bash Tool
 
 Secure command execution on Linux and macOS with timeout and security controls. See [`BashTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.BashTool.html).
