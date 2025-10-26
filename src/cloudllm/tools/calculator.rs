@@ -197,7 +197,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use evalexpr::ContextWithMutableVariables;
+use evalexpr::{ContextWithMutableVariables, ContextWithMutableFunctions};
 
 /// Error type for calculator operations
 ///
@@ -354,10 +354,52 @@ impl Calculator {
         // Prepare the expression for evalexpr
         let expr = self.prepare_expression(expression)?;
 
-        // Create a context with math constants
+        // Create a context with math constants and custom functions
         let mut context: evalexpr::HashMapContext = evalexpr::HashMapContext::new();
         let _ = context.set_value("math::PI".to_string(), evalexpr::Value::Float(std::f64::consts::PI));
         let _ = context.set_value("math::E".to_string(), evalexpr::Value::Float(std::f64::consts::E));
+
+        // Add custom inverse hyperbolic functions that evalexpr doesn't have
+        // asinh(x) = ln(x + sqrt(x^2 + 1))
+        let _ = context.set_function("asinh".to_string(), evalexpr::Function::new(|argument| {
+            match argument.as_number() {
+                Ok(x) => {
+                    let x_f64: f64 = x;
+                    Ok(evalexpr::Value::Float((x_f64 + (x_f64*x_f64 + 1.0).sqrt()).ln()))
+                },
+                Err(_) => Err(evalexpr::EvalexprError::VariableIdentifierNotFound("asinh".to_string()))
+            }
+        }));
+
+        // acosh(x) = ln(x + sqrt(x^2 - 1)) where x >= 1
+        let _ = context.set_function("acosh".to_string(), evalexpr::Function::new(|argument| {
+            match argument.as_number() {
+                Ok(x) => {
+                    let x_f64: f64 = x;
+                    if x_f64 < 1.0 {
+                        Err(evalexpr::EvalexprError::CustomMessage("acosh domain error: x must be >= 1".to_string()))
+                    } else {
+                        Ok(evalexpr::Value::Float((x_f64 + (x_f64*x_f64 - 1.0).sqrt()).ln()))
+                    }
+                },
+                Err(_) => Err(evalexpr::EvalexprError::VariableIdentifierNotFound("acosh".to_string()))
+            }
+        }));
+
+        // atanh(x) = 0.5 * ln((1 + x) / (1 - x)) where |x| < 1
+        let _ = context.set_function("atanh".to_string(), evalexpr::Function::new(|argument| {
+            match argument.as_number() {
+                Ok(x) => {
+                    let x_f64: f64 = x;
+                    if x_f64.abs() >= 1.0 {
+                        Err(evalexpr::EvalexprError::CustomMessage("atanh domain error: |x| must be < 1".to_string()))
+                    } else {
+                        Ok(evalexpr::Value::Float(0.5 * ((1.0 + x_f64) / (1.0 - x_f64)).ln()))
+                    }
+                },
+                Err(_) => Err(evalexpr::EvalexprError::VariableIdentifierNotFound("atanh".to_string()))
+            }
+        }));
 
         // Use evalexpr to evaluate the expression with context
         match evalexpr::eval_with_context(&expr, &context) {
