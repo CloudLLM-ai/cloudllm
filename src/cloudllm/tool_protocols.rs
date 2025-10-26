@@ -67,7 +67,7 @@ pub type AsyncToolFunction = Arc<
 /// # Example
 ///
 /// ```rust,no_run
-/// use cloudllm::tool_adapters::CustomToolProtocol;
+/// use cloudllm::tool_protocols::CustomToolProtocol;
 /// use cloudllm::tool_protocol::{ToolResult, ToolMetadata, ToolParameter, ToolParameterType};
 /// use std::sync::Arc;
 ///
@@ -189,7 +189,7 @@ impl ToolProtocol for CustomToolProtocol {
 /// # Example
 ///
 /// ```rust,no_run
-/// use cloudllm::tool_adapters::McpClientProtocol;
+/// use cloudllm::tool_protocols::McpClientProtocol;
 /// use cloudllm::tool_protocol::ToolProtocol;
 ///
 /// # async {
@@ -463,7 +463,7 @@ impl ToolProtocol for OpenAIFunctionsProtocol {
 ///
 /// ```ignore
 /// use cloudllm::tools::Memory;
-/// use cloudllm::tool_adapters::MemoryProtocol;
+/// use cloudllm::tool_protocols::MemoryProtocol;
 /// use cloudllm::tool_protocol::ToolRegistry;
 /// use cloudllm::council::Agent;
 /// use std::sync::Arc;
@@ -521,7 +521,7 @@ impl MemoryProtocol {
     ///
     /// ```no_run
     /// use cloudllm::tools::Memory;
-    /// use cloudllm::tool_adapters::MemoryProtocol;
+    /// use cloudllm::tool_protocols::MemoryProtocol;
     /// use std::sync::Arc;
     ///
     /// let memory = Arc::new(Memory::new());
@@ -718,7 +718,7 @@ impl MemoryProtocol {
 /// # Example
 ///
 /// ```rust,no_run
-/// use cloudllm::tool_adapters::McpMemoryProtocol;
+/// use cloudllm::tool_protocols::McpMemoryProtocol;
 /// use cloudllm::tool_protocol::ToolProtocol;
 ///
 /// # async {
@@ -753,7 +753,7 @@ impl McpMemoryProtocol {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use cloudllm::tool_adapters::McpMemoryProtocol;
+    /// use cloudllm::tool_protocols::McpMemoryProtocol;
     ///
     /// let client = McpMemoryProtocol::new("http://localhost:8080".to_string());
     /// let client_with_custom_port = McpMemoryProtocol::new("http://192.168.1.100:3000".to_string());
@@ -778,7 +778,7 @@ impl McpMemoryProtocol {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use cloudllm::tool_adapters::McpMemoryProtocol;
+    /// use cloudllm::tool_protocols::McpMemoryProtocol;
     ///
     /// let client = McpMemoryProtocol::with_timeout(
     ///     "http://localhost:8080".to_string(),

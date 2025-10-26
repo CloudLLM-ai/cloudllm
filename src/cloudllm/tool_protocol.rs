@@ -35,25 +35,29 @@
 //! use cloudllm::tool_protocols::CustomToolProtocol;
 //! use std::sync::Arc;
 //!
-//! let protocol = Arc::new(CustomToolProtocol::new());
-//! let mut registry = ToolRegistry::new(protocol);
-//! registry.discover_tools_from_primary().await?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! #[tokio::main]
+//! async fn main() {
+//!     let protocol = Arc::new(CustomToolProtocol::new());
+//!     let mut registry = ToolRegistry::new(protocol);
+//!     let _ = registry.discover_tools_from_primary().await;
+//! }
 //! ```
 //!
 //! # Multi-Protocol Example
 //!
 //! ```rust,no_run
 //! use cloudllm::tool_protocol::ToolRegistry;
-//! use cloudllm::tool_protocols::McpClientProtocol;
+//! use cloudllm::tool_protocols::{CustomToolProtocol, McpClientProtocol};
 //! use std::sync::Arc;
 //!
-//! let mut registry = ToolRegistry::empty();
-//! registry.add_protocol("local", Arc::new(CustomToolProtocol::new())).await?;
-//! registry.add_protocol("youtube",
-//!     Arc::new(McpClientProtocol::new("http://youtube-mcp:8081".to_string()))
-//! ).await?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! #[tokio::main]
+//! async fn main() {
+//!     let mut registry = ToolRegistry::empty();
+//!     let _ = registry.add_protocol("local", Arc::new(CustomToolProtocol::new())).await;
+//!     let _ = registry.add_protocol("youtube",
+//!         Arc::new(McpClientProtocol::new("http://youtube-mcp:8081".to_string()))
+//!     ).await;
+//! }
 //! ```
 
 use async_trait::async_trait;

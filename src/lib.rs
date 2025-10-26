@@ -118,8 +118,3 @@ pub use cloudllm::mcp_server;
 pub use cloudllm::tool_protocol;
 pub use cloudllm::tool_protocols;
 pub use cloudllm::tools;
-
-// Backwards compatibility
-#[allow(deprecated)]
-#[deprecated(since = "0.5.0", note = "Use `tool_protocols` instead")]
-pub use cloudllm::tool_adapters;

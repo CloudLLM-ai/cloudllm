@@ -1,4 +1,4 @@
-use cloudllm::tool_adapters::McpMemoryProtocol;
+use cloudllm::tool_protocols::McpMemoryProtocol;
 use cloudllm::tool_protocol::ToolProtocol;
 
 #[tokio::test]

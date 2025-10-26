@@ -20,15 +20,6 @@ pub mod tool_protocol;
 pub mod tool_protocols;
 pub mod tools;
 
-// Backwards compatibility: Re-export old name
-#[deprecated(
-    since = "0.5.0",
-    note = "Use `tool_protocols` instead, these are ToolProtocol implementations"
-)]
-pub mod tool_adapters {
-    pub use super::tool_protocols::*;
-}
-
 // Let's explicitly export LLMSession so we don't have to access it via cloudllm::llm_session::LLMSession
 // and instead as cloudllm::LLMSession
 pub use llm_session::LLMSession;

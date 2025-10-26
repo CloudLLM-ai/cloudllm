@@ -1347,7 +1347,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_with_tool_execution() {
-        use crate::tool_adapters::CustomToolProtocol;
+        use crate::tool_protocols::CustomToolProtocol;
         use crate::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
         use tokio::sync::Mutex as TokioMutex;
 
