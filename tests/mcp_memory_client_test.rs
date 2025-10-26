@@ -1,5 +1,5 @@
-use cloudllm::tool_protocols::McpMemoryProtocol;
 use cloudllm::tool_protocol::ToolProtocol;
+use cloudllm::tool_protocols::McpMemoryProtocol;
 
 #[tokio::test]
 async fn test_mcp_memory_client_creation() {

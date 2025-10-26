@@ -46,9 +46,9 @@
 use std::sync::Arc;
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
-use cloudllm::Agent;
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::McpClientProtocol;
+use cloudllm::Agent;
 
 /// Example showing how to create an agent with multiple MCP servers
 #[tokio::main]

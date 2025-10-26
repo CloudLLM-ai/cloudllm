@@ -28,7 +28,10 @@
 
 use cloudllm::clients::claude::ClaudeClient;
 use cloudllm::clients::openai::OpenAIClient;
-use cloudllm::{Agent, council::{Council, CouncilMode}};
+use cloudllm::{
+    council::{Council, CouncilMode},
+    Agent,
+};
 use std::error::Error as StdError;
 use std::sync::Arc;
 

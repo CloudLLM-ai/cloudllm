@@ -10,10 +10,13 @@
 //! enabling sophisticated coordination patterns.
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
-use cloudllm::{Agent, council::{Council, CouncilMode}};
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;
+use cloudllm::{
+    council::{Council, CouncilMode},
+    Agent,
+};
 use std::sync::Arc;
 
 #[tokio::main]

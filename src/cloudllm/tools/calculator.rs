@@ -354,8 +354,7 @@ impl Calculator {
         let expr = self.prepare_expression(expression)?;
 
         // Use meval to evaluate the expression
-        meval::eval_str(&expr)
-            .map_err(|e| CalculatorError::new(format!("Evaluation error: {}", e)))
+        meval::eval_str(&expr).map_err(|e| CalculatorError::new(format!("Evaluation error: {}", e)))
     }
 
     fn prepare_expression(&self, expr: &str) -> Result<String, CalculatorError> {
@@ -593,7 +592,8 @@ impl Calculator {
         if let Some(paren_idx) = expr.find('(') {
             let func_name = expr[..paren_idx].trim().to_lowercase();
             let args_start = paren_idx + 1;
-            let args_end = expr.rfind(')')
+            let args_end = expr
+                .rfind(')')
                 .ok_or_else(|| CalculatorError::new("Missing closing parenthesis"))?;
             let args = expr[args_start..args_end].trim();
 
@@ -695,11 +695,8 @@ impl Calculator {
         }
 
         let mean: f64 = values.iter().sum::<f64>() / values.len() as f64;
-        let variance: f64 = values
-            .iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f64>()
-            / (values.len() - 1) as f64;
+        let variance: f64 =
+            values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
 
         Ok(variance.sqrt())
     }
@@ -712,11 +709,8 @@ impl Calculator {
         }
 
         let mean: f64 = values.iter().sum::<f64>() / values.len() as f64;
-        let variance: f64 = values
-            .iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f64>()
-            / values.len() as f64;
+        let variance: f64 =
+            values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64;
 
         Ok(variance.sqrt())
     }
@@ -725,17 +719,12 @@ impl Calculator {
         let values = self.parse_array(arg)?;
 
         if values.len() < 2 {
-            return Err(CalculatorError::new(
-                "Variance requires at least 2 values",
-            ));
+            return Err(CalculatorError::new("Variance requires at least 2 values"));
         }
 
         let mean: f64 = values.iter().sum::<f64>() / values.len() as f64;
-        let variance: f64 = values
-            .iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f64>()
-            / (values.len() - 1) as f64;
+        let variance: f64 =
+            values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
 
         Ok(variance)
     }
@@ -748,11 +737,8 @@ impl Calculator {
         }
 
         let mean: f64 = values.iter().sum::<f64>() / values.len() as f64;
-        let variance: f64 = values
-            .iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f64>()
-            / values.len() as f64;
+        let variance: f64 =
+            values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64;
 
         Ok(variance)
     }
@@ -769,18 +755,12 @@ impl Calculator {
 
     fn stat_min(&self, arg: &str) -> CalculatorResult {
         let values = self.parse_array(arg)?;
-        Ok(values
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min))
+        Ok(values.iter().copied().fold(f64::INFINITY, f64::min))
     }
 
     fn stat_max(&self, arg: &str) -> CalculatorResult {
         let values = self.parse_array(arg)?;
-        Ok(values
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max))
+        Ok(values.iter().copied().fold(f64::NEG_INFINITY, f64::max))
     }
 }
 

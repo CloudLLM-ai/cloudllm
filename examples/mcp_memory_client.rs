@@ -17,8 +17,8 @@
 //! - Network connectivity to the server
 //! - Proper configuration of the server endpoint
 
-use cloudllm::tool_protocols::McpMemoryProtocol;
 use cloudllm::tool_protocol::ToolProtocol;
+use cloudllm::tool_protocols::McpMemoryProtocol;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

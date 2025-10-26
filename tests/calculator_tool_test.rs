@@ -276,15 +276,9 @@ async fn test_mean() {
     let calc = Calculator::new();
 
     assert_eq!(calc.evaluate("mean([1, 2, 3, 4, 5])").await.unwrap(), 3.0);
-    assert_eq!(
-        calc.evaluate("mean([10, 20, 30])").await.unwrap(),
-        20.0
-    );
+    assert_eq!(calc.evaluate("mean([10, 20, 30])").await.unwrap(), 20.0);
     assert_eq!(calc.evaluate("mean([5])").await.unwrap(), 5.0);
-    assert_eq!(
-        calc.evaluate("mean([1.5, 2.5, 3.5])").await.unwrap(),
-        2.5
-    );
+    assert_eq!(calc.evaluate("mean([1.5, 2.5, 3.5])").await.unwrap(), 2.5);
 }
 
 #[tokio::test]
@@ -292,22 +286,13 @@ async fn test_median() {
     let calc = Calculator::new();
 
     // Odd number of elements
-    assert_eq!(
-        calc.evaluate("median([1, 2, 3, 4, 5])").await.unwrap(),
-        3.0
-    );
+    assert_eq!(calc.evaluate("median([1, 2, 3, 4, 5])").await.unwrap(), 3.0);
 
     // Unsorted array should still work
-    assert_eq!(
-        calc.evaluate("median([5, 2, 8, 1, 9])").await.unwrap(),
-        5.0
-    );
+    assert_eq!(calc.evaluate("median([5, 2, 8, 1, 9])").await.unwrap(), 5.0);
 
     // Even number of elements
-    assert_eq!(
-        calc.evaluate("median([1, 2, 3, 4])").await.unwrap(),
-        2.5
-    );
+    assert_eq!(calc.evaluate("median([1, 2, 3, 4])").await.unwrap(), 2.5);
 
     // Single element
     assert_eq!(calc.evaluate("median([42])").await.unwrap(), 42.0);
@@ -323,7 +308,9 @@ async fn test_mode() {
     );
     assert_eq!(calc.evaluate("mode([5, 5, 5, 5])").await.unwrap(), 5.0);
     assert_eq!(
-        calc.evaluate("mode([1, 2, 2, 3, 3, 3, 4, 4])").await.unwrap(),
+        calc.evaluate("mode([1, 2, 2, 3, 3, 3, 4, 4])")
+            .await
+            .unwrap(),
         3.0
     );
 }
@@ -332,14 +319,8 @@ async fn test_mode() {
 async fn test_sum_and_count() {
     let calc = Calculator::new();
 
-    assert_eq!(
-        calc.evaluate("sum([1, 2, 3, 4, 5])").await.unwrap(),
-        15.0
-    );
-    assert_eq!(
-        calc.evaluate("count([1, 2, 3, 4, 5])").await.unwrap(),
-        5.0
-    );
+    assert_eq!(calc.evaluate("sum([1, 2, 3, 4, 5])").await.unwrap(), 15.0);
+    assert_eq!(calc.evaluate("count([1, 2, 3, 4, 5])").await.unwrap(), 5.0);
     assert_eq!(calc.evaluate("sum([10, 20])").await.unwrap(), 30.0);
     assert_eq!(calc.evaluate("count([1])").await.unwrap(), 1.0);
 }
@@ -348,14 +329,8 @@ async fn test_sum_and_count() {
 async fn test_min_max_array() {
     let calc = Calculator::new();
 
-    assert_eq!(
-        calc.evaluate("min([5, 2, 8, 1, 9])").await.unwrap(),
-        1.0
-    );
-    assert_eq!(
-        calc.evaluate("max([5, 2, 8, 1, 9])").await.unwrap(),
-        9.0
-    );
+    assert_eq!(calc.evaluate("min([5, 2, 8, 1, 9])").await.unwrap(), 1.0);
+    assert_eq!(calc.evaluate("max([5, 2, 8, 1, 9])").await.unwrap(), 9.0);
     assert_eq!(calc.evaluate("min([-5, -2, -8])").await.unwrap(), -8.0);
     assert_eq!(calc.evaluate("max([-5, -2, -8])").await.unwrap(), -2.0);
 }
@@ -402,10 +377,7 @@ async fn test_array_with_spaces() {
         calc.evaluate("mean([ 1 , 2 , 3 , 4 , 5 ])").await.unwrap(),
         3.0
     );
-    assert_eq!(
-        calc.evaluate("sum([ 10 , 20 , 30 ])").await.unwrap(),
-        60.0
-    );
+    assert_eq!(calc.evaluate("sum([ 10 , 20 , 30 ])").await.unwrap(), 60.0);
 }
 
 #[tokio::test]
@@ -424,7 +396,10 @@ async fn test_division_by_zero() {
     let calc = Calculator::new();
     // Note: meval returns infinity for division by zero rather than an error
     let result = calc.evaluate("1 / 0").await;
-    assert!(result.is_ok() || result.is_err(), "Division by zero should either return inf or error");
+    assert!(
+        result.is_ok() || result.is_err(),
+        "Division by zero should either return inf or error"
+    );
     if let Ok(val) = result {
         // If it returns a value, it should be infinity
         assert!(val.is_infinite(), "1/0 should be infinity");
@@ -514,7 +489,10 @@ async fn test_complex_statistical_expressions() {
     let data_mean = calc.evaluate("mean([1, 2, 3, 4, 5])").await.unwrap();
     let data_std = calc.evaluate("std([1, 2, 3, 4, 5])").await.unwrap();
     let z_score = (3.0 - data_mean) / data_std;
-    assert!(z_score > -1.0 && z_score < 1.0, "Z-score should be reasonable");
+    assert!(
+        z_score > -1.0 && z_score < 1.0,
+        "Z-score should be reasonable"
+    );
 }
 
 #[tokio::test]
@@ -523,10 +501,7 @@ async fn test_whitespace_handling() {
 
     assert_eq!(calc.evaluate("  2 + 2  ").await.unwrap(), 4.0);
     assert_eq!(calc.evaluate("sin( 0 )").await.unwrap(), 0.0);
-    assert_eq!(
-        calc.evaluate("  sqrt ( 16 )  ").await.unwrap(),
-        4.0
-    );
+    assert_eq!(calc.evaluate("  sqrt ( 16 )  ").await.unwrap(), 4.0);
 }
 
 #[tokio::test]

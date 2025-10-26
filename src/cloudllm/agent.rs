@@ -454,6 +454,9 @@ mod tests {
 
         assert_eq!(agent.expertise, Some("Cloud Architecture".to_string()));
         assert_eq!(agent.personality, Some("Direct and analytical".to_string()));
-        assert_eq!(agent.metadata.get("department"), Some(&"Engineering".to_string()));
+        assert_eq!(
+            agent.metadata.get("department"),
+            Some(&"Engineering".to_string())
+        );
     }
 }

@@ -58,8 +58,8 @@
 //! # };
 //! ```
 
-use crate::cloudllm::agent::Agent;
 use crate::client_wrapper::Role;
+use crate::cloudllm::agent::Agent;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::error::Error;
@@ -982,8 +982,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_with_tool_execution() {
-        use crate::tool_protocols::CustomToolProtocol;
         use crate::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+        use crate::tool_protocols::CustomToolProtocol;
         use tokio::sync::Mutex as TokioMutex;
 
         // Create a custom tool adapter

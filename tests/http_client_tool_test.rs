@@ -60,7 +60,7 @@ async fn test_max_response_size_configuration() {
     let mut client = HttpClient::new();
     client.with_max_response_size(50 * 1024 * 1024); // 50MB
     client.with_max_response_size(100 * 1024 * 1024); // 100MB
-    // Verify size limit configuration works
+                                                      // Verify size limit configuration works
 }
 
 #[tokio::test]

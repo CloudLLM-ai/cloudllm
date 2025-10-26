@@ -226,8 +226,10 @@ impl HttpResponse {
 
     /// Try to parse response body as JSON
     pub fn json(&self) -> Result<JsonValue, Box<dyn Error + Send + Sync>> {
-        serde_json::from_str(&self.body)
-            .map_err(|e| Box::new(HttpClientError::new(format!("Failed to parse JSON: {}", e))) as Box<dyn Error + Send + Sync>)
+        serde_json::from_str(&self.body).map_err(|e| {
+            Box::new(HttpClientError::new(format!("Failed to parse JSON: {}", e)))
+                as Box<dyn Error + Send + Sync>
+        })
     }
 }
 
@@ -687,12 +689,7 @@ impl HttpClient {
         let headers: HashMap<String, String> = response
             .headers()
             .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    v.to_str().unwrap_or("").to_string(),
-                )
-            })
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
             .collect();
 
         let body = response
@@ -707,7 +704,11 @@ impl HttpClient {
             )));
         }
 
-        Ok(HttpResponse { status, headers, body })
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
     }
 }
 
@@ -723,11 +724,7 @@ fn extract_domain(url: &str) -> Option<String> {
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))?;
 
-    let domain = url_str
-        .split('/')
-        .next()?
-        .split(':')
-        .next()?;
+    let domain = url_str.split('/').next()?.split(':').next()?;
 
     Some(domain.to_string())
 }

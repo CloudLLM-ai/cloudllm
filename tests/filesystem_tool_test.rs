@@ -139,8 +139,12 @@ async fn test_read_directory() {
 
     let entries = fs.read_directory(".", false).await.unwrap();
     assert!(entries.len() >= 3);
-    assert!(entries.iter().any(|e| e.name == "file1.txt" && !e.is_directory));
-    assert!(entries.iter().any(|e| e.name == "file2.txt" && !e.is_directory));
+    assert!(entries
+        .iter()
+        .any(|e| e.name == "file1.txt" && !e.is_directory));
+    assert!(entries
+        .iter()
+        .any(|e| e.name == "file2.txt" && !e.is_directory));
     assert!(entries.iter().any(|e| e.name == "subdir" && e.is_directory));
 }
 
@@ -153,7 +157,9 @@ async fn test_read_directory_recursive() {
     fs.create_directory("subdir").await.unwrap();
     fs.write_file("subdir/file2.txt", "content").await.unwrap();
     fs.create_directory("subdir/nested").await.unwrap();
-    fs.write_file("subdir/nested/file3.txt", "content").await.unwrap();
+    fs.write_file("subdir/nested/file3.txt", "content")
+        .await
+        .unwrap();
 
     let entries = fs.read_directory(".", true).await.unwrap();
     assert!(entries.len() >= 5); // At least 5 entries
@@ -200,7 +206,9 @@ async fn test_path_traversal_prevention_write() {
     // This will still be normalized, but the write operation should fail because
     // the normalized path will be within root, and the file can't exist at the root
     // Let's just verify that parent refs are normalized safely
-    let result = fs.write_file("subdir/../../../etc/passwd", "malicious").await;
+    let result = fs
+        .write_file("subdir/../../../etc/passwd", "malicious")
+        .await;
     // This should succeed because the path normalizes to within root
     // Let's instead remove this overly strict test and add a different one
     let _result = result; // Don't assert, just test that it doesn't crash
@@ -212,8 +220,12 @@ async fn test_delete_directory_recursive() {
     let fs = FileSystemTool::new().with_root_path(temp_dir.path().to_path_buf());
 
     fs.create_directory("dir_to_delete").await.unwrap();
-    fs.write_file("dir_to_delete/file1.txt", "content").await.unwrap();
-    fs.write_file("dir_to_delete/file2.txt", "content").await.unwrap();
+    fs.write_file("dir_to_delete/file1.txt", "content")
+        .await
+        .unwrap();
+    fs.write_file("dir_to_delete/file2.txt", "content")
+        .await
+        .unwrap();
     assert!(fs.file_exists("dir_to_delete").await.unwrap());
 
     fs.delete_directory("dir_to_delete").await.unwrap();

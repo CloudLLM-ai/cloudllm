@@ -42,13 +42,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-async fn basic_file_operations(root_path: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn basic_file_operations(
+    root_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 1: Basic File Operations ---");
 
     let fs = FileSystemTool::new().with_root_path(root_path.clone());
 
     // Write a file
-    fs.write_file("config.txt", "environment=production\nversion=1.0").await?;
+    fs.write_file("config.txt", "environment=production\nversion=1.0")
+        .await?;
     println!("✓ Created config.txt");
 
     // Read the file
@@ -71,7 +74,9 @@ async fn basic_file_operations(root_path: &PathBuf) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-async fn directory_management(root_path: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn directory_management(
+    root_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 2: Directory Management ---");
 
     let fs = FileSystemTool::new().with_root_path(root_path.clone());
@@ -84,8 +89,10 @@ async fn directory_management(root_path: &PathBuf) -> Result<(), Box<dyn std::er
     println!("✓ Created directory: data/cache");
 
     // Write files in subdirectories
-    fs.write_file("data/logs/app.log", "[INFO] Application started").await?;
-    fs.write_file("data/cache/session_001.cache", "cached_data").await?;
+    fs.write_file("data/logs/app.log", "[INFO] Application started")
+        .await?;
+    fs.write_file("data/cache/session_001.cache", "cached_data")
+        .await?;
     println!("✓ Created files in subdirectories");
 
     // List directory contents (non-recursive)
@@ -97,20 +104,27 @@ async fn directory_management(root_path: &PathBuf) -> Result<(), Box<dyn std::er
 
     // List directory contents (recursive)
     let all_entries = fs.read_directory("data", true).await?;
-    println!("✓ All files under 'data' (recursive): {} entries", all_entries.len());
+    println!(
+        "✓ All files under 'data' (recursive): {} entries",
+        all_entries.len()
+    );
 
     println!();
     Ok(())
 }
 
-async fn file_search_and_metadata(root_path: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn file_search_and_metadata(
+    root_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 3: File Search and Metadata ---");
 
     let fs = FileSystemTool::new().with_root_path(root_path.clone());
 
     // Create test files
-    fs.write_file("report_2024_01.txt", "January report").await?;
-    fs.write_file("report_2024_02.txt", "February report").await?;
+    fs.write_file("report_2024_01.txt", "January report")
+        .await?;
+    fs.write_file("report_2024_02.txt", "February report")
+        .await?;
     fs.write_file("summary.txt", "Annual summary").await?;
     println!("✓ Created test files");
 
@@ -133,7 +147,9 @@ async fn file_search_and_metadata(root_path: &PathBuf) -> Result<(), Box<dyn std
     Ok(())
 }
 
-async fn extension_filtering(root_path: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn extension_filtering(
+    root_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 4: Extension Filtering ---");
 
     let fs = FileSystemTool::new()
@@ -172,7 +188,9 @@ async fn extension_filtering(root_path: &PathBuf) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-async fn error_handling(root_path: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn error_handling(
+    root_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 5: Error Handling ---");
 
     let fs = FileSystemTool::new().with_root_path(root_path.clone());
@@ -206,7 +224,9 @@ async fn error_handling(root_path: &PathBuf) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-async fn bulk_operations(root_path: &PathBuf) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn bulk_operations(
+    root_path: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 6: Bulk Operations ---");
 
     let fs = FileSystemTool::new().with_root_path(root_path.clone());
@@ -218,7 +238,8 @@ async fn bulk_operations(root_path: &PathBuf) -> Result<(), Box<dyn std::error::
     println!("✓ Created project structure");
 
     // Write multiple files
-    fs.write_file("project/Cargo.toml", "[package]\nname = \"myapp\"").await?;
+    fs.write_file("project/Cargo.toml", "[package]\nname = \"myapp\"")
+        .await?;
     fs.write_file("project/src/main.rs", "fn main() {}").await?;
     fs.write_file("project/README.md", "# My Project").await?;
     println!("✓ Created project files");
@@ -227,7 +248,10 @@ async fn bulk_operations(root_path: &PathBuf) -> Result<(), Box<dyn std::error::
     let files = fs.read_directory("project", true).await?;
     let file_count = files.iter().filter(|e| !e.is_directory).count();
     let dir_count = files.iter().filter(|e| e.is_directory).count();
-    println!("✓ Project contains {} files and {} directories\n", file_count, dir_count);
+    println!(
+        "✓ Project contains {} files and {} directories\n",
+        file_count, dir_count
+    );
 
     Ok(())
 }

@@ -65,11 +65,11 @@
 //!     // .with_tools(...);
 //! ```
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use chrono::{DateTime, Local};
 use std::error::Error;
 use std::fmt;
-use chrono::{DateTime, Local};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// Errors that can occur during file system operations
 #[derive(Debug, Clone)]
@@ -97,13 +97,17 @@ pub enum FileSystemError {
 impl fmt::Display for FileSystemError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FileSystemError::PathTraversal(msg) => write!(f, "Path traversal attempt blocked: {}", msg),
+            FileSystemError::PathTraversal(msg) => {
+                write!(f, "Path traversal attempt blocked: {}", msg)
+            }
             FileSystemError::NotFound(msg) => write!(f, "File not found: {}", msg),
             FileSystemError::IsDirectory(msg) => write!(f, "Is a directory: {}", msg),
             FileSystemError::NotADirectory(msg) => write!(f, "Not a directory: {}", msg),
             FileSystemError::AlreadyExists(msg) => write!(f, "Already exists: {}", msg),
             FileSystemError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
-            FileSystemError::ExtensionNotAllowed(msg) => write!(f, "Extension not allowed: {}", msg),
+            FileSystemError::ExtensionNotAllowed(msg) => {
+                write!(f, "Extension not allowed: {}", msg)
+            }
             FileSystemError::IOError(msg) => write!(f, "IO error: {}", msg),
             FileSystemError::InvalidPath(msg) => write!(f, "Invalid path: {}", msg),
         }
@@ -189,8 +193,8 @@ impl FileSystemTool {
                     normalized.pop();
                 }
                 Component::Normal(c) => normalized.push(c),
-                Component::CurDir => {}, // Skip . components
-                _ => {}, // Ignore other components (shouldn't happen for relative paths)
+                Component::CurDir => {} // Skip . components
+                _ => {} // Ignore other components (shouldn't happen for relative paths)
             }
         }
 
@@ -203,9 +207,9 @@ impl FileSystemTool {
 
         // Verify the effective path is within root (if root is set)
         if let Some(root) = &self.root_path {
-            let root_canonical = root
-                .canonicalize()
-                .map_err(|e| FileSystemError::IOError(format!("Cannot canonicalize root: {}", e)))?;
+            let root_canonical = root.canonicalize().map_err(|e| {
+                FileSystemError::IOError(format!("Cannot canonicalize root: {}", e))
+            })?;
 
             // For validation, we just need to ensure that the path doesn't escape the root
             // by checking if it starts with the root after joining
@@ -213,13 +217,14 @@ impl FileSystemTool {
                 // If it doesn't naturally start with root, it might have popped too many dirs
                 // Try to canonicalize if it exists to be sure
                 if effective_path.exists() {
-                    let canonical = effective_path
-                        .canonicalize()
-                        .map_err(|e| FileSystemError::IOError(format!("Cannot canonicalize path: {}", e)))?;
+                    let canonical = effective_path.canonicalize().map_err(|e| {
+                        FileSystemError::IOError(format!("Cannot canonicalize path: {}", e))
+                    })?;
                     if !canonical.starts_with(&root_canonical) {
-                        return Err(FileSystemError::PathTraversal(
-                            format!("Path escapes root directory: {}", path),
-                        ));
+                        return Err(FileSystemError::PathTraversal(format!(
+                            "Path escapes root directory: {}",
+                            path
+                        )));
                     }
                 }
             }
@@ -234,9 +239,10 @@ impl FileSystemTool {
             if let Some(ext) = path.extension() {
                 let ext_str = ext.to_string_lossy().to_lowercase();
                 if !allowed.iter().any(|a| a.to_lowercase() == ext_str) {
-                    return Err(FileSystemError::ExtensionNotAllowed(
-                        format!("Extension .{} not allowed", ext_str),
-                    ));
+                    return Err(FileSystemError::ExtensionNotAllowed(format!(
+                        "Extension .{} not allowed",
+                        ext_str
+                    )));
                 }
             }
         }
@@ -249,19 +255,16 @@ impl FileSystemTool {
         self.check_extension(&safe_path)?;
 
         if !safe_path.exists() {
-            return Err(Box::new(FileSystemError::NotFound(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotFound(path.to_string())));
         }
 
         if safe_path.is_dir() {
-            return Err(Box::new(FileSystemError::IsDirectory(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
-        let content = fs::read_to_string(&safe_path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        let content = fs::read_to_string(&safe_path).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(content)
     }
@@ -276,19 +279,19 @@ impl FileSystemTool {
         self.check_extension(&safe_path)?;
 
         if safe_path.exists() && safe_path.is_dir() {
-            return Err(Box::new(FileSystemError::IsDirectory(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
         // Ensure parent directory exists
         if let Some(parent) = safe_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+            fs::create_dir_all(parent).map_err(|e| {
+                Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+            })?;
         }
 
-        fs::write(&safe_path, content)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        fs::write(&safe_path, content).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(())
     }
@@ -303,15 +306,14 @@ impl FileSystemTool {
         self.check_extension(&safe_path)?;
 
         if safe_path.exists() && safe_path.is_dir() {
-            return Err(Box::new(FileSystemError::IsDirectory(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
         // Ensure parent directory exists
         if let Some(parent) = safe_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+            fs::create_dir_all(parent).map_err(|e| {
+                Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+            })?;
         }
 
         use std::io::Write;
@@ -319,10 +321,13 @@ impl FileSystemTool {
             .create(true)
             .append(true)
             .open(&safe_path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+            .map_err(|e| {
+                Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+            })?;
 
-        file.write_all(content.as_bytes())
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        file.write_all(content.as_bytes()).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(())
     }
@@ -335,18 +340,23 @@ impl FileSystemTool {
         let safe_path = self.validate_path(path)?;
 
         if !safe_path.exists() {
-            return Err(Box::new(FileSystemError::NotFound(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotFound(path.to_string())));
         }
 
-        let metadata = fs::metadata(&safe_path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        let metadata = fs::metadata(&safe_path).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         let modified_time = metadata
             .modified()
             .ok()
-            .and_then(|t| DateTime::<Local>::from(t).format("%Y-%m-%d %H:%M:%S").to_string().parse().ok())
+            .and_then(|t| {
+                DateTime::<Local>::from(t)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+                    .parse()
+                    .ok()
+            })
             .unwrap_or_else(|| "unknown".to_string());
 
         Ok(FileMetadata {
@@ -371,15 +381,11 @@ impl FileSystemTool {
         let safe_path = self.validate_path(path)?;
 
         if !safe_path.exists() {
-            return Err(Box::new(FileSystemError::NotFound(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotFound(path.to_string())));
         }
 
         if !safe_path.is_dir() {
-            return Err(Box::new(FileSystemError::NotADirectory(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotADirectory(path.to_string())));
         }
 
         let mut entries = Vec::new();
@@ -387,14 +393,17 @@ impl FileSystemTool {
         if recursive {
             self.read_directory_recursive(&safe_path, &mut entries)?;
         } else {
-            for entry in fs::read_dir(&safe_path)
-                .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?
-            {
-                let entry = entry
-                    .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
-                let metadata = entry
-                    .metadata()
-                    .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+            for entry in fs::read_dir(&safe_path).map_err(|e| {
+                Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+            })? {
+                let entry = entry.map_err(|e| {
+                    Box::new(FileSystemError::IOError(e.to_string()))
+                        as Box<dyn Error + Send + Sync>
+                })?;
+                let metadata = entry.metadata().map_err(|e| {
+                    Box::new(FileSystemError::IOError(e.to_string()))
+                        as Box<dyn Error + Send + Sync>
+                })?;
 
                 entries.push(DirectoryEntry {
                     name: entry.file_name().to_string_lossy().to_string(),
@@ -408,19 +417,21 @@ impl FileSystemTool {
     }
 
     /// Recursively read directory
+    #[allow(clippy::only_used_in_recursion)]
     fn read_directory_recursive(
         &self,
         path: &Path,
         entries: &mut Vec<DirectoryEntry>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        for entry in fs::read_dir(path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?
-        {
-            let entry = entry
-                .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
-            let metadata = entry
-                .metadata()
-                .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        for entry in fs::read_dir(path).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })? {
+            let entry = entry.map_err(|e| {
+                Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+            })?;
+            let metadata = entry.metadata().map_err(|e| {
+                Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+            })?;
 
             entries.push(DirectoryEntry {
                 name: entry.file_name().to_string_lossy().to_string(),
@@ -441,19 +452,16 @@ impl FileSystemTool {
         let safe_path = self.validate_path(path)?;
 
         if !safe_path.exists() {
-            return Err(Box::new(FileSystemError::NotFound(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotFound(path.to_string())));
         }
 
         if safe_path.is_dir() {
-            return Err(Box::new(FileSystemError::IsDirectory(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
-        fs::remove_file(&safe_path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        fs::remove_file(&safe_path).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(())
     }
@@ -463,19 +471,16 @@ impl FileSystemTool {
         let safe_path = self.validate_path(path)?;
 
         if !safe_path.exists() {
-            return Err(Box::new(FileSystemError::NotFound(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotFound(path.to_string())));
         }
 
         if !safe_path.is_dir() {
-            return Err(Box::new(FileSystemError::NotADirectory(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotADirectory(path.to_string())));
         }
 
-        fs::remove_dir_all(&safe_path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        fs::remove_dir_all(&safe_path).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(())
     }
@@ -494,15 +499,14 @@ impl FileSystemTool {
 
         if safe_path.exists() {
             if !safe_path.is_dir() {
-                return Err(Box::new(FileSystemError::AlreadyExists(
-                    path.to_string(),
-                )));
+                return Err(Box::new(FileSystemError::AlreadyExists(path.to_string())));
             }
             return Ok(()); // Already exists and is a directory
         }
 
-        fs::create_dir_all(&safe_path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        fs::create_dir_all(&safe_path).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(())
     }
@@ -527,19 +531,16 @@ impl FileSystemTool {
         let safe_path = self.validate_path(path)?;
 
         if !safe_path.exists() {
-            return Err(Box::new(FileSystemError::NotFound(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::NotFound(path.to_string())));
         }
 
         if safe_path.is_dir() {
-            return Err(Box::new(FileSystemError::IsDirectory(
-                path.to_string(),
-            )));
+            return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
-        let metadata = fs::metadata(&safe_path)
-            .map_err(|e| Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>)?;
+        let metadata = fs::metadata(&safe_path).map_err(|e| {
+            Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(metadata.len())
     }

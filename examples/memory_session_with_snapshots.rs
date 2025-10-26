@@ -10,10 +10,10 @@
 //! of storing and retrieving session state.
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
-use cloudllm::Agent;
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;
+use cloudllm::Agent;
 use std::sync::Arc;
 
 #[tokio::main]

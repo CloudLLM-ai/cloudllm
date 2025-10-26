@@ -108,7 +108,10 @@ async fn demo_headers_auth() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n  Example 2: Bearer token authentication");
     let mut client = HttpClient::new();
     client.allow_domain("api.example.com");
-    client.with_header("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...");
+    client.with_header(
+        "Authorization",
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    );
     println!("  ✓ Added Bearer token authentication header");
 
     println!("\n  Example 3: Basic authentication");
@@ -257,11 +260,16 @@ async fn demo_error_handling() -> Result<(), Box<dyn std::error::Error>> {
     match client.get("https://api.example.com/endpoint").await {
         Ok(response) => {
             println!("  ✓ Request succeeded");
-            println!("    Status: {} ({})",
+            println!(
+                "    Status: {} ({})",
                 response.status,
-                if response.is_success() { "Success" }
-                else if response.is_client_error() { "Client Error" }
-                else { "Server Error" }
+                if response.is_success() {
+                    "Success"
+                } else if response.is_client_error() {
+                    "Client Error"
+                } else {
+                    "Server Error"
+                }
             );
         }
         Err(e) => println!("  ℹ Request failed: {} (may be network error)", e),
