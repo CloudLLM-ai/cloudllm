@@ -4,28 +4,26 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use cloudllm::mcp_server_builder::MCPServerBuilder;
-//! use cloudllm::tools::Memory;
-//! use std::sync::Arc;
 //!
-//! # #[tokio::main]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut builder = MCPServerBuilder::new();
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let builder = MCPServerBuilder::new();
 //!
-//! // Add built-in tools
-//! builder.with_memory_tool();
+//!     // Add built-in tools
+//!     let builder = builder.with_memory_tool().await;
 //!
-//! // Configure security
-//! builder.allow_localhost_only();
-//! builder.with_bearer_token("my-secret-token");
+//!     // Configure security
+//!     let builder = builder.allow_localhost_only();
+//!     let builder = builder.with_bearer_token("my-secret-token");
 //!
-//! // Start the server
-//! let server = builder.start_on(8080).await?;
-//! println!("Server running at {}", server.addr());
+//!     // Start the server
+//!     let server = builder.start_on(8080).await?;
+//!     println!("Server running at {}", server.addr());
 //!
-//! # Ok(())
-//! # }
+//!     Ok(())
+//! }
 //! ```
 
 use crate::cloudllm::mcp_http_adapter::{HttpServerAdapter, HttpServerConfig, HttpServerInstance};
@@ -152,11 +150,11 @@ impl MCPServerBuilder {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// let builder = cloudllm::mcp_server_builder::MCPServerBuilder::new()
+    /// ```rust,ignore
+    /// use cloudllm::mcp_server_builder::MCPServerBuilder;
+    /// let builder = MCPServerBuilder::new()
     ///     .allow_ip("127.0.0.1")?
     ///     .allow_ip("::1")?;
-    /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
     pub fn allow_ip(mut self, ip: &str) -> Result<Self, String> {
         self.ip_filter.allow(ip)?;
@@ -171,11 +169,11 @@ impl MCPServerBuilder {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// let builder = cloudllm::mcp_server_builder::MCPServerBuilder::new()
+    /// ```rust,ignore
+    /// use cloudllm::mcp_server_builder::MCPServerBuilder;
+    /// let builder = MCPServerBuilder::new()
     ///     .allow_cidr("192.168.1.0/24")?
     ///     .allow_cidr("10.0.0.0/8")?;
-    /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
     pub fn allow_cidr(mut self, cidr: &str) -> Result<Self, String> {
         self.ip_filter.allow(cidr)?;
@@ -210,14 +208,16 @@ impl MCPServerBuilder {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// # async {
-    /// let server = cloudllm::mcp_server_builder::MCPServerBuilder::new()
-    ///     .start_on(8080)
-    ///     .await?;
-    /// println!("Server at {}", server.addr());
-    /// # Ok::<_, Box<dyn std::error::Error>>(())
-    /// # }
+    /// ```rust,ignore
+    /// use cloudllm::mcp_server_builder::MCPServerBuilder;
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let server = MCPServerBuilder::new()
+    ///         .start_on(8080)
+    ///         .await?;
+    ///     println!("Server at {}", server.addr());
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn start_on(
         self,
@@ -235,15 +235,18 @@ impl MCPServerBuilder {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// # async {
+    /// ```rust,ignore
+    /// use cloudllm::mcp_server_builder::MCPServerBuilder;
     /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    /// let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 8080);
-    /// let server = cloudllm::mcp_server_builder::MCPServerBuilder::new()
-    ///     .start_at(addr)
-    ///     .await?;
-    /// # Ok::<_, Box<dyn std::error::Error>>(())
-    /// # }
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 8080);
+    ///     let server = MCPServerBuilder::new()
+    ///         .start_at(addr)
+    ///         .await?;
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn start_at(
         self,

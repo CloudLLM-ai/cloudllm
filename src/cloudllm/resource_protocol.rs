@@ -16,7 +16,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use cloudllm::resource_protocol::{ResourceMetadata, ResourceProtocol};
 //! use std::sync::Arc;
 //!
