@@ -193,7 +193,7 @@ Agents can use tools to extend their capabilities:
 ```rust,no_run
 use std::sync::Arc;
 
-use cloudllm::council::Agent;
+use cloudllm::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
 use cloudllm::tool_adapters::CustomToolAdapter;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult};
@@ -404,7 +404,7 @@ tools from all connected sources as if they were available locally.
 
 ```rust,no_run
 use std::sync::Arc;
-use cloudllm::council::Agent;
+use cloudllm::Agent;
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::McpClientProtocol;

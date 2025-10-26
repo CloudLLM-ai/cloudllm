@@ -42,7 +42,7 @@
 //! ## With Agent Integration
 //!
 //! ```ignore
-//! use cloudllm::council::Agent;
+//! use cloudllm::Agent;
 //! use cloudllm::tools::BashTool;
 //! use cloudllm::tool_protocols::CustomToolProtocol;
 //!

@@ -465,7 +465,7 @@ impl ToolProtocol for OpenAIFunctionsProtocol {
 /// use cloudllm::tools::Memory;
 /// use cloudllm::tool_protocols::MemoryProtocol;
 /// use cloudllm::tool_protocol::ToolRegistry;
-/// use cloudllm::council::Agent;
+/// use cloudllm::Agent;
 /// use std::sync::Arc;
 ///
 /// let memory = Arc::new(Memory::new());
