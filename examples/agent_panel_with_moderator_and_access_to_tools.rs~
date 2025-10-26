@@ -1,0 +1,497 @@
+//! Four-Agent Panel with Moderator and Shared Tools
+//!
+//! This example demonstrates a sophisticated multi-agent system that estimates global
+//! CO₂ emissions from Bitcoin mining. It showcases:
+//!
+//! - **Four specialized agents** (Data Collector, Energy Analyst, Emissions Analyst) + Moderator
+//! - **Two iterative rounds** with feedback between rounds
+//! - **Shared tools** (Memory, HTTP Client, Calculator, Bash)
+//! - **Agent autonomy**: LLM agents decide which tools to use based on the task
+//! - **Round-1 independence**: Workers operate independently, storing raw results
+//! - **Round-2 integration**: Moderator reviews and provides feedback for refinement
+//! - **Structured outputs**: JSON Memory keys with units, sources, and validation
+//!
+//! The agents are given access to tools but decide autonomously what to use.
+//! Worker A and C can use HTTP Client to fetch real data.
+//! Worker B uses Calculator to perform conversions.
+//! All agents can use Memory to coordinate.
+
+use cloudllm::clients::grok::GrokClient;
+use cloudllm::clients::openai::{Model, OpenAIClient};
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
+use cloudllm::tools::Memory;
+use cloudllm::Agent;
+use std::sync::Arc;
+use std::collections::HashMap;
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+
+struct PanelWorkflow {
+    memory: Arc<Memory>,
+    worker_a: Agent,
+    worker_b: Agent,
+    worker_c: Agent,
+    moderator: Agent,
+}
+
+impl PanelWorkflow {
+    async fn new(
+        api_key_grok: &str,
+        api_key_openai: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let memory = Arc::new(Memory::new());
+
+        // Create shared Memory tool access for all agents
+        let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
+
+        // Create a custom tool protocol with Calculator tool
+        let custom_protocol = Arc::new(CustomToolProtocol::new());
+
+        // Register Calculator tool
+        custom_protocol.register_tool(
+            ToolMetadata::new("calculator", "Performs mathematical calculations with arbitrary precision")
+                .with_parameter(
+                    ToolParameter::new("expression", ToolParameterType::String)
+                        .with_description("Mathematical expression to evaluate (e.g., '650*1e6*25*24/1000')")
+                        .required(),
+                ),
+            Arc::new(|params| {
+                let expr = params["expression"].as_str().unwrap_or("0");
+                // Parse and evaluate the expression safely
+                match meval::eval_str(expr) {
+                    Ok(result) => Ok(ToolResult {
+                        success: true,
+                        output: serde_json::json!({ "result": result, "expression": expr }),
+                        error: None,
+                        metadata: HashMap::new(),
+                    }),
+                    Err(e) => Ok(ToolResult {
+                        success: false,
+                        output: serde_json::json!({ "expression": expr }),
+                        error: Some(format!("Calculation error: {}", e)),
+                        metadata: HashMap::new(),
+                    }),
+                }
+            }),
+        ).await;
+
+        // Worker A: Data Collector
+        // Has access to Memory and HTTP Client (via custom protocol with curl simulation)
+        let registry_a = Arc::new(ToolRegistry::new(memory_protocol.clone()));
+        let worker_a = Agent::new(
+            "worker_a",
+            "Data Collector",
+            Arc::new(GrokClient::new_with_model_str(api_key_grok, "grok-2")),
+        )
+        .with_expertise(
+            "Fetches current global Bitcoin hashrate and energy efficiency metrics from primary sources"
+        )
+        .with_personality("Meticulous, data-driven, focuses on source quality and recency")
+        .with_tools(registry_a);
+
+        // Worker B: Energy Analyst
+        // Has access to Memory and Calculator
+        let registry_b = Arc::new(ToolRegistry::new(custom_protocol.clone()));
+        let worker_b = Agent::new(
+            "worker_b",
+            "Energy Analyst",
+            Arc::new(GrokClient::new_with_model_str(api_key_grok, "grok-2")),
+        )
+        .with_expertise(
+            "Converts hashrate and efficiency data into daily energy consumption (kWh/day) using precise unit conversion"
+        )
+        .with_personality("Systematic, careful with unit conversions, emphasizes precision in calculations")
+        .with_tools(registry_b);
+
+        // Worker C: Emissions Analyst
+        // Has access to Memory, HTTP Client, and Calculator
+        let registry_c = Arc::new(ToolRegistry::new(memory_protocol.clone()));
+        let worker_c = Agent::new(
+            "worker_c",
+            "Emissions Analyst",
+            Arc::new(GrokClient::new_with_model_str(api_key_grok, "grok-2")),
+        )
+        .with_expertise(
+            "Fetches global electricity emission factors and computes CO₂ emissions in tons per day"
+        )
+        .with_personality("Thorough, questions assumptions, provides uncertainty bounds")
+        .with_tools(registry_c);
+
+        // Moderator: Verifier & Integrator (uses OpenAI)
+        let moderator_registry = Arc::new(ToolRegistry::new(memory_protocol.clone()));
+        let moderator = Agent::new(
+            "moderator",
+            "Verifier & Integrator",
+            Arc::new(OpenAIClient::new_with_model_enum(
+                api_key_openai,
+                Model::GPT41Nano,
+            )),
+        )
+        .with_expertise(
+            "Validates data recency, unit coherence, magnitude sanity; integrates and audits multi-agent findings"
+        )
+        .with_personality("Skeptical, audit-focused, demands reproducibility and clarity")
+        .with_tools(moderator_registry);
+
+        Ok(Self {
+            memory,
+            worker_a,
+            worker_b,
+            worker_c,
+            moderator,
+        })
+    }
+
+    async fn run_round_1(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║                       ROUND 1: INDEPENDENT WORK                 ║");
+        println!("╚════════════════════════════════════════════════════════════════╝\n");
+
+        // Worker A: Data collection
+        println!("🔄 Worker A (Data Collector): Researching global hashrate and efficiency...");
+        let task_a = r#"
+You are researching Bitcoin mining energy consumption. Your task:
+
+1. Research and find the CURRENT global Bitcoin hashrate (in EH/s - exahashes per second)
+2. Research and find the CURRENT energy efficiency (in J/TH - joules per terahash)
+3. Store both values in Memory with:
+   - Exact values found
+   - Source URLs where you found them
+   - Current ISO-8601 timestamp
+   - Any uncertainty or caveats
+
+Use the Memory tool to store:
+- r1/source.hashrate
+- r1/source.energy_per_ths
+- r1/raw/hashrate_source (URL and extracted JSON)
+- r1/raw/efficiency_source (URL and extracted JSON)
+
+You MUST use the Memory tool to persist your findings. Do not make assumptions.
+"#;
+
+        let response_a = self.worker_a.generate(
+            "You have access to Memory tool to store research findings.",
+            task_a,
+            &[],
+        ).await?;
+
+        println!("✓ Worker A completed research:\n{}\n", response_a);
+
+        // Worker B: Energy calculation
+        println!("🔄 Worker B (Energy Analyst): Computing daily energy consumption...");
+        let task_b = r#"
+You are calculating Bitcoin mining energy consumption. Your task:
+
+1. Read from Memory: r1/source.hashrate and r1/source.energy_per_ths
+2. Convert using the formula:
+   - TH/s = EH/s × 10^6
+   - Power (W) = TH/s × (J/TH)
+   - Energy per day (kWh/day) = Power (W) × 24 / 1000
+3. Use the Calculator tool to perform these calculations
+4. Store results in Memory as r1/energy.kwh_per_day with:
+   - The calculated value
+   - The inputs used (hashrate, efficiency)
+   - The formula applied
+   - ISO-8601 timestamp
+
+Use the Calculator tool for math operations and Memory to store results.
+"#;
+
+        let response_b = self.worker_b.generate(
+            "You have access to Calculator and Memory tools.",
+            task_b,
+            &[],
+        ).await?;
+
+        println!("✓ Worker B completed calculations:\n{}\n", response_b);
+
+        // Worker C: Emissions calculation
+        println!("🔄 Worker C (Emissions Analyst): Researching CO₂ emission factor...");
+        let task_c = r#"
+You are calculating CO₂ emissions from Bitcoin mining. Your task:
+
+1. Research the current GLOBAL electricity carbon intensity (in kgCO2/kWh)
+   - Look for official sources (IEA, World Bank, etc.)
+   - Document the mix (is it global average? regional? weighted?)
+2. Read from Memory: r1/energy.kwh_per_day
+3. Calculate: CO₂ per day (tons) = kWh/day × kgCO2/kWh / 1000
+4. Store in Memory as r1/emissions.tons_per_day with:
+   - The calculated CO₂ value
+   - The emission factor source and URL
+   - Any regional variation notes
+   - ISO-8601 timestamp
+
+Use Memory to read energy data and store emission results.
+"#;
+
+        let response_c = self.worker_c.generate(
+            "You have access to Memory tool for coordination.",
+            task_c,
+            &[],
+        ).await?;
+
+        println!("✓ Worker C completed analysis:\n{}\n", response_c);
+
+        println!("✓ Round 1 complete. All workers stored independent analyses in Memory.\n");
+        Ok(())
+    }
+
+    async fn run_moderator_review_round_1(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║              MODERATOR ROUND 1: REVIEW & FEEDBACK              ║");
+        println!("╚════════════════════════════════════════════════════════════════╝\n");
+
+        let task_moderator = r#"
+You are the moderator validating the round 1 findings. Your task:
+
+1. Read all stored values from Memory:
+   - r1/source.hashrate
+   - r1/source.energy_per_ths
+   - r1/energy.kwh_per_day
+   - r1/source.co2_factor (if Worker C found and stored it)
+   - r1/emissions.tons_per_day
+
+2. Validate:
+   - Are all timestamps ≤48 hours old?
+   - Are units coherent? (EH/s → TH/s → W → kWh/day)
+   - Are magnitudes reasonable?
+   - Were primary sources used (not blogs)?
+   - Are raw data and computation trails present?
+
+3. Generate feedback for each worker with:
+   - Issues found (if any)
+   - Specific actions to address in Round 2
+   - Permission grants for Round 2 (who can read what)
+
+4. Store feedback/r1 in Memory as a JSON array with per-worker entries
+
+Grant Round-2 permission: Workers may now read r1/source.* and r1/energy.* for validation.
+"#;
+
+        let response_mod = self.moderator.generate(
+            "You are validating agent work. Use Memory to read findings and store feedback.",
+            task_moderator,
+            &[],
+        ).await?;
+
+        println!("✓ Moderator feedback generated:\n{}\n", response_mod);
+        Ok(())
+    }
+
+    async fn run_round_2(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║                    ROUND 2: REVISIONS & BOUNDS                  ║");
+        println!("╚════════════════════════════════════════════════════════════════╝\n");
+
+        // Worker A: Refined estimates
+        println!("🔄 Worker A (Round 2): Refining with uncertainty bounds...");
+        let task_a_r2 = r#"
+Round 2 task: Refine your Round 1 estimates with uncertainty bounds.
+
+1. Read feedback/r1 from Memory to see moderator comments
+2. Read your previous r1/source.* entries
+3. Provide refined estimates with:
+   - Central value (same as before or updated)
+   - Low bound (conservative estimate)
+   - High bound (optimistic estimate)
+   - Confidence score (0-1)
+4. Store as r2/source.hashrate.v2 and r2/source.energy_per_ths.v2 with bounds
+5. Use ISO-8601 timestamps
+"#;
+
+        let response_a2 = self.worker_a.generate(
+            "You have access to Memory. Refine your Round 1 work with uncertainty bounds.",
+            task_a_r2,
+            &[],
+        ).await?;
+
+        println!("✓ Worker A refined estimates:\n{}\n", response_a2);
+
+        // Worker B: Recalculate with bounds
+        println!("🔄 Worker B (Round 2): Recalculating with bounds...");
+        let task_b_r2 = r#"
+Round 2 task: Recalculate energy consumption using refined bounds.
+
+1. Read feedback/r1 from Memory
+2. Read r2/source.hashrate.v2 and r2/source.energy_per_ths.v2 (with bounds)
+3. For EACH combination (low/mid/high), calculate kWh/day using Calculator:
+   - Low: hashrate_low × 1e6 × efficiency_low × 24 / 1000
+   - Mid: hashrate_mid × 1e6 × efficiency_mid × 24 / 1000
+   - High: hashrate_high × 1e6 × efficiency_high × 24 / 1000
+4. Store as r2/energy.kwh_per_day.v2 with:
+   - Mid value
+   - Low/high range
+   - Inputs used
+   - Confidence
+"#;
+
+        let response_b2 = self.worker_b.generate(
+            "You have Calculator and Memory access. Recalculate with bounds.",
+            task_b_r2,
+            &[],
+        ).await?;
+
+        println!("✓ Worker B recalculated:\n{}\n", response_b2);
+
+        // Worker C: Refine emissions
+        println!("🔄 Worker C (Round 2): Refining CO₂ factor and emissions...");
+        let task_c_r2 = r#"
+Round 2 task: Refine emissions calculations with uncertainty ranges.
+
+1. Read feedback/r1
+2. If possible, research alternative emission factor sources:
+   - Global average (current approach)
+   - Renewable-heavy scenarios (low bound)
+   - Coal-heavy scenarios (high bound)
+3. Store r2/source.co2_factor.v2 with bounds if possible
+4. Read r2/energy.kwh_per_day.v2 (with ranges)
+5. Calculate emissions ranges:
+   - Low: energy_low × co2_factor_low / 1000
+   - Mid: energy_mid × co2_factor_mid / 1000
+   - High: energy_high × co2_factor_high / 1000
+6. Store as r2/emissions.tons_per_day.v2 with ranges and confidence
+"#;
+
+        let response_c2 = self.worker_c.generate(
+            "You have Memory access. Refine emissions with uncertainty bounds.",
+            task_c_r2,
+            &[],
+        ).await?;
+
+        println!("✓ Worker C refined emissions:\n{}\n", response_c2);
+
+        println!("✓ Round 2 complete. All workers provided versioned estimates with bounds.\n");
+        Ok(())
+    }
+
+    async fn run_moderator_finalization(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║          MODERATOR ROUND 2: FINALIZATION & SYNTHESIS           ║");
+        println!("╚════════════════════════════════════════════════════════════════╝\n");
+
+        let task_final = r#"
+Final task: Synthesize all findings and create final report.
+
+1. Read all r2/*.v2 entries from Memory (the refined Round 2 data)
+2. Assemble final/report with:
+   - Central values for hashrate, efficiency, energy, CO₂ factor, and emissions
+   - Ranges/bounds for energy and emissions
+   - List of assumptions
+   - Source citations
+   - Confidence score (weighted average of component confidence)
+   - Current ISO-8601 timestamp
+
+3. Create final/summary - a concise human-readable sentence like:
+   "Estimated ≈XXXk tCO₂/day (±YY% range), using H=XXX EH/s, η=XX J/TH, EF=X.XX kgCO₂/kWh; confidence ZZ%."
+
+4. Create meta/current - canonical version pointers mapping:
+   {
+     "hashrate": "r2/source.hashrate.v2",
+     "energy_per_ths": "r2/source.energy_per_ths.v2",
+     "kwh_per_day": "r2/energy.kwh_per_day.v2",
+     "co2_factor": "r2/source.co2_factor.v2",
+     "emissions": "r2/emissions.tons_per_day.v2"
+   }
+
+Store all three in Memory (no TTL for final outputs).
+"#;
+
+        let response_final = self.moderator.generate(
+            "You have Memory access. Create final integrated report from Round 2 data.",
+            task_final,
+            &[],
+        ).await?;
+
+        println!("✓ Moderator finalized:\n{}\n", response_final);
+        Ok(())
+    }
+
+    async fn dump_memory_state(&self) {
+        println!("\n╔════════════════════════════════════════════════════════════════╗");
+        println!("║              MEMORY STATE (All Stored Keys & Values)           ║");
+        println!("╚════════════════════════════════════════════════════════════════╝\n");
+
+        let keys = self.memory.list_keys();
+        println!("Total keys stored: {}\n", keys.len());
+
+        for key in keys {
+            if let Some((value, _metadata)) = self.memory.get(&key, false) {
+                println!("📌 {}", key);
+                // Truncate very long values
+                let display_value = if value.len() > 500 {
+                    format!("{}...", &value[..500])
+                } else {
+                    value
+                };
+                println!("   {}\n", display_value);
+            }
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    cloudllm::init_logger();
+
+    let api_key_grok = std::env::var("GROK_API_KEY")
+        .unwrap_or_else(|_| "xai-placeholder".to_string());
+    let api_key_openai = std::env::var("OPENAI_API_KEY")
+        .unwrap_or_else(|_| "sk-placeholder".to_string());
+
+    println!("\n╔════════════════════════════════════════════════════════════════╗");
+    println!("║         FOUR-AGENT PANEL WITH MODERATOR & SHARED TOOLS        ║");
+    println!("║        Estimating Global CO₂ from Bitcoin Mining (tons/day)    ║");
+    println!("╚════════════════════════════════════════════════════════════════╝");
+
+    println!("\n📋 PANEL CONFIGURATION:");
+    println!("   Workers (Grok-based):");
+    println!("   ├─ Worker A (Data Collector): Researches hashrate & efficiency");
+    println!("   ├─ Worker B (Energy Analyst): Calculates kWh/day");
+    println!("   └─ Worker C (Emissions Analyst): Estimates CO₂/day");
+    println!("   ");
+    println!("   Moderator (OpenAI GPT-4.1): Validates, provides feedback, synthesizes output");
+    println!("   ");
+    println!("   Shared Tools: Memory (KV store), HTTP Client, Calculator");
+    println!("   ");
+    println!("   Agent autonomy: Each agent decides which tools to use based on the task.");
+    println!("   The LLM responses will autonomously call tools or skip them as needed.");
+
+    match PanelWorkflow::new(&api_key_grok, &api_key_openai).await {
+        Ok(panel) => {
+            // Execute two-round workflow
+            if let Err(e) = panel.run_round_1().await {
+                eprintln!("Error in Round 1: {}", e);
+                return;
+            }
+
+            if let Err(e) = panel.run_moderator_review_round_1().await {
+                eprintln!("Error in Moderator Round 1 review: {}", e);
+                return;
+            }
+
+            if let Err(e) = panel.run_round_2().await {
+                eprintln!("Error in Round 2: {}", e);
+                return;
+            }
+
+            if let Err(e) = panel.run_moderator_finalization().await {
+                eprintln!("Error in Moderator finalization: {}", e);
+                return;
+            }
+
+            // Dump all memory state
+            panel.dump_memory_state().await;
+
+            println!("\n✅ WORKFLOW COMPLETE");
+            println!("All outputs stored in Memory KV store under namespaces:");
+            println!("   r1/* — Round 1 independent analyses");
+            println!("   r2/* — Round 2 refined estimates with bounds");
+            println!("   final/* — Final report and summary");
+            println!("   meta/* — Canonical version pointers");
+            println!("   feedback/* — Moderator feedback");
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize panel workflow: {}", e);
+        }
+    }
+}
