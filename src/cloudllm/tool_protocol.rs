@@ -60,6 +60,7 @@
 //! }
 //! ```
 
+use crate::cloudllm::resource_protocol::ResourceMetadata;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -248,6 +249,26 @@ pub trait ToolProtocol: Send + Sync {
     /// Cleanup/disconnect from the tool protocol
     async fn shutdown(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
+    }
+
+    /// List available resources (MCP Resource support)
+    ///
+    /// Resources are application-provided contextual data that agents can read.
+    /// This method is optional and defaults to returning an empty list.
+    async fn list_resources(&self) -> Result<Vec<ResourceMetadata>, Box<dyn Error + Send + Sync>> {
+        Ok(Vec::new())
+    }
+
+    /// Read the content of a resource by URI (MCP Resource support)
+    ///
+    /// This method is optional and defaults to returning NotFound.
+    async fn read_resource(&self, uri: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+        Err(format!("Resource not found: {}", uri).into())
+    }
+
+    /// Check if this protocol supports resources
+    fn supports_resources(&self) -> bool {
+        false
     }
 }
 
