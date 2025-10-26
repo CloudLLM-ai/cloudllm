@@ -69,7 +69,8 @@ impl PanelWorkflow {
                     let expr = params["expression"].as_str().unwrap_or("0");
                     // Use the actual Calculator tool to evaluate the expression
                     // Note: We use tokio::runtime to block on the async call from a sync context
-                    let result = tokio::runtime::Handle::current().block_on(calculator_clone.evaluate(expr));
+                    let result =
+                        tokio::runtime::Handle::current().block_on(calculator_clone.evaluate(expr));
                     match result {
                         Ok(value) => Ok(ToolResult {
                             success: true,
