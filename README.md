@@ -1212,6 +1212,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Secure command execution on Linux and macOS with timeout and security controls. See [`BashTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.BashTool.html).
 
+#### File System Tool
+
+Safe file and directory operations with path traversal protection and optional extension filtering. Perfect for agents that need to read, write, and manage files within designated directories.
+
+**Key Features:**
+- Read, write, append, and delete files
+- Directory creation, listing, and recursive deletion
+- File metadata retrieval (size, modification time, is_directory)
+- File search with pattern matching
+- Path traversal prevention (`../../../etc/passwd` is blocked)
+- Optional file extension filtering for security
+- Root path restriction for sandboxing
+
+**Basic Usage:**
+
+```rust,no_run
+use cloudllm::tools::FileSystemTool;
+use std::path::PathBuf;
+
+// Create tool with root path restriction
+let fs = FileSystemTool::new()
+    .with_root_path(PathBuf::from("/home/user/documents"))
+    .with_allowed_extensions(vec!["txt".to_string(), "md".to_string()]);
+
+// Write a file
+fs.write_file("notes.txt", "Important information").await?;
+
+// Read a file
+let content = fs.read_file("notes.txt").await?;
+
+// List directory contents
+let entries = fs.read_directory(".", false).await?;
+for entry in entries {
+    println!("{}: {} bytes", entry.name, entry.size);
+}
+
+// Get metadata
+let metadata = fs.get_file_metadata("notes.txt").await?;
+println!("Size: {} bytes, Modified: {}", metadata.size, metadata.modified);
+```
+
+**Security:**
+- All paths are normalized to prevent traversal attacks
+- Root path restriction ensures operations stay within designated directory
+- Extension filtering can prevent execution of dangerous file types
+- Works safely with untrusted input
+
+For comprehensive documentation and examples, see the [`FileSystemTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.FileSystemTool.html) and `examples/filesystem_example.rs`.
+
 ### Creating Custom Protocol Adapters
 
 Implement the [`ToolProtocol`](https://docs.rs/cloudllm/latest/cloudllm/tool_protocol/trait.ToolProtocol.html) trait to support new protocols:

@@ -27,3 +27,6 @@ serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 meval = "0.2"
 urlencoding = "2.1"
+
+[dev-dependencies]
+tempfile = "3.10"

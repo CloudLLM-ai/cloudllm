@@ -32,6 +32,14 @@
 //!   - Separate stdout/stderr capture with size limits
 //!   - Full async/await support via tokio
 //!
+//! - **File System**: Safe file and directory operations with path restrictions
+//!   - Read, write, append, delete files
+//!   - List and manage directories recursively
+//!   - Path traversal protection (`../../../etc/passwd` is blocked)
+//!   - Optional file extension filtering
+//!   - Root path restriction for sandboxing
+//!   - File metadata access and search functionality
+//!
 //! # Integration with Agents
 //!
 //! These tools can be exposed to agents through the tool protocol system:
@@ -50,10 +58,12 @@
 
 pub mod bash;
 pub mod calculator;
+pub mod filesystem;
 pub mod http_client;
 pub mod memory;
 
 pub use bash::{BashError, BashResult, BashTool, Platform};
 pub use calculator::{Calculator, CalculatorError, CalculatorResult};
+pub use filesystem::{DirectoryEntry, FileMetadata, FileSystemError, FileSystemTool};
 pub use http_client::{HttpClient, HttpClientError, HttpResponse};
 pub use memory::{Memory, MemoryMetadata};
