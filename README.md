@@ -586,21 +586,34 @@ The HTTP Client tool can be exposed to agents through the MCP protocol, allowing
 
 **Step 1: Create an MCP HTTP Server (expose via HTTP)**
 
-First, create a simple MCP server that wraps the HTTP Client tool:
+Create an HTTP server that exposes the HTTP Client tool via MCP protocol. This server can be accessed by agents over the network:
 
 ```rust,no_run
 use std::sync::Arc;
 use cloudllm::tools::HttpClient;
 use cloudllm::tool_protocols::CustomToolProtocol;
-use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult, ToolRegistry};
 use serde_json::json;
+use axum::{
+    extract::Json,
+    routing::post,
+    Router,
+};
+use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create HTTP client with security settings
-    let http_client = Arc::new(HttpClient::new());
+    let mut http_client = HttpClient::new();
 
-    // Wrap it with CustomToolProtocol for agent usage
+    // Configure security: only allow specific domains
+    http_client.allow_domain("api.github.com");
+    http_client.allow_domain("api.example.com");
+    http_client.allow_domain("jsonplaceholder.typicode.com");
+
+    let http_client = Arc::new(http_client);
+
+    // Wrap it with CustomToolProtocol for tool management
     let mut protocol = CustomToolProtocol::new();
 
     // Register HTTP GET tool
@@ -609,12 +622,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ToolMetadata::new("http_get", "Make an HTTP GET request to an API")
             .with_parameter(
                 ToolParameter::new("url", ToolParameterType::String)
-                    .with_description("The URL to fetch")
+                    .with_description("The URL to fetch (must be from allowed domains)")
                     .required()
             )
             .with_parameter(
                 ToolParameter::new("headers", ToolParameterType::Object)
-                    .with_description("Optional headers as JSON object")
+                    .with_description("Optional custom headers as JSON object")
             ),
         Arc::new(move |params| {
             let client = client.clone();
@@ -624,9 +637,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match client.get(url).await {
                     Ok(response) => {
                         if response.is_success() {
+                            // Try to parse as JSON
+                            match response.json() {
+                                Ok(json_data) => {
+                                    Ok(ToolResult::success(json!({
+                                        "status": response.status,
+                                        "data": json_data
+                                    })))
+                                }
+                                Err(_) => {
+                                    Ok(ToolResult::success(json!({
+                                        "status": response.status,
+                                        "body": response.body
+                                    })))
+                                }
+                            }
+                        } else {
+                            Ok(ToolResult::error(
+                                format!("HTTP {}: {}", response.status, response.body)
+                            ))
+                        }
+                    }
+                    Err(e) => Ok(ToolResult::error(e.to_string()))
+                }
+            })
+        })
+    ).await;
+
+    // Register HTTP POST tool
+    let client = http_client.clone();
+    protocol.register_async_tool(
+        ToolMetadata::new("http_post", "Post JSON data to an API")
+            .with_parameter(
+                ToolParameter::new("url", ToolParameterType::String)
+                    .with_description("The URL to POST to (must be from allowed domains)")
+                    .required()
+            )
+            .with_parameter(
+                ToolParameter::new("data", ToolParameterType::Object)
+                    .with_description("JSON data to send")
+                    .required()
+            ),
+        Arc::new(move |params| {
+            let client = client.clone();
+            Box::pin(async move {
+                let url = params["url"].as_str().ok_or("url parameter required")?;
+                let data = params["data"].clone();
+
+                match client.post(url, data).await {
+                    Ok(response) => {
+                        if response.is_success() {
                             Ok(ToolResult::success(json!({
                                 "status": response.status,
-                                "body": response.body
+                                "message": "Data posted successfully"
                             })))
                         } else {
                             Ok(ToolResult::error(
@@ -640,8 +703,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     ).await;
 
+    // Create tool registry
+    let registry = Arc::new(ToolRegistry::new(Arc::new(protocol)));
+
+    // Create HTTP server endpoints
+    let registry_list = registry.clone();
+    let registry_exec = registry.clone();
+
+    let app = Router::new()
+        // MCP standard: list available tools
+        .route("/tools/list", post(move || {
+            let reg = registry_list.clone();
+            async move {
+                let tools = reg.list_tools().await.unwrap_or_default();
+                Json(json!({
+                    "tools": tools
+                }))
+            }
+        }))
+        // MCP standard: execute a tool
+        .route("/tools/execute", post(move |Json(payload): Json<serde_json::Value>| {
+            let reg = registry_exec.clone();
+            async move {
+                let tool_name = payload["tool"].as_str().unwrap_or("");
+                let params = payload["params"].clone();
+
+                match reg.execute_tool(tool_name, params).await {
+                    Ok(result) => Json(json!({"result": result})),
+                    Err(e) => Json(json!({"error": e.to_string()}))
+                }
+            }
+        }));
+
+    // Start server
+    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    println!("🚀 MCP HTTP Server running on http://{}", addr);
+    println!("📋 List tools: POST http://{}/tools/list", addr);
+    println!("🔧 Execute tool: POST http://{}/tools/execute", addr);
+    println!("✓ Allowed domains: api.github.com, api.example.com, jsonplaceholder.typicode.com");
+
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await?;
+
     Ok(())
 }
+```
+
+**Add to Cargo.toml:**
+```toml
+axum = "0.7"
+```
+
+**Usage:**
+
+Once running, other services/agents can call this MCP server:
+
+```bash
+# List available tools
+curl -X POST http://localhost:8080/tools/list
+
+# Use http_get tool
+curl -X POST http://localhost:8080/tools/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "http_get",
+    "params": {
+      "url": "https://api.github.com/repos/CloudLLM-ai/cloudllm"
+    }
+  }'
+```
+
+This MCP server can now be referenced by agents using `McpClientProtocol::new("http://localhost:8080")`, allowing them to access HTTP capabilities securely and with domain restrictions.
 ```
 
 **Step 2: Create an Agent that Uses HTTP Client Tools**
