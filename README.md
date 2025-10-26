@@ -516,7 +516,177 @@ For comprehensive documentation, see [`Calculator` API docs](https://docs.rs/clo
 
 #### Memory Tool
 
-A persistent, TTL-aware key-value store for maintaining agent state across sessions. See [`Memory` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.Memory.html).
+A persistent, TTL-aware key-value store for maintaining agent state across sessions. Perfect for single agents to track progress or multi-agent councils to coordinate decisions.
+
+**Features:**
+- Key-value storage with optional TTL (time-to-live) expiration
+- Automatic background expiration of stale entries (1-second cleanup)
+- Metadata tracking (creation timestamp, expiration time)
+- Succinct protocol for LLM communication (token-efficient)
+- Thread-safe shared access across agents
+- Designed specifically for agent communication (not a general database)
+
+**Basic Usage Example:**
+
+```rust,no_run
+use cloudllm::tools::Memory;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let memory = Memory::new();
+
+    // Store data with 1-hour TTL
+    memory.put("research_progress".to_string(), "Found 3 relevant papers".to_string(), Some(3600));
+
+    // Retrieve data
+    if let Some((value, metadata)) = memory.get("research_progress", true) {
+        println!("Progress: {}", value);
+        println!("Stored at: {:?}", metadata.unwrap().added_utc);
+    }
+
+    // List all stored keys
+    let keys = memory.list_keys();
+    println!("Active memories: {:?}", keys);
+
+    // Store without expiration (permanent)
+    memory.put("important_decision".to_string(), "Use approach A".to_string(), None);
+
+    // Delete specific memory
+    memory.delete("research_progress");
+
+    // Clear all memories
+    memory.clear();
+
+    Ok(())
+}
+```
+
+**Using with Agents via Tool Protocol:**
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::tools::Memory;
+use cloudllm::tool_protocols::MemoryProtocol;
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::council::Agent;
+use cloudllm::clients::openai::{OpenAIClient, Model};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create shared memory for agents
+    let memory = Arc::new(Memory::new());
+
+    // Wrap with protocol for agent usage
+    let protocol = Arc::new(MemoryProtocol::new(memory.clone()));
+    let registry = Arc::new(ToolRegistry::new(protocol));
+
+    // Create agent with memory access
+    let mut agent = Agent::new(
+        "researcher",
+        "Research Agent",
+        Arc::new(OpenAIClient::new_with_model_enum(
+            &std::env::var("OPEN_AI_SECRET")?,
+            Model::GPT41Mini
+        )),
+    )
+    .with_tools(registry);
+
+    // Agent can now use memory via commands like:
+    // "P research_state Gathering data TTL:7200"
+    // "G research_state META"
+    // "L"
+
+    Ok(())
+}
+```
+
+**Memory Protocol Commands (for agents):**
+
+The Memory tool uses a token-efficient protocol designed for LLM communication:
+
+| Command | Syntax | Example | Use Case |
+|---------|--------|---------|----------|
+| **Put** | `P <key> <value> [TTL:<seconds>]` | `P task_status InProgress TTL:3600` | Store state with 1-hour expiration |
+| **Get** | `G <key> [META]` | `G task_status META` | Retrieve value + metadata |
+| **List** | `L [META]` | `L META` | List all keys with metadata |
+| **Delete** | `D <key>` | `D task_status` | Remove specific memory |
+| **Clear** | `C` | `C` | Wipe all memories |
+| **Spec** | `SPEC` | `SPEC` | Get protocol specification |
+
+**Use Case Examples:**
+
+1. **Single-Agent Progress Tracking:**
+   ```
+   Agent stores: "P document_checkpoint Page 247 TTL:86400"
+   Later: "G document_checkpoint" → retrieves current progress
+   ```
+
+2. **Multi-Agent Council Coordination:**
+   ```
+   Agent A stores: "P decision_consensus Approved TTL:3600"
+   Agent B reads: "G decision_consensus"
+   Agent C confirms: "L" → sees what's been decided
+   ```
+
+3. **Session Recovery:**
+   ```
+   Before shutdown: "P session_state {full_context} TTL:604800" (1 week)
+   After restart: "G session_state" → resume from checkpoint
+   ```
+
+4. **Audit Trail:**
+   ```
+   Store each decision: "P milestone_v1 Completed TTL:2592000" (30 days)
+   Track progress: "L META" → see timestamp and TTL of each milestone
+   ```
+
+**Best Practices:**
+
+1. **Use TTL wisely**: Temporary data (hours), permanent decisions (None)
+2. **Clear old memories**: Call `C` or `D` to free space
+3. **Descriptive keys**: Use clear, hierarchical names like `decision_inference_v2`
+4. **Batch operations**: Use `L META` to understand stored state before updates
+5. **Monitor expiration**: Check metadata to prevent unexpected data loss
+
+**Multi-Agent Memory Sharing:**
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::tools::Memory;
+use cloudllm::tool_protocols::MemoryProtocol;
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::council::{Agent, Council, CouncilMode};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create shared memory (all agents access same instance)
+    let shared_memory = Arc::new(Memory::new());
+
+    let protocol = Arc::new(MemoryProtocol::new(shared_memory));
+    let registry = Arc::new(ToolRegistry::new(protocol));
+
+    // Create council of agents
+    let agent1 = Agent::new(...)
+        .with_tools(registry.clone());
+
+    let agent2 = Agent::new(...)
+        .with_tools(registry.clone());
+
+    // Both agents access same memory
+    let mut council = Council::new("research", "Collaborative Research");
+    council.add_agent(agent1)?;
+    council.add_agent(agent2)?;
+
+    // Agents can:
+    // 1. Coordinate: Agent A stores findings, Agent B retrieves
+    // 2. Consensus: Store decisions that others can see
+    // 3. Progress: Track overall research advancement
+
+    Ok(())
+}
+```
+
+For comprehensive documentation and patterns, see [`Memory` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.Memory.html).
 
 #### HTTP Client Tool
 
