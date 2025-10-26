@@ -10,7 +10,7 @@
 //! of storing and retrieving session state.
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
-use cloudllm::council::Agent;
+use cloudllm::Agent;
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;

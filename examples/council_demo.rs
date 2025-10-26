@@ -16,7 +16,7 @@
 //! Then run: cargo run --example council_demo
 
 use cloudllm::clients::openai::OpenAIClient;
-use cloudllm::council::{Agent, Council, CouncilMode};
+use cloudllm::{Agent, council::{Council, CouncilMode}};
 use cloudllm::tool_protocol::{
     ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult,
 };

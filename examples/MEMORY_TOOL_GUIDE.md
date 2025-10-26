@@ -59,7 +59,7 @@ let registry = Arc::new(ToolRegistry::new(adapter));
 ### With an Agent
 
 ```rust
-use cloudllm::council::Agent;
+use cloudllm::Agent;
 
 let agent = Agent::new("analyzer", "Data Analyzer", client)
     .with_tools(registry);

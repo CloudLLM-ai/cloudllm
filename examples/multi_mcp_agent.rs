@@ -46,7 +46,7 @@
 use std::sync::Arc;
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
-use cloudllm::council::Agent;
+use cloudllm::Agent;
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::McpClientProtocol;
 

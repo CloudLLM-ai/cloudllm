@@ -28,7 +28,7 @@
 
 use chrono::{Duration, Utc};
 use cloudllm::clients::grok::{GrokClient, Model as GrokModel};
-use cloudllm::council::{Agent, Council, CouncilMode};
+use cloudllm::{Agent, council::{Council, CouncilMode}};
 use openai_rust2::chat::{SearchMode, SearchParameters};
 use std::error::Error as StdError;
 use std::sync::Arc;

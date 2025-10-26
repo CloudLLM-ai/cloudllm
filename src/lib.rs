@@ -105,6 +105,7 @@ pub fn init_logger() {
 pub mod cloudllm;
 
 // Re-exporting key items for easier external access.
+pub use cloudllm::agent::Agent;
 pub use cloudllm::client_wrapper;
 pub use cloudllm::client_wrapper::{
     ClientWrapper, Message, MessageChunk, MessageChunkStream, MessageStreamFuture, Role,
