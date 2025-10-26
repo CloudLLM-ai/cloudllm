@@ -872,3 +872,88 @@ impl ToolProtocol for McpMemoryProtocol {
         "mcp-memory-client"
     }
 }
+
+/// Bash Tool Protocol
+///
+/// Wraps the BashTool to implement the ToolProtocol interface,
+/// enabling Bash command execution within the MCP system.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use cloudllm::tools::{BashTool, Platform};
+/// use cloudllm::tool_protocols::BashProtocol;
+/// use std::sync::Arc;
+///
+/// let bash_tool = Arc::new(BashTool::new(Platform::Linux).with_timeout(30));
+/// let protocol = BashProtocol::new(bash_tool);
+/// ```
+pub struct BashProtocol {
+    /// The underlying Bash tool implementation
+    bash_tool: Arc<crate::cloudllm::tools::BashTool>,
+}
+
+impl BashProtocol {
+    /// Create a new Bash protocol wrapping a BashTool
+    pub fn new(bash_tool: Arc<crate::cloudllm::tools::BashTool>) -> Self {
+        Self { bash_tool }
+    }
+}
+
+#[async_trait]
+impl ToolProtocol for BashProtocol {
+    async fn execute(
+        &self,
+        _tool_name: &str,
+        parameters: JsonValue,
+    ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+        let command = parameters["command"]
+            .as_str()
+            .ok_or("'command' parameter is required")?;
+
+        match self.bash_tool.execute(command).await {
+            Ok(result) => Ok(ToolResult::success(serde_json::json!({
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.exit_code,
+                "duration_ms": result.duration_ms
+            }))),
+            Err(e) => Ok(ToolResult::failure(e.to_string())),
+        }
+    }
+
+    async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
+        Ok(vec![ToolMetadata::new(
+            "bash",
+            "Execute bash commands on the system (Linux/macOS only)",
+        )
+        .with_parameter(
+            ToolParameter::new("command", ToolParameterType::String)
+                .with_description("Bash command to execute (e.g., 'ls -la', 'pwd')")
+                .required(),
+        )])
+    }
+
+    async fn get_tool_metadata(
+        &self,
+        tool_name: &str,
+    ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+        if tool_name == "bash" {
+            Ok(ToolMetadata::new(
+                "bash",
+                "Execute bash commands on the system (Linux/macOS only)",
+            )
+            .with_parameter(
+                ToolParameter::new("command", ToolParameterType::String)
+                    .with_description("Bash command to execute (e.g., 'ls -la', 'pwd')")
+                    .required(),
+            ))
+        } else {
+            Err(Box::new(ToolError::NotFound(tool_name.to_string())))
+        }
+    }
+
+    fn protocol_name(&self) -> &str {
+        "bash"
+    }
+}
