@@ -12,16 +12,19 @@
 //! Workers operate in parallel during each round, storing results in shared Memory.
 //! The moderator then validates, provides feedback, and synthesizes the final report.
 
+use cloudllm::client_wrapper::Role;
 use cloudllm::clients::grok::GrokClient;
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
 use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
 use cloudllm::tools::Memory;
-use cloudllm::{Agent, council::{Council, CouncilMode, CouncilMessage}};
-use std::sync::Arc;
+use cloudllm::{
+    council::{Council, CouncilMessage, CouncilMode},
+    Agent,
+};
 use std::collections::HashMap;
-use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
-use cloudllm::client_wrapper::Role;
+use std::sync::Arc;
 
 struct PanelWorkflow {
     memory: Arc<Memory>,
@@ -47,32 +50,39 @@ impl PanelWorkflow {
         let custom_protocol = Arc::new(CustomToolProtocol::new());
 
         // Register Calculator tool
-        custom_protocol.register_tool(
-            ToolMetadata::new("calculator", "Performs mathematical calculations with arbitrary precision")
+        custom_protocol
+            .register_tool(
+                ToolMetadata::new(
+                    "calculator",
+                    "Performs mathematical calculations with arbitrary precision",
+                )
                 .with_parameter(
                     ToolParameter::new("expression", ToolParameterType::String)
-                        .with_description("Mathematical expression to evaluate (e.g., '650*1e6*25*24/1000')")
+                        .with_description(
+                            "Mathematical expression to evaluate (e.g., '650*1e6*25*24/1000')",
+                        )
                         .required(),
                 ),
-            Arc::new(|params| {
-                let expr = params["expression"].as_str().unwrap_or("0");
-                // Parse and evaluate the expression safely
-                match meval::eval_str(expr) {
-                    Ok(result) => Ok(ToolResult {
-                        success: true,
-                        output: serde_json::json!({ "result": result, "expression": expr }),
-                        error: None,
-                        metadata: HashMap::new(),
-                    }),
-                    Err(e) => Ok(ToolResult {
-                        success: false,
-                        output: serde_json::json!({ "expression": expr }),
-                        error: Some(format!("Calculation error: {}", e)),
-                        metadata: HashMap::new(),
-                    }),
-                }
-            }),
-        ).await;
+                Arc::new(|params| {
+                    let expr = params["expression"].as_str().unwrap_or("0");
+                    // Parse and evaluate the expression safely
+                    match meval::eval_str(expr) {
+                        Ok(result) => Ok(ToolResult {
+                            success: true,
+                            output: serde_json::json!({ "result": result, "expression": expr }),
+                            error: None,
+                            metadata: HashMap::new(),
+                        }),
+                        Err(e) => Ok(ToolResult {
+                            success: false,
+                            output: serde_json::json!({ "expression": expr }),
+                            error: Some(format!("Calculation error: {}", e)),
+                            metadata: HashMap::new(),
+                        }),
+                    }
+                }),
+            )
+            .await;
 
         // Worker A: Data Collector (uses Memory)
         let registry_a = Arc::new(ToolRegistry::new(memory_protocol.clone()));
@@ -188,7 +198,11 @@ Execute your task independently. Do NOT wait for others.
         println!("✓ Round 1 complete. All workers completed in parallel:");
         for msg in &response.messages {
             if let Some(agent_id) = &msg.agent_id {
-                println!("\n  📌 {}: {}", agent_id, &msg.content[..100.min(msg.content.len())]);
+                println!(
+                    "\n  📌 {}: {}",
+                    agent_id,
+                    &msg.content[..100.min(msg.content.len())]
+                );
             }
         }
 
@@ -196,7 +210,9 @@ Execute your task independently. Do NOT wait for others.
         Ok(())
     }
 
-    async fn run_moderator_review_round_1(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn run_moderator_review_round_1(
+        &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("\n╔════════════════════════════════════════════════════════════════╗");
         println!("║               MODERATOR ROUND 1: VALIDATION & FEEDBACK        ║");
         println!("╚════════════════════════════════════════════════════════════════╝\n");
@@ -222,11 +238,14 @@ You are the moderator validating Round 1 findings stored in Memory. Your task:
 Allow Round-2: Workers may now read r1/source.* and r1/energy.* for validation.
 "#;
 
-        let response = self.moderator.generate(
-            "You are validating agent work. Use Memory to read findings and store feedback.",
-            task_moderator,
-            &[],
-        ).await?;
+        let response = self
+            .moderator
+            .generate(
+                "You are validating agent work. Use Memory to read findings and store feedback.",
+                task_moderator,
+                &[],
+            )
+            .await?;
 
         println!("✓ Moderator feedback generated:\n{}\n", response);
         Ok(())
@@ -273,7 +292,11 @@ Execute in parallel. Store results using Memory tool with .v2 suffix.
         println!("✓ Round 2 complete. All workers revised estimates in parallel:");
         for msg in &response.messages {
             if let Some(agent_id) = &msg.agent_id {
-                println!("\n  📌 {}: {}", agent_id, &msg.content[..100.min(msg.content.len())]);
+                println!(
+                    "\n  📌 {}: {}",
+                    agent_id,
+                    &msg.content[..100.min(msg.content.len())]
+                );
             }
         }
 
@@ -281,7 +304,9 @@ Execute in parallel. Store results using Memory tool with .v2 suffix.
         Ok(())
     }
 
-    async fn run_moderator_finalization(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn run_moderator_finalization(
+        &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("\n╔════════════════════════════════════════════════════════════════╗");
         println!("║          MODERATOR ROUND 2: FINALIZATION & SYNTHESIS          ║");
         println!("╚════════════════════════════════════════════════════════════════╝\n");
@@ -307,11 +332,14 @@ Final task: Synthesize all Round 2 findings and create integrated report.
 Store all three in Memory (no TTL for final outputs).
 "#;
 
-        let response = self.moderator.generate(
-            "You have Memory access. Create final integrated report from Round 2 data.",
-            task_final,
-            &[],
-        ).await?;
+        let response = self
+            .moderator
+            .generate(
+                "You have Memory access. Create final integrated report from Round 2 data.",
+                task_final,
+                &[],
+            )
+            .await?;
 
         println!("✓ Moderator finalized:\n{}\n", response);
         Ok(())
@@ -344,10 +372,10 @@ Store all three in Memory (no TTL for final outputs).
 async fn main() {
     cloudllm::init_logger();
 
-    let api_key_grok = std::env::var("XAI_API_KEY")
-        .unwrap_or_else(|_| "xai-placeholder".to_string());
-    let api_key_openai = std::env::var("OPENAI_API_KEY")
-        .unwrap_or_else(|_| "sk-placeholder".to_string());
+    let api_key_grok =
+        std::env::var("XAI_API_KEY").unwrap_or_else(|_| "xai-placeholder".to_string());
+    let api_key_openai =
+        std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "sk-placeholder".to_string());
 
     println!("\n╔════════════════════════════════════════════════════════════════╗");
     println!("║    FOUR-AGENT PANEL WITH MODERATOR & PARALLEL EXECUTION      ║");
