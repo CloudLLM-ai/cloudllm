@@ -653,20 +653,125 @@ use cloudllm::clients::openai::{OpenAIClient, Model};
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::CustomToolProtocol;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+use cloudllm::tools::HttpClient;
 use serde_json::json;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create protocol with HTTP tools
+    // Create HTTP client with security settings
+    let mut http_client = HttpClient::new();
+
+    // Configure security: only allow trusted domains
+    http_client.allow_domain("api.github.com");
+    http_client.allow_domain("api.example.com");
+
+    // Configure authentication
+    http_client.with_header("User-Agent", "CloudLLM-Agent/1.0");
+
+    let http_client = Arc::new(http_client);
+
+    // Wrap with CustomToolProtocol to expose to agents
     let mut protocol = CustomToolProtocol::new();
 
-    // Register GET tool
+    // Register HTTP GET tool using the actual HttpClient
+    let client = http_client.clone();
     protocol.register_async_tool(
-        ToolMetadata::new("get_json_api", "Fetch JSON data from an API endpoint"),
-        Arc::new(|params| {
+        ToolMetadata::new("get_json_api", "Fetch JSON data from an API endpoint")
+            .with_parameter(
+                ToolParameter::new("url", ToolParameterType::String)
+                    .with_description("The URL to fetch (must be from allowed domains)")
+                    .required()
+            )
+            .with_parameter(
+                ToolParameter::new("headers", ToolParameterType::Object)
+                    .with_description("Optional custom headers")
+            ),
+        Arc::new(move |params| {
+            let client = client.clone();
             Box::pin(async move {
-                let url = params["url"].as_str().unwrap_or("http://api.example.com");
-                Ok(ToolResult::success(json!({"data": "sample"})))
+                let url = params["url"]
+                    .as_str()
+                    .ok_or("url parameter is required")?;
+
+                // Use the actual HttpClient to make the request
+                match client.get(url).await {
+                    Ok(response) => {
+                        if response.is_success() {
+                            // Try to parse as JSON
+                            match response.json() {
+                                Ok(json_data) => {
+                                    Ok(ToolResult::success(json!({
+                                        "status": response.status,
+                                        "data": json_data
+                                    })))
+                                }
+                                Err(_) => {
+                                    // Not JSON, return raw body
+                                    Ok(ToolResult::success(json!({
+                                        "status": response.status,
+                                        "body": response.body
+                                    })))
+                                }
+                            }
+                        } else {
+                            Ok(ToolResult::error(format!(
+                                "HTTP {} error: {}",
+                                response.status, response.body
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(ToolResult::error(format!(
+                        "Request failed: {}",
+                        e
+                    )))
+                }
+            })
+        })
+    ).await;
+
+    // Register HTTP POST tool for sending data
+    let client = http_client.clone();
+    protocol.register_async_tool(
+        ToolMetadata::new("post_json_api", "Post JSON data to an API endpoint")
+            .with_parameter(
+                ToolParameter::new("url", ToolParameterType::String)
+                    .with_description("The URL to POST to (must be from allowed domains)")
+                    .required()
+            )
+            .with_parameter(
+                ToolParameter::new("data", ToolParameterType::Object)
+                    .with_description("JSON data to send")
+                    .required()
+            ),
+        Arc::new(move |params| {
+            let client = client.clone();
+            Box::pin(async move {
+                let url = params["url"]
+                    .as_str()
+                    .ok_or("url parameter is required")?;
+
+                let data = params["data"].clone();
+
+                // Use the actual HttpClient to POST
+                match client.post(url, data).await {
+                    Ok(response) => {
+                        if response.is_success() {
+                            Ok(ToolResult::success(json!({
+                                "status": response.status,
+                                "message": "Data posted successfully"
+                            })))
+                        } else {
+                            Ok(ToolResult::error(format!(
+                                "HTTP {} error: {}",
+                                response.status, response.body
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(ToolResult::error(format!(
+                        "Request failed: {}",
+                        e
+                    )))
+                }
             })
         })
     ).await;
@@ -686,8 +791,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_expertise("Makes HTTP requests to external APIs")
     .with_tools(registry);
 
-    // Agent can now make API calls!
-    println!("Agent has HTTP tools available");
+    // Agent can now make authenticated, secure API calls!
+    println!("✓ Agent configured with HTTP tools");
+    println!("✓ Allowed domains: api.github.com, api.example.com");
+    println!("✓ Agent can now GET and POST to these APIs");
     Ok(())
 }
 ```
