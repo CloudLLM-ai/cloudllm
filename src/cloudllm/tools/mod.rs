@@ -5,6 +5,13 @@
 //!
 //! # Available Tools
 //!
+//! - **Calculator**: Fast, reliable scientific calculator with full mathematical operations
+//!   - Comprehensive arithmetic, trigonometric, and logarithmic functions
+//!   - Statistical operations on arrays (mean, median, mode, std, variance, etc.)
+//!   - Support for all standard mathematical constants (pi, e)
+//!   - Stateless and thread-safe for high-performance concurrent use
+//!   - Can be wrapped with CalculatorProtocol for use in agents
+//!
 //! - **Memory**: Persistent, TTL-aware key-value store for maintaining agent state across sessions
 //!   - Succinct command protocol (P/G/L/D/C/T/SPEC)
 //!   - Automatic background expiration
@@ -34,7 +41,9 @@
 //! ```
 
 pub mod bash;
+pub mod calculator;
 pub mod memory;
 
 pub use bash::{BashError, BashResult, BashTool, Platform};
+pub use calculator::{Calculator, CalculatorError, CalculatorResult};
 pub use memory::{Memory, MemoryMetadata};

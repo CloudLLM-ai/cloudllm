@@ -24,7 +24,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.4.0"
+cloudllm = "0.5.0"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.
@@ -467,6 +467,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+### Built-in Tools
+
+CloudLLM includes several production-ready tools that agents can use directly:
+
+#### Calculator Tool
+
+A fast, reliable scientific calculator for mathematical operations and statistical analysis. Perfect for agents that need to perform computations.
+
+**Features:**
+- Comprehensive arithmetic operations (`+`, `-`, `*`, `/`, `^`, `%`)
+- Trigonometric functions (sin, cos, tan, csc, sec, cot, asin, acos, atan)
+- Hyperbolic functions (sinh, cosh, tanh, csch, sech, coth)
+- Logarithmic and exponential functions (ln, log, log2, exp)
+- Statistical operations (mean, median, mode, std, stdpop, var, varpop, sum, count, min, max)
+- Mathematical constants (pi, e)
+
+**Usage Example:**
+
+```rust,no_run
+use cloudllm::tools::Calculator;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let calc = Calculator::new();
+
+    // Arithmetic
+    println!("{}", calc.evaluate("2 + 2 * 3").await?);  // 8.0
+
+    // Trigonometry (radians)
+    println!("{}", calc.evaluate("sin(pi/2)").await?);  // 1.0
+
+    // Statistical functions
+    println!("{}", calc.evaluate("mean([1, 2, 3, 4, 5])").await?);  // 3.0
+
+    Ok(())
+}
+```
+
+**More Examples:**
+- `sqrt(16)` → 4.0
+- `log(100)` → 2.0 (base 10)
+- `std([1, 2, 3, 4, 5])` → 1.581 (sample standard deviation)
+- `floor(3.7)` → 3.0
+
+For comprehensive documentation, see [`Calculator` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.Calculator.html).
+
+#### Memory Tool
+
+A persistent, TTL-aware key-value store for maintaining agent state across sessions. See [`Memory` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.Memory.html).
+
+#### Bash Tool
+
+Secure command execution on Linux and macOS with timeout and security controls. See [`BashTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.BashTool.html).
 
 ### Creating Custom Protocol Adapters
 
