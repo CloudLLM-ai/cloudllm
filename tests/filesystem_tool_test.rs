@@ -1,5 +1,4 @@
-use cloudllm::tools::{FileSystemError, FileSystemTool};
-use std::path::PathBuf;
+use cloudllm::tools::FileSystemTool;
 use tempfile::TempDir;
 
 #[tokio::test]

@@ -12,7 +12,6 @@
 //! Workers operate in parallel during each round, storing results in shared Memory.
 //! The moderator then validates, provides feedback, and synthesizes the final report.
 
-use cloudllm::client_wrapper::Role;
 use cloudllm::clients::grok::GrokClient;
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::tool_protocol::ToolRegistry;
@@ -20,7 +19,7 @@ use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, To
 use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
 use cloudllm::tools::Memory;
 use cloudllm::{
-    council::{Council, CouncilMessage, CouncilMode},
+    council::{Council, CouncilMode},
     Agent,
 };
 use std::collections::HashMap;
@@ -49,7 +48,10 @@ impl PanelWorkflow {
         // Create a custom tool protocol with Calculator tool
         let custom_protocol = Arc::new(CustomToolProtocol::new());
 
-        // Register Calculator tool
+        // Register Calculator tool using the actual Calculator implementation
+        use cloudllm::tools::Calculator;
+        let calculator = Arc::new(Calculator::new());
+        let calculator_clone = calculator.clone();
         custom_protocol
             .register_tool(
                 ToolMetadata::new(
@@ -63,13 +65,15 @@ impl PanelWorkflow {
                         )
                         .required(),
                 ),
-                Arc::new(|params| {
+                Arc::new(move |params| {
                     let expr = params["expression"].as_str().unwrap_or("0");
-                    // Parse and evaluate the expression safely
-                    match meval::eval_str(expr) {
-                        Ok(result) => Ok(ToolResult {
+                    // Use the actual Calculator tool to evaluate the expression
+                    // Note: We use tokio::runtime to block on the async call from a sync context
+                    let result = tokio::runtime::Handle::current().block_on(calculator_clone.evaluate(expr));
+                    match result {
+                        Ok(value) => Ok(ToolResult {
                             success: true,
-                            output: serde_json::json!({ "result": result, "expression": expr }),
+                            output: serde_json::json!({ "result": value, "expression": expr }),
                             error: None,
                             metadata: HashMap::new(),
                         }),
