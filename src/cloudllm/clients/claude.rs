@@ -49,6 +49,10 @@ pub struct ClaudeClient {
 
 /// Anthropic Claude models available through the compatibility layer (Jan 2025 snapshot).
 pub enum Model {
+    /// `claude-sonnet-4-5` – smartest model for complex agents and coding
+    ClaudeSonnet45,
+    /// `claude-haiku-4-5` – fastest Sonnet 4.5 variant.
+    ClaudeHaiku45,
     /// `claude-opus-4-1` – flagship reasoning tier.
     ClaudeOpus41,
     /// `claude-opus-4-0` – previous Opus generation.
@@ -64,6 +68,8 @@ pub enum Model {
 /// Convert a [`Model`] variant into its public string identifier.
 fn model_to_string(model: Model) -> String {
     match model {
+        Model::ClaudeSonnet45 => "claude-sonnet-4-5".to_string(),
+        Model::ClaudeHaiku45 => "claude-haiku-4-5".to_string(),
         Model::ClaudeOpus41 => "claude-opus-4-1".to_string(),
         Model::ClaudeOpus4 => "claude-opus-4-0".to_string(),
         Model::ClaudeSonnet4 => "claude-sonnet-4-0".to_string(),
