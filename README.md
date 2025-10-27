@@ -4,8 +4,8 @@
   <img src="https://github.com/CloudLLM-ai/cloudllm/blob/master/logo.png?raw=true" width="220" alt="CloudLLM logo" />
 </p>
 
-CloudLLM is a batteries-included Rust toolkit for orchestrating intelligent agents that converse
-with remote LLMs and execute structured actions through tools. It provides:
+CloudLLM is a batteries-included Rust toolkit for building intelligent agents with LLM integration,
+multi-protocol tool support, and multi-agent orchestration. It provides:
 
 * **Agents with Tools**: Create agents that connect to LLMs and execute actions through a flexible,
   multi-protocol tool system (local, remote MCP, Memory, custom protocols),
