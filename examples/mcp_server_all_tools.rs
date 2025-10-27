@@ -8,17 +8,18 @@
 //! - FileSystem Tool: Safe file operations
 //!
 //! The server only accepts localhost connections (127.0.0.1 and ::1) for security.
+//! HTTP is used (not HTTPS) since the server only listens on localhost, which is secure.
 //!
 //! # Setup Instructions for OpenAI Desktop Client
 //!
 //! ## Prerequisites
 //! - OpenAI Desktop Client installed
-//! - CloudLLM compiled: `cargo build --release`
+//! - CloudLLM compiled with mcp-server feature: `cargo build --release --features mcp-server`
 //!
 //! ## Starting the Server
 //!
 //! ```bash
-//! cargo run --example mcp_server_all_tools --release
+//! cargo run --example mcp_server_all_tools --release --features mcp-server
 //! ```
 //!
 //! The server will output something like:
@@ -89,17 +90,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok();
 
     println!("╔════════════════════════════════════════════════════════════╗");
-    println!("║         CloudLLM MCP Server - All Tools Demo              ║");
+    println!("║         CloudLLM MCP Server - All Tools Demo               ║");
     println!("║                                                            ║");
     println!("║  Available Tools:                                          ║");
-    println!("║    • Memory - Key-value store with TTL                    ║");
-    println!("║    • Calculator - Math expressions (evalexpr)            ║");
-    println!("║    • Bash - Secure command execution                      ║");
-    println!("║    • HTTP Client - REST API requests                      ║");
-    println!("║    • FileSystem - Safe file operations                    ║");
+    println!("║    • Memory - Key-value store with TTL                     ║");
+    println!("║    • Calculator - Math expressions (evalexpr)              ║");
+    println!("║    • Bash - Secure command execution                       ║");
+    println!("║    • HTTP Client - REST API requests                       ║");
+    println!("║    • FileSystem - Safe file operations                     ║");
     println!("║                                                            ║");
-    println!("║  Security: localhost-only (127.0.0.1, ::1)               ║");
-    println!("║  Endpoint: http://localhost:8008/mcp                      ║");
+    println!("║  Security: localhost-only (127.0.0.1, ::1)                 ║");
+    println!("║  Endpoint: http://localhost:8008/mcp                       ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
     // Create Memory tool and protocol
@@ -294,7 +295,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
 
     println!("✅ MCP Server started successfully!");
-    println!("📍 Listening on: {}", server.addr);
+    println!("📍 Listening on: http://{}", server.addr);
     println!("\n🔌 Connection Information:");
     println!("   URL: http://localhost:8008/mcp");
     println!("   Authentication: None (localhost only)");
