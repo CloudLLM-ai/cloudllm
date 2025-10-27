@@ -142,9 +142,41 @@ Every wrapper exposes token accounting via [`ClientWrapper::get_last_usage`](htt
 
 ---
 
-## Agents: Creating Intelligent Workers
+## LLMSession: Stateful Conversations (The Foundation)
 
-Agents are the heart of CloudLLM. An agent wraps an LLM and optional tools, maintaining identity and capabilities for extended interactions:
+LLMSession is the core building block—it maintains conversation history with automatic context trimming
+and token accounting. Use it for simple stateful conversations with any LLM provider:
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::{LLMSession, Role};
+use cloudllm::clients::openai::{OpenAIClient, Model};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Arc::new(OpenAIClient::new_with_model_enum(
+        &std::env::var("OPEN_AI_SECRET")?,
+        Model::GPT41Mini
+    ));
+
+    let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
+
+    let reply = session
+        .send_message(Role::User, "Tell me about Rust.".into(), None)
+        .await?;
+
+    println!("Assistant: {}", reply.content);
+    println!("Tokens used: {:?}", session.token_usage());
+    Ok(())
+}
+```
+
+---
+
+## Agents: Building Intelligent Workers with Tools
+
+Agents extend LLMSession by adding identity, expertise, and optional tools. They're the primary way to build
+sophisticated LLM interactions where you need the agent to take actions beyond conversation:
 
 ```rust,no_run
 use std::sync::Arc;

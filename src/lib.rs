@@ -23,11 +23,41 @@
 //!
 //! ## Core Concepts
 //!
+//! ### LLMSession: Stateful Conversations (The Foundation)
+//!
+//! [`LLMSession`] is the foundational abstraction—it wraps a client to maintain a rolling
+//! conversation history with automatic context trimming and token accounting. Perfect for
+//! simple use cases where you need persistent conversation state:
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//! use cloudllm::{LLMSession, Role};
+//! use cloudllm::clients::openai::{OpenAIClient, Model};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let client = Arc::new(OpenAIClient::new_with_model_enum(
+//!         &std::env::var("OPEN_AI_SECRET")?,
+//!         Model::GPT41Mini
+//!     ));
+//!
+//!     let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
+//!
+//!     let reply = session
+//!         .send_message(Role::User, "Hello, how are you?".into(), None)
+//!         .await?;
+//!
+//!     println!("Assistant: {}", reply.content);
+//!     println!("Tokens used: {:?}", session.token_usage());
+//!     Ok(())
+//! }
+//! ```
+//!
 //! ### Agents: The Heart of CloudLLM
 //!
-//! An [`Agent`] wraps a language model and optional tools. Agents are the primary way to
-//! interact with LLMs—they maintain identity, expertise, and access to tools for extended
-//! interactions. Create an agent with a client and optional tool registry:
+//! [`Agent`] extends [`LLMSession`] by adding identity, expertise, and optional tools. Agents are
+//! the primary way to build sophisticated LLM interactions—they maintain personality and can
+//! execute actions through tools:
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
@@ -43,9 +73,10 @@
 //!     ));
 //!
 //!     let agent = Agent::new("assistant", "My AI Assistant", client)
-//!         .with_expertise("Problem solving");
+//!         .with_expertise("Problem solving")
+//!         .with_personality("Friendly and analytical");
 //!
-//!     // Agent is now ready to execute actions!
+//!     // Agent is now ready to execute actions with tools!
 //!     Ok(())
 //! }
 //! ```
@@ -89,12 +120,6 @@
 //! Each cloud provider (OpenAI, Anthropic/Claude, Google Gemini, xAI Grok, and custom OpenAI-
 //! compatible endpoints) is exposed as a `ClientWrapper` implementation.  All wrappers share
 //! the same ergonomics for synchronous calls, streaming, and token accounting.
-//!
-//! ### Stateful Sessions: Persistent Conversation Context
-//!
-//! For simpler use cases without agents, [`LLMSession`] wraps a client to maintain a rolling
-//! conversation history.  It offers predictive and post-hoc context trimming so you can respect
-//! provider token budgets while still benefiting from long running conversations.
 //!
 //! ### Multi-Agent Orchestration
 //!
