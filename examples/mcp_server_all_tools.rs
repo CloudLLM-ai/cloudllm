@@ -76,9 +76,11 @@
 //! - For persistent memory, integrate with external database
 
 use cloudllm::cloudllm::mcp_server_builder::MCPServerBuilder;
-use cloudllm::tools::{BashTool, Calculator, FileSystemTool, HttpClient, Memory, Platform};
+use cloudllm::cloudllm::tool_protocol::{
+    ToolMetadata, ToolParameter, ToolParameterType, ToolResult,
+};
 use cloudllm::cloudllm::tool_protocols::{BashProtocol, CustomToolProtocol, MemoryProtocol};
-use cloudllm::cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+use cloudllm::tools::{BashTool, Calculator, FileSystemTool, HttpClient, Memory, Platform};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -109,8 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create Bash tool and protocol
     let bash_tool = Arc::new(
-        BashTool::new(detect_platform())
-            .with_timeout(30) // 30 second timeout per command
+        BashTool::new(detect_platform()).with_timeout(30), // 30 second timeout per command
     );
     let bash_protocol = Arc::new(BashProtocol::new(bash_tool));
 
@@ -237,40 +238,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Arc::new(move |params| {
                     let http = http.clone();
                     Box::pin(async move {
-                    let url = params
-                        .get("url")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| {
+                        let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
                             Box::new(std::io::Error::new(
                                 std::io::ErrorKind::InvalidInput,
                                 "Missing 'url' parameter",
-                            )) as Box<dyn std::error::Error + Send + Sync>
+                            ))
+                                as Box<dyn std::error::Error + Send + Sync>
                         })?;
-                    let method = params
-                        .get("method")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("GET");
+                        let method = params
+                            .get("method")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("GET");
 
-                    let result = match method.to_uppercase().as_str() {
-                        "GET" => http.get(url).await,
-                        "POST" => http.post(url, serde_json::json!({})).await,
-                        "PUT" => http.put(url, serde_json::json!({})).await,
-                        "DELETE" => http.delete(url).await,
-                        "PATCH" => http.patch(url, serde_json::json!({})).await,
-                        "HEAD" => http.head(url).await,
-                        _ => return Ok(ToolResult::failure(format!("Unsupported HTTP method: {}", method))),
-                    };
+                        let result = match method.to_uppercase().as_str() {
+                            "GET" => http.get(url).await,
+                            "POST" => http.post(url, serde_json::json!({})).await,
+                            "PUT" => http.put(url, serde_json::json!({})).await,
+                            "DELETE" => http.delete(url).await,
+                            "PATCH" => http.patch(url, serde_json::json!({})).await,
+                            "HEAD" => http.head(url).await,
+                            _ => {
+                                return Ok(ToolResult::failure(format!(
+                                    "Unsupported HTTP method: {}",
+                                    method
+                                )))
+                            }
+                        };
 
-                    match result {
-                        Ok(response) => Ok(ToolResult::success(serde_json::json!({
-                            "status": response.status,
-                            "body": response.body
-                        }))),
-                        Err(e) => Ok(ToolResult::failure(format!("HTTP error: {}", e))),
-                    }
+                        match result {
+                            Ok(response) => Ok(ToolResult::success(serde_json::json!({
+                                "status": response.status,
+                                "body": response.body
+                            }))),
+                            Err(e) => Ok(ToolResult::failure(format!("HTTP error: {}", e))),
+                        }
                     })
                 })
-            }
+            },
         )
         .await;
 
@@ -292,7 +296,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Start on port 8008
         .start_on(8008)
         .await
-        .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as Box<dyn std::error::Error>)?;
+        .map_err(|e| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            )) as Box<dyn std::error::Error>
+        })?;
 
     println!("✅ MCP Server started successfully!");
     println!("📍 Listening on: http://{}", server.addr);
