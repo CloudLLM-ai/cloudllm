@@ -1,3 +1,41 @@
+0.6.0 OCT/27/2025
+ - feat: MCPServerBuilder - Simplified MCP Server Creation
+   - New MCPServerBuilder with fluent API for creating MCP servers
+   - Built-in tool support: Memory, Bash, and custom tools via with_*_tool() methods
+   - IP filtering with single IP, IPv6, and CIDR block support
+   - Authentication support: Bearer tokens and basic auth
+   - Pluggable HTTP adapter trait for framework flexibility (Axum, Actix, Warp, etc.)
+   - Localhost-only convenience method for secure local development
+   - Methods: allow_ip(), allow_cidr(), allow_localhost_only(), with_bearer_token(), with_basic_auth()
+ - example: Comprehensive MCP Server with All Tools
+   - New examples/mcp_server_all_tools.rs demonstrating complete server setup
+   - All 5 framework tools integrated: Memory, Calculator, FileSystem, HTTP Client, Bash
+   - Localhost-only security (127.0.0.1, ::1)
+   - Ready for OpenAI Desktop Client integration at http://localhost:8008/mcp
+   - Beautiful formatted startup output with tool descriptions and usage examples
+   - CustomToolProtocol wrappers for flexible tool integration
+ - feat: Calculator Tool Enhancement
+   - Migrated from unmaintained meval v0.2 to actively maintained evalexpr v12.0.3
+   - Added inverse hyperbolic functions: asinh(), acosh(), atanh()
+   - Significantly improved performance and reliability
+   - Removed future-incompatible nom v1.2.4 dependency
+ - fix: HTTP Adapter Borrow Checker Issues
+   - Fixed move conflicts in route handlers by wrapping bearer_token and allowed_ips in Arc
+   - Pre-cloned Arc values before passing to route handlers
+   - HTTP adapter now compiles cleanly with --features mcp-server
+ - feat: Documentation and Examples
+   - Updated all example documentation to clarify HTTP (not HTTPS) is secure for localhost-only servers
+   - Explanation that localhost binding provides security, not protocol choice
+   - Follows industry standard practice (npm, Flask, Django, etc.)
+ - fix: Code Quality
+   - Removed unused std::fs import in filesystem.rs tests
+   - Added #[allow(dead_code)] attribute for example struct fields not currently used
+   - All 185+ tests passing with zero warnings
+ - deps: Updated dependencies
+   - axum updated to 0.8.6 (from 0.7.9)
+   - tower updated to 0.5.2 (from 0.4.13)
+   - Improved HTTP server stability and performance
+
 0.5.0 OCT/25/2025
  - feat: Multi-Protocol ToolRegistry for Agents
    - Extended ToolRegistry to support agents connecting to multiple MCP servers simultaneously
