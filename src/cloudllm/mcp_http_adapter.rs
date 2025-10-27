@@ -139,7 +139,19 @@ impl HttpServerAdapter for AxumHttpAdapter {
             })
             .collect();
 
-        let bearer_token = config.bearer_token.clone();
+        let bearer_token = Arc::new(config.bearer_token.clone());
+        let allowed_ips = Arc::new(allowed_ips);
+
+        // Clone for each route handler to avoid move conflicts
+        let token_list = bearer_token.clone();
+        let ips_list = allowed_ips.clone();
+        let token_exec = bearer_token.clone();
+        let ips_exec = allowed_ips.clone();
+        let token_res_list = bearer_token.clone();
+        let ips_res_list = allowed_ips.clone();
+        let token_res_read = bearer_token.clone();
+        let ips_res_read = allowed_ips.clone();
+
         let protocol_list = protocol.clone();
         let protocol_exec = protocol.clone();
         let protocol_res_list = protocol.clone();
@@ -150,8 +162,8 @@ impl HttpServerAdapter for AxumHttpAdapter {
             .route(
                 "/tools/list",
                 post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>| {
-                    let token = bearer_token.clone();
-                    let allowed = allowed_ips.clone();
+                    let token = token_list.clone();
+                    let allowed = ips_list.clone();
                     let proto = protocol_list.clone();
                     async move {
                         // Check IP filtering
@@ -164,7 +176,7 @@ impl HttpServerAdapter for AxumHttpAdapter {
                         }
 
                         // Token validation placeholder
-                        if let Some(_expected_token) = token {
+                        if let Some(_expected_token) = token.as_ref() {
                             // TODO: Validate Authorization header here
                         }
 
@@ -186,8 +198,8 @@ impl HttpServerAdapter for AxumHttpAdapter {
                 post(
                     move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
                           Json(payload): Json<serde_json::Value>| {
-                        let token = bearer_token.clone();
-                        let allowed = allowed_ips.clone();
+                        let token = token_exec.clone();
+                        let allowed = ips_exec.clone();
                         let proto = protocol_exec.clone();
                         async move {
                             // Check IP filtering
@@ -200,7 +212,7 @@ impl HttpServerAdapter for AxumHttpAdapter {
                             }
 
                             // Token validation placeholder
-                            if let Some(_expected_token) = token {
+                            if let Some(_expected_token) = token.as_ref() {
                                 // TODO: Validate Authorization header here
                             }
 
@@ -223,8 +235,8 @@ impl HttpServerAdapter for AxumHttpAdapter {
             .route(
                 "/resources/list",
                 post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>| {
-                    let token = bearer_token.clone();
-                    let allowed = allowed_ips.clone();
+                    let token = token_res_list.clone();
+                    let allowed = ips_res_list.clone();
                     let proto = protocol_res_list.clone();
                     async move {
                         // Check IP filtering
@@ -237,7 +249,7 @@ impl HttpServerAdapter for AxumHttpAdapter {
                         }
 
                         // Token validation placeholder
-                        if let Some(_expected_token) = token {
+                        if let Some(_expected_token) = token.as_ref() {
                             // TODO: Validate Authorization header here
                         }
 
@@ -268,8 +280,8 @@ impl HttpServerAdapter for AxumHttpAdapter {
                 post(
                     move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
                           Json(payload): Json<serde_json::Value>| {
-                        let token = bearer_token.clone();
-                        let allowed = allowed_ips.clone();
+                        let token = token_res_read.clone();
+                        let allowed = ips_res_read.clone();
                         let proto = protocol_res_read.clone();
                         async move {
                             // Check IP filtering
@@ -282,7 +294,7 @@ impl HttpServerAdapter for AxumHttpAdapter {
                             }
 
                             // Token validation placeholder
-                            if let Some(_expected_token) = token {
+                            if let Some(_expected_token) = token.as_ref() {
                                 // TODO: Validate Authorization header here
                             }
 
