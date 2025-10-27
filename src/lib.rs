@@ -9,7 +9,7 @@
 //!   through a flexible, multi-protocol tool system via [`tool_protocol::ToolRegistry`]
 //! * **Tool Routing**: Local Rust functions, remote MCP servers, Memory persistence, or custom
 //!   protocols all accessible through a unified interface
-//! * **Server Deployment**: [`mcp_server::MCPServerBuilder`] for easily deploying tool servers
+//! * **Server Deployment**: `MCPServerBuilder` (available on `mcp-server` feature) for easily deploying tool servers
 //!   with HTTP support, authentication, and IP filtering
 //! * **Stateful Conversations**: [`LLMSession`] for maintaining rolling conversation history
 //!   with context trimming and token accounting
