@@ -25,6 +25,7 @@ use cloudllm::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[allow(dead_code)]
 struct PanelWorkflow {
     memory: Arc<Memory>,
     memory_protocol: Arc<MemoryProtocol>,
