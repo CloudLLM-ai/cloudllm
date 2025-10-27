@@ -1,4 +1,4 @@
-0.6.0 OCT/27/2025
+0.6.1 OCT/27/2025
  - feat: MCPServerBuilder - Simplified MCP Server Creation
    - New MCPServerBuilder with fluent API for creating MCP servers
    - Built-in tool support: Memory, Bash, and custom tools via with_*_tool() methods
