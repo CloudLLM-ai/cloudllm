@@ -1,3 +1,22 @@
+0.6.2 NOV/17/2025
+ - feat: OpenAI Model GPT-5.1 Support
+   - Added GPT51 model variant for flagship coding and agentic tasks
+   - Supports configurable reasoning and non-reasoning effort levels
+   - Updated model_to_string() function to handle new model identifier
+ - deps: Updated dependencies for stability and performance
+   - tokio: 1.47.1 → 1.48.0
+   - async-trait: 0.1.88 → 0.1.89
+   - log: 0.4.27 → 0.4.28
+   - bumpalo: 3.16 → 3.19.0
+   - reqwest: 0.12 → 0.12.24 (explicit version pinning)
+   - futures-util: 0.3 → 0.3.31 (explicit version pinning)
+   - serde: 1.0 → 1.0.228 (explicit version pinning)
+   - serde_json: 1.0 → 1.0.145 (explicit version pinning)
+   - evalexpr: 12.0 → 13.0.0
+   - urlencoding: 2.1 → 2.1.3 (explicit version pinning)
+   - axum: 0.8.6 → 0.8.7
+   - tempfile: 3.10 → 3.23
+
 0.6.1 OCT/27/2025
  - feat: MCPServerBuilder - Simplified MCP Server Creation
    - New MCPServerBuilder with fluent API for creating MCP servers

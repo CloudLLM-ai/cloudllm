@@ -83,7 +83,9 @@ use tokio::sync::Mutex;
 /// Official model identifiers supported by OpenAI's Chat Completions API.
 #[allow(non_camel_case_types)]
 pub enum Model {
-    /// `gpt-5` – high reasoning, medium latency, text or multimodal input.
+    /// `gpt-5.1 - flagship for coding and agentic tasks with configurable reasoning and non-reasoning effort.
+    GPT51,
+    /// `gpt-5` – high-reasoning, medium latency, text or multimodal input.
     GPT5,
     /// `gpt-5-mini` – fast variant of GPT-5 with balanced cost and quality.
     GPT5Mini,
@@ -130,6 +132,7 @@ pub enum Model {
 /// Convert a [`Model`] variant into the string identifier expected by the REST API.
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT51 => "gpt-5.1".to_string(),
         Model::GPT5 => "gpt-5".to_string(),
         Model::GPT5Mini => "gpt-5-mini".to_string(),
         Model::GPT5Nano => "gpt-5-nano".to_string(),
