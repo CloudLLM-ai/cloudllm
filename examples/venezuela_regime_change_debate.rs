@@ -32,7 +32,7 @@ use cloudllm::{
     council::{Council, CouncilMode},
     Agent,
 };
-use openai_rust2::chat::{SearchMode, SearchParameters};
+use openai_rust2::chat::GrokTool;
 use std::error::Error as StdError;
 use std::sync::Arc;
 
@@ -55,9 +55,12 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     let time_today_str = now.format("%Y-%m-%d").to_string();
     let time_yesterday_str = (now - Duration::days(1)).format("%Y-%m-%d").to_string();
 
-    let base_search_parameters = SearchParameters::new(SearchMode::On)
-        .with_citations(true)
-        .with_date_range_str(time_yesterday_str.clone(), time_today_str.clone());
+    // Use the new xAI Agent Tools API (replaces deprecated Live Search)
+    // See: https://docs.x.ai/docs/guides/tools/overview
+    let base_grok_tools = vec![
+        GrokTool::web_search().with_date_range(time_yesterday_str.clone(), time_today_str.clone()),
+        GrokTool::x_search().with_date_range(time_yesterday_str.clone(), time_today_str.clone()),
+    ];
 
     // Create agents with different expertises
     println!("Setting up council agents...\n");
@@ -67,7 +70,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         "Gen. Military Strategist",
         Arc::new(GrokClient::new_with_model_enum(
             &xai_key,
-            GrokModel::Grok4_0709,
+            GrokModel::Grok41FastReasoning,
         )),
     )
     .with_expertise("Retired 4-star general with extensive experience in Latin America")
@@ -76,14 +79,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          potential casualties, international coalition building, and rules of engagement. \
          Be realistic about costs, risks, and likelihood of success.",
     )
-    .with_search_parameters(base_search_parameters.clone());
+    .with_grok_tools(base_grok_tools.clone());
 
     let diplomat = Agent::new(
         "diplomat",
         "Ambassador Diplomatic Expert",
         Arc::new(GrokClient::new_with_model_enum(
             &xai_key,
-            GrokModel::Grok4_0709,
+            GrokModel::Grok41FastReasoning,
         )),
     )
     .with_expertise("Former US Ambassador with deep expertise in Latin American diplomacy")
@@ -92,14 +95,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          opposition leaders, negotiated transitions, and regional coalition building through \
          OAS and Lima Group. Consider Russia/China interests.",
     )
-    .with_search_parameters(base_search_parameters.clone());
+    .with_grok_tools(base_grok_tools.clone());
 
     let intelligence_analyst = Agent::new(
         "intelligence",
         "Intelligence Analyst",
         Arc::new(GrokClient::new_with_model_enum(
             &xai_key,
-            GrokModel::Grok4_0709,
+            GrokModel::Grok41FastReasoning,
         )),
     )
     .with_expertise("Senior intelligence analyst specializing in covert operations")
@@ -108,14 +111,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          information operations, cyber operations, and targeted actions. Consider \
          HUMINT networks, technical capabilities, deniability, and blowback risks.",
     )
-    .with_search_parameters(base_search_parameters.clone());
+    .with_grok_tools(base_grok_tools.clone());
 
     let economist = Agent::new(
         "economist",
         "Economic Sanctions Expert",
         Arc::new(GrokClient::new_with_model_enum(
             &xai_key,
-            GrokModel::Grok4_0709,
+            GrokModel::Grok41FastReasoning,
         )),
     )
     .with_expertise("Economist specializing in sanctions and economic warfare")
@@ -124,14 +127,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          financial system isolation, secondary sanctions, humanitarian exemptions, \
          and economic reconstruction plans. Evaluate effectiveness and humanitarian impact.",
     )
-    .with_search_parameters(base_search_parameters.clone());
+    .with_grok_tools(base_grok_tools.clone());
 
     let regional_expert = Agent::new(
         "regional",
         "Regional Stability Analyst",
         Arc::new(GrokClient::new_with_model_enum(
             &xai_key,
-            GrokModel::Grok4_0709,
+            GrokModel::Grok41FastReasoning,
         )),
     )
     .with_expertise("Expert in Latin American regional dynamics and second-order effects")
@@ -141,7 +144,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          reactions from leftist governments, oil market impacts, and long-term \
          democratization prospects.",
     )
-    .with_search_parameters(base_search_parameters.clone());
+    .with_grok_tools(base_grok_tools.clone());
 
     // Create council in Debate mode with convergence detection
     // Using fewer rounds (3) for faster execution - increase to 5+ for deeper analysis

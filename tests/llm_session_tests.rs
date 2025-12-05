@@ -4,7 +4,6 @@ use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 use cloudllm::cloudllm::llm_session;
 use cloudllm::cloudllm::llm_session::estimate_message_token_count;
 use cloudllm::LLMSession;
-use openai_rust2;
 use openai_rust2 as openai_rust;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -44,7 +43,7 @@ impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Record how many messages were sent
         let mut count_guard = self.last_message_count.lock().await;

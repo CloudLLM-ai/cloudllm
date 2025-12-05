@@ -226,7 +226,7 @@ impl ClientWrapper for OpenAIClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
         let mut formatted_messages = Vec::with_capacity(messages.len());
@@ -249,7 +249,7 @@ impl ClientWrapper for OpenAIClient {
             formatted_messages,
             Some(url_path_string),
             &self.token_usage,
-            optional_search_parameters,
+            optional_grok_tools,
         )
         .await;
 
@@ -273,7 +273,7 @@ impl ClientWrapper for OpenAIClient {
     fn send_message_stream<'a>(
         &'a self,
         messages: &'a [Message],
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
         Box::pin(async move {
             // Convert the provided messages into the format expected by openai_rust
@@ -293,8 +293,8 @@ impl ClientWrapper for OpenAIClient {
 
             // Build the chat arguments
             let mut chat_arguments = chat::ChatArguments::new(&self.model, formatted_messages);
-            if let Some(search_params) = optional_search_parameters {
-                chat_arguments = chat_arguments.with_search_parameters(search_params);
+            if let Some(grok_tools) = optional_grok_tools {
+                chat_arguments = chat_arguments.with_grok_tools(grok_tools);
             }
 
             // Create the streaming request

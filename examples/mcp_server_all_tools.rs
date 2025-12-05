@@ -297,10 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .start_on(8008)
         .await
         .map_err(|e| {
-            Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            )) as Box<dyn std::error::Error>
+            Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error>
         })?;
 
     println!("✅ MCP Server started successfully!");

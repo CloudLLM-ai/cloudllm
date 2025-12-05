@@ -328,7 +328,7 @@ impl Council {
                 let client = agent.client.clone();
                 let expertise = agent.expertise.clone();
                 let personality = agent.personality.clone();
-                let search_parameters = agent.search_parameters.clone();
+                let grok_tools = agent.grok_tools.clone();
                 let tool_registry = agent.tool_registry.clone();
                 let metadata = agent.metadata.clone();
                 let prompt_clone = prompt_owned.clone();
@@ -342,7 +342,7 @@ impl Council {
                     personality: personality.clone(),
                     metadata,
                     tool_registry,
-                    search_parameters,
+                    grok_tools,
                 };
 
                 tasks.push(tokio::spawn(async move {
@@ -613,7 +613,7 @@ impl Council {
                 let client = agent.client.clone();
                 let expertise = agent.expertise.clone();
                 let personality = agent.personality.clone();
-                let search_parameters = agent.search_parameters.clone();
+                let grok_tools = agent.grok_tools.clone();
                 let tool_registry = agent.tool_registry.clone();
                 let metadata = agent.metadata.clone();
 
@@ -625,7 +625,7 @@ impl Council {
                     personality: personality.clone(),
                     metadata,
                     tool_registry,
-                    search_parameters,
+                    grok_tools,
                 };
 
                 tasks.push(tokio::spawn(async move {
@@ -883,7 +883,7 @@ mod tests {
         async fn send_message(
             &self,
             _messages: &[Message],
-            _optional_search_parameters: Option<openai_rust2::chat::SearchParameters>,
+            _optional_grok_tools: Option<Vec<openai_rust2::chat::GrokTool>>,
         ) -> Result<Message, Box<dyn std::error::Error>> {
             Ok(Message {
                 role: Role::Assistant,
@@ -1018,7 +1018,7 @@ mod tests {
             async fn send_message(
                 &self,
                 messages: &[Message],
-                _optional_search_parameters: Option<openai_rust2::chat::SearchParameters>,
+                _optional_grok_tools: Option<Vec<openai_rust2::chat::GrokTool>>,
             ) -> Result<Message, Box<dyn std::error::Error>> {
                 let mut count = self.call_count.lock().await;
                 *count += 1;
@@ -1102,7 +1102,7 @@ mod tests {
             async fn send_message(
                 &self,
                 _messages: &[Message],
-                _optional_search_parameters: Option<openai_rust2::chat::SearchParameters>,
+                _optional_grok_tools: Option<Vec<openai_rust2::chat::GrokTool>>,
             ) -> Result<Message, Box<dyn std::error::Error>> {
                 let mut count = self.call_count.lock().await;
                 *count += 1;

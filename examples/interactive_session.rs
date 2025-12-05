@@ -109,7 +109,7 @@ async fn display_waiting_dots(rx: watch::Receiver<bool>, num_dots: usize) {
     let mut loading = true;
     while loading {
         for _ in 0..num_dots {
-            if !rx.borrow().clone() {
+            if !*rx.borrow() {
                 break;
             }
             print!(".");
@@ -122,7 +122,7 @@ async fn display_waiting_dots(rx: watch::Receiver<bool>, num_dots: usize) {
         }
         print!("\r");
         io::stdout().flush().unwrap();
-        loading = rx.borrow().clone();
+        loading = *rx.borrow();
     }
     print!("\r");
     for _ in 0..num_dots {

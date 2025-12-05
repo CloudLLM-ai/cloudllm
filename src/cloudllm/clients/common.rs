@@ -13,6 +13,7 @@
 //! use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 //! use cloudllm::clients::common::{get_shared_http_client, send_and_track};
 //! use openai_rust2 as openai_rust;
+//! use openai_rust2::chat::GrokTool;
 //! use tokio::sync::Mutex;
 //!
 //! struct MyHostedClient {
@@ -44,7 +45,7 @@
 //!     async fn send_message(
 //!         &self,
 //!         messages: &[Message],
-//!         optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+//!         optional_grok_tools: Option<Vec<GrokTool>>,
 //!     ) -> Result<Message, Box<dyn std::error::Error>> {
 //!         let formatted = messages
 //!             .iter()
@@ -64,7 +65,7 @@
 //!             formatted,
 //!             Some("/v1/chat/completions".to_string()),
 //!             &self.usage,
-//!             optional_search_parameters,
+//!             optional_grok_tools,
 //!         )
 //!         .await?;
 //!
@@ -82,8 +83,8 @@
 use crate::client_wrapper::{MessageChunk, TokenUsage};
 use lazy_static::lazy_static;
 use openai_rust::chat;
+use openai_rust::chat::{GrokTool, ResponsesArguments, ResponsesMessage};
 use openai_rust2 as openai_rust;
-use reqwest;
 use std::error::Error;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -122,12 +123,12 @@ pub async fn send_and_track(
     formatted_msgs: Vec<chat::Message>,
     url_path: Option<String>,
     usage_slot: &Mutex<Option<TokenUsage>>,
-    optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+    optional_grok_tools: Option<Vec<GrokTool>>,
 ) -> Result<String, Box<dyn Error>> {
     let mut chat_arguments = chat::ChatArguments::new(model, formatted_msgs);
 
-    if let Some(search_params) = optional_search_parameters {
-        chat_arguments = chat_arguments.with_search_parameters(search_params);
+    if let Some(grok_tools) = optional_grok_tools {
+        chat_arguments = chat_arguments.with_grok_tools(grok_tools);
     }
 
     let response = api.create_chat(chat_arguments, url_path).await;
@@ -154,6 +155,57 @@ pub async fn send_and_track(
                 );
             }
             Err(err.into()) // Convert the error to Box<dyn Error>
+        }
+    }
+}
+
+/// Send a request to xAI's Responses API (/v1/responses) with agentic tool calling.
+///
+/// This function is used when grok_tools are provided, as the Responses API uses
+/// a different endpoint and request/response format than Chat Completions.
+pub async fn send_and_track_responses(
+    api: &openai_rust::Client,
+    model: &str,
+    formatted_msgs: Vec<chat::Message>,
+    url_path: Option<String>,
+    usage_slot: &Mutex<Option<TokenUsage>>,
+    grok_tools: Vec<GrokTool>,
+) -> Result<String, Box<dyn Error>> {
+    // Convert chat messages to ResponsesMessage format
+    let input: Vec<ResponsesMessage> = formatted_msgs
+        .into_iter()
+        .map(|msg| ResponsesMessage {
+            role: msg.role,
+            content: msg.content,
+        })
+        .collect();
+
+    let args = ResponsesArguments::new(model, input).with_tools(grok_tools);
+
+    let response = api.create_responses(args, url_path).await;
+
+    match response {
+        Ok(response) => {
+            let usage = TokenUsage {
+                input_tokens: response.usage.input_tokens as usize,
+                output_tokens: response.usage.output_tokens as usize,
+                total_tokens: response.usage.total_tokens as usize,
+            };
+
+            // Store it for get_last_usage()
+            *usage_slot.lock().await = Some(usage);
+
+            // Return the assistant's content
+            Ok(response.get_text_content())
+        }
+        Err(err) => {
+            if log::log_enabled!(log::Level::Error) {
+                log::error!(
+                    "cloudllm::clients::common::send_and_track_responses(...): xAI Responses API Error: {}",
+                    err
+                );
+            }
+            Err(err.into())
         }
     }
 }

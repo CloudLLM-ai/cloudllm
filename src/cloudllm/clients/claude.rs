@@ -124,10 +124,10 @@ impl ClientWrapper for ClaudeClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> Result<Message, Box<dyn Error>> {
         self.delegate_client
-            .send_message(messages, optional_search_parameters)
+            .send_message(messages, optional_grok_tools)
             .await
     }
 

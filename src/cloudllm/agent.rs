@@ -37,7 +37,7 @@
 
 use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 use crate::cloudllm::tool_protocol::ToolRegistry;
-use openai_rust2::chat::SearchParameters;
+use openai_rust2::chat::GrokTool;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
@@ -87,8 +87,9 @@ pub struct Agent {
     /// and multi-protocol (multiple MCP servers) modes. Tools are transparently
     /// routed to the appropriate protocol based on tool ownership.
     pub tool_registry: Option<Arc<ToolRegistry>>,
-    /// Optional vector search configuration to forward to compatible providers.
-    pub search_parameters: Option<SearchParameters>,
+    /// Optional xAI server-side tools (web_search, x_search, code_execution, etc.)
+    /// to forward to compatible providers (Grok).
+    pub grok_tools: Option<Vec<GrokTool>>,
 }
 
 impl Agent {
@@ -106,7 +107,7 @@ impl Agent {
             personality: None,
             metadata: HashMap::new(),
             tool_registry: None,
-            search_parameters: None,
+            grok_tools: None,
         }
     }
 
@@ -156,9 +157,10 @@ impl Agent {
         self
     }
 
-    /// Forward search parameters to the underlying client wrapper if supported.
-    pub fn with_search_parameters(mut self, search_parameters: SearchParameters) -> Self {
-        self.search_parameters = Some(search_parameters);
+    /// Forward xAI server-side tools (web_search, x_search, etc.) to the underlying client.
+    /// Only supported by Grok clients.
+    pub fn with_grok_tools(mut self, grok_tools: Vec<GrokTool>) -> Self {
+        self.grok_tools = Some(grok_tools);
         self
     }
 
@@ -258,10 +260,10 @@ impl Agent {
 
         loop {
             // Send to LLM
-            let search_parameters = self.search_parameters.clone();
+            let grok_tools = self.grok_tools.clone();
             let response = self
                 .client
-                .send_message(&messages, search_parameters)
+                .send_message(&messages, grok_tools)
                 .await
                 .map_err(|e| {
                     Box::new(crate::council::CouncilError::ExecutionFailed(e.to_string()))

@@ -25,7 +25,7 @@ impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         Ok(Message {
             role: Role::Assistant,

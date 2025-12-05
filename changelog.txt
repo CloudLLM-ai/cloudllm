@@ -1,3 +1,21 @@
+0.6.3 DEC/04/2025
+ - feat: xAI Responses API Support for Agentic Tool Calling
+   - GrokClient now automatically switches between Chat Completions and Responses API
+   - When tools are provided (web_search, x_search, etc.), uses /v1/responses endpoint
+   - Without tools, uses standard /v1/chat/completions endpoint
+   - Real-time web search now working with current data and citations
+ - new: send_and_track_responses() in common.rs for Responses API calls
+ - refactor: GrokClient restructured with direct openai_rust::Client access
+   - Removed OpenAIClient delegation pattern for better API control
+   - Added token_usage tracking directly in GrokClient
+ - deps: openai-rust2 upgraded to 1.7.1
+   - Adds ResponsesArguments, ResponsesMessage, ResponsesCompletion types
+   - Adds Client::create_responses() for /v1/responses endpoint
+   - grok_tools field serializes as "server_tools" for Chat Completions
+ - fix: ClientWrapper trait updated for GrokTool support across all clients
+ - docs: Updated examples and tests for new Grok tool calling API
+ - See: https://docs.x.ai/docs/guides/tools/search-tools
+
 0.6.2 NOV/17/2025
  - feat: OpenAI Model GPT-5.1 Support
    - Added GPT51 model variant for flagship coding and agentic tasks

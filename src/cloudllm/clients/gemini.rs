@@ -237,7 +237,7 @@ impl ClientWrapper for GeminiClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
 
@@ -261,7 +261,7 @@ impl ClientWrapper for GeminiClient {
             formatted_messages,
             url_path,
             &self.token_usage,
-            optional_search_parameters,
+            optional_grok_tools,
         )
         .await;
 

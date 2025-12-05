@@ -11,8 +11,7 @@ use cloudllm::cloudllm::client_wrapper::Role::System;
 use cloudllm::init_logger;
 use cloudllm::LLMSession;
 use cloudllm::Message;
-use openai_rust2;
-use openai_rust2 as openai_rust;
+use openai_rust2::chat::GrokTool;
 
 #[test]
 fn test_claude_client() {
@@ -101,27 +100,31 @@ pub fn test_grok_client() {
     crate::init_logger();
 
     let secret_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
-    let client = GrokClient::new_with_model_enum(&secret_key, grok::Model::Grok4_0709);
+    // Use grok-4-1-fast-reasoning which supports server_tools (web_search, x_search, etc.)
+    let client = GrokClient::new_with_model_enum(&secret_key, grok::Model::Grok41FastReasoning);
     let mut llm_session: crate::LLMSession = crate::LLMSession::new(
         std::sync::Arc::new(client),
-        "You are a math professor.".to_string(),
+        "You are a helpful assistant with access to web search and X search.".to_string(),
         1048576,
     );
 
     // Create a new Tokio runtime
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let search_parameters =
-        openai_rust::chat::SearchParameters::new(openai_rust2::chat::SearchMode::On)
-            .with_citations(true);
+    // Use the new xAI Agent Tools API (replaces deprecated Live Search)
+    // See: https://docs.x.ai/docs/guides/tools/overview
+    let grok_tools = vec![
+        GrokTool::web_search(),
+        GrokTool::x_search(),
+    ];
 
     let response_message: Message = rt.block_on(async {
         let s = llm_session
             .send_message(
                 crate::Role::User,
-                "Using your Live search capabilities: What's the current price of Bitcoin?"
+                "What's the current price of Bitcoin? Search the web for the latest information."
                     .to_string(),
-                Some(search_parameters),
+                Some(grok_tools),
             )
             .await;
 

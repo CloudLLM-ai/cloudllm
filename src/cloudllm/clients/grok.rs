@@ -1,8 +1,8 @@
-//! xAI Grok client wrapper routed through the OpenAI-compatible surface.
+//! xAI Grok client wrapper with support for the Responses API.
 //!
-//! The `GrokClient` connects to xAI's Grok models using the same transport as the OpenAI client.
-//! It is therefore straightforward to reuse existing session or council code while targeting the
-//! Grok family of models.
+//! The `GrokClient` connects to xAI's Grok models. When tools are provided (e.g., `web_search`,
+//! `x_search`), it automatically uses the Responses API (`/v1/responses`) for agentic tool calling.
+//! Otherwise, it uses the standard Chat Completions API (`/v1/chat/completions`).
 //!
 //! # Example
 //!
@@ -30,20 +30,24 @@
 //! }
 //! ```
 
-use crate::client_wrapper::TokenUsage;
-use crate::clients::openai::OpenAIClient;
+use crate::client_wrapper::{Role, TokenUsage};
+use crate::clients::common::{get_shared_http_client, send_and_track, send_and_track_responses};
 use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
 use openai_rust2 as openai_rust;
+use openai_rust2::chat;
 use std::error::Error;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// Client wrapper for xAI's Grok models accessed via the OpenAI-style API surface.
+/// Client wrapper for xAI's Grok models with Responses API support.
 pub struct GrokClient {
-    /// Delegated OpenAI-compatible client.
-    delegate_client: OpenAIClient,
+    /// Underlying SDK client pointing at the xAI REST endpoint.
+    client: openai_rust::Client,
     /// Selected Grok model name.
     model: String,
+    /// Storage for the token usage returned by the most recent request.
+    token_usage: Mutex<Option<TokenUsage>>,
 }
 
 /// Grok model identifiers available as of April 2025.
@@ -70,9 +74,9 @@ pub enum Model {
     Grok4FastNonReasoning,
     /// `grok-code-fast-1` – code-focused Grok fast tier.
     GrokCodeFast1,
-    /// `grok-4-1-fast-reasoning` - frontier multimodal model optimized specifically for high-performance agentic tool calling
+    /// `grok-4-1-fast-reasoning` - frontier multimodal model with reasoning, supports server_tools
     Grok41FastReasoning,
-    /// `grok-4-1-fast-non-reasoning` - A frontier multimodal model optimized specifically for high-performance agentic tool calling.
+    /// `grok-4-1-fast-non-reasoning` - frontier multimodal model without reasoning, supports server_tools
     Grok41FastNonReasoning,
 }
 
@@ -103,22 +107,19 @@ impl GrokClient {
 
     /// Construct a client from an API key and explicit model name.
     pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
-        GrokClient {
-            // we reuse the OpenAIClient for Grok and delegate the calls to it
-            delegate_client: OpenAIClient::new_with_base_url(
-                secret_key,
-                model_name,
-                "https://api.x.ai/v1",
-            ),
-            model: model_name.to_string(),
-        }
+        Self::new_with_base_url(secret_key, model_name, "https://api.x.ai/v1")
     }
 
     /// Construct a client for Grok-compatible endpoints hosted at a custom base URL.
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         GrokClient {
-            delegate_client: OpenAIClient::new_with_base_url(secret_key, model_name, base_url),
+            client: openai_rust::Client::new_with_client_and_base_url(
+                secret_key,
+                get_shared_http_client().clone(),
+                base_url,
+            ),
             model: model_name.to_string(),
+            token_usage: Mutex::new(None),
         }
     }
 
@@ -141,23 +142,76 @@ impl ClientWrapper for GrokClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> Result<Message, Box<dyn Error>> {
-        self.delegate_client
-            .send_message(messages, optional_search_parameters)
+        // Convert the provided messages into the format expected by openai_rust
+        let mut formatted_messages = Vec::with_capacity(messages.len());
+        for msg in messages {
+            formatted_messages.push(chat::Message {
+                role: match msg.role {
+                    Role::System => "system".to_owned(),
+                    Role::User => "user".to_owned(),
+                    Role::Assistant => "assistant".to_owned(),
+                },
+                content: msg.content.to_string(),
+            });
+        }
+
+        // Use the Responses API when tools are provided, otherwise use Chat Completions
+        let result = if let Some(grok_tools) = optional_grok_tools {
+            // Use the Responses API (/v1/responses) for agentic tool calling
+            send_and_track_responses(
+                &self.client,
+                &self.model,
+                formatted_messages,
+                Some("/v1/responses".to_string()),
+                &self.token_usage,
+                grok_tools,
+            )
             .await
+        } else {
+            // Use the standard Chat Completions API (/v1/chat/completions)
+            send_and_track(
+                &self.client,
+                &self.model,
+                formatted_messages,
+                Some("/v1/chat/completions".to_string()),
+                &self.token_usage,
+                None,
+            )
+            .await
+        };
+
+        match result {
+            Ok(c) => Ok(Message {
+                role: Role::Assistant,
+                content: Arc::from(c.as_str()),
+            }),
+            Err(e) => {
+                if log::log_enabled!(log::Level::Error) {
+                    log::error!(
+                        "GrokClient::send_message(...): API Error: {}",
+                        e
+                    );
+                }
+                Err(e)
+            }
+        }
     }
 
     fn send_message_stream<'a>(
         &'a self,
-        messages: &'a [Message],
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        _messages: &'a [Message],
+        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
-        self.delegate_client
-            .send_message_stream(messages, optional_search_parameters)
+        // Note: Streaming is not yet supported for the Responses API
+        // For now, return an error indicating streaming is not available
+        Box::pin(async move {
+            Err("Streaming is not yet supported for the xAI Responses API".into())
+        })
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
-        self.delegate_client.usage_slot()
+        Some(&self.token_usage)
     }
 }

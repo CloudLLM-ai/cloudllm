@@ -31,8 +31,7 @@ fn test_shared_http_client_has_pooling_config() {
     // Verify we can clone the client (reqwest::Client is cloneable and uses Arc internally)
     let _cloned = client.clone();
 
-    // If we got here, the client was created with proper configuration
-    assert!(true, "Shared HTTP client is properly configured");
+    // If we got here without panicking, the client was created with proper configuration
 }
 
 #[tokio::test]

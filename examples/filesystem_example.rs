@@ -8,7 +8,7 @@
 //! - Extension filtering for security
 
 use cloudllm::tools::FileSystemTool;
-use std::path::PathBuf;
+use std::path::Path;
 use tempfile::TempDir;
 
 #[tokio::main]
@@ -43,11 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 async fn basic_file_operations(
-    root_path: &PathBuf,
+    root_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 1: Basic File Operations ---");
 
-    let fs = FileSystemTool::new().with_root_path(root_path.clone());
+    let fs = FileSystemTool::new().with_root_path(root_path.to_path_buf());
 
     // Write a file
     fs.write_file("config.txt", "environment=production\nversion=1.0")
@@ -75,11 +75,11 @@ async fn basic_file_operations(
 }
 
 async fn directory_management(
-    root_path: &PathBuf,
+    root_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 2: Directory Management ---");
 
-    let fs = FileSystemTool::new().with_root_path(root_path.clone());
+    let fs = FileSystemTool::new().with_root_path(root_path.to_path_buf());
 
     // Create directories
     fs.create_directory("data/logs").await?;
@@ -114,11 +114,11 @@ async fn directory_management(
 }
 
 async fn file_search_and_metadata(
-    root_path: &PathBuf,
+    root_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 3: File Search and Metadata ---");
 
-    let fs = FileSystemTool::new().with_root_path(root_path.clone());
+    let fs = FileSystemTool::new().with_root_path(root_path.to_path_buf());
 
     // Create test files
     fs.write_file("report_2024_01.txt", "January report")
@@ -148,12 +148,12 @@ async fn file_search_and_metadata(
 }
 
 async fn extension_filtering(
-    root_path: &PathBuf,
+    root_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 4: Extension Filtering ---");
 
     let fs = FileSystemTool::new()
-        .with_root_path(root_path.clone())
+        .with_root_path(root_path.to_path_buf())
         .with_allowed_extensions(vec![
             "txt".to_string(),
             "md".to_string(),
@@ -189,11 +189,11 @@ async fn extension_filtering(
 }
 
 async fn error_handling(
-    root_path: &PathBuf,
+    root_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 5: Error Handling ---");
 
-    let fs = FileSystemTool::new().with_root_path(root_path.clone());
+    let fs = FileSystemTool::new().with_root_path(root_path.to_path_buf());
 
     // Try to read non-existent file
     match fs.read_file("nonexistent.txt").await {
@@ -225,11 +225,11 @@ async fn error_handling(
 }
 
 async fn bulk_operations(
-    root_path: &PathBuf,
+    root_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 6: Bulk Operations ---");
 
-    let fs = FileSystemTool::new().with_root_path(root_path.clone());
+    let fs = FileSystemTool::new().with_root_path(root_path.to_path_buf());
 
     // Create a project structure
     fs.create_directory("project/src").await?;

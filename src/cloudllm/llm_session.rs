@@ -53,7 +53,7 @@
 use crate::client_wrapper;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use bumpalo::Bump;
-use openai_rust2 as openai_rust;
+use openai_rust2::chat::GrokTool;
 use std::sync::Arc;
 
 pub struct LLMSession {
@@ -129,7 +129,7 @@ impl LLMSession {
         &mut self,
         role: Role,
         content: String,
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        optional_grok_tools: Option<Vec<GrokTool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Allocate message content in arena and create Arc<str>
         let content_str = self.arena.alloc_str(&content);
@@ -175,7 +175,7 @@ impl LLMSession {
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(&self.request_buffer, optional_search_parameters)
+            .send_message(&self.request_buffer, optional_grok_tools)
             .await?;
 
         // Clone response for return before adding to history
@@ -224,7 +224,7 @@ impl LLMSession {
         &mut self,
         role: Role,
         content: String,
-        optional_search_parameters: Option<openai_rust::chat::SearchParameters>,
+        optional_grok_tools: Option<Vec<GrokTool>>,
     ) -> Result<Option<crate::client_wrapper::MessageChunkStream>, Box<dyn std::error::Error>> {
         // Allocate message content in arena and create Arc<str>
         let content_str = self.arena.alloc_str(&content);
@@ -269,7 +269,7 @@ impl LLMSession {
         // Get the streaming response
         let stream_result = self
             .client
-            .send_message_stream(&self.request_buffer, optional_search_parameters)
+            .send_message_stream(&self.request_buffer, optional_grok_tools)
             .await?;
 
         // If streaming is not supported, remove the message we added
