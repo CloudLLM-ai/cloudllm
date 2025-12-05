@@ -70,6 +70,10 @@ pub enum Model {
     Grok4FastNonReasoning,
     /// `grok-code-fast-1` – code-focused Grok fast tier.
     GrokCodeFast1,
+    /// `grok-4-1-fast-reasoning` - frontier multimodal model optimized specifically for high-performance agentic tool calling
+    Grok41FastReasoning,
+    /// `grok-4-1-fast-non-reasoning` - A frontier multimodal model optimized specifically for high-performance agentic tool calling.
+    Grok41FastNonReasoning,
 }
 
 /// Convert a [`Model`] variant into the identifier expected by the xAI API.
@@ -86,6 +90,8 @@ fn model_to_string(model: Model) -> String {
         Model::Grok4FastReasoning => "grok-4-fast-reasoning".to_string(),
         Model::Grok4FastNonReasoning => "grok-4-fast-nonreasoning".to_string(),
         Model::GrokCodeFast1 => "grok-code-fast-1".to_string(),
+        Model::Grok41FastReasoning => "grok-4-1-fast-reasoning".to_string(),
+        Model::Grok41FastNonReasoning => "grok-4-1-fast-non-reasoning".to_string(),
     }
 }
 

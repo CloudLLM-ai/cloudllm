@@ -71,7 +71,7 @@ pub struct AgentResponse {
 pub struct Agent {
     /// Stable identifier referenced inside council orchestration.
     pub id: String,
-    /// Human readable display name for logging and UI surfaces.
+    /// Human-readable display name for logging and UI surfaces.
     pub name: String,
     /// Underlying client used to communicate with the model backing this agent.
     pub client: Arc<dyn ClientWrapper>,
