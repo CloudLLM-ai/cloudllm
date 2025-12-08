@@ -888,6 +888,7 @@ mod tests {
             &self,
             _messages: &[Message],
             _optional_grok_tools: Option<Vec<openai_rust2::chat::GrokTool>>,
+            _optional_openai_tools: Option<Vec<openai_rust2::chat::OpenAITool>>,
         ) -> Result<Message, Box<dyn std::error::Error>> {
             Ok(Message {
                 role: Role::Assistant,
@@ -1023,6 +1024,7 @@ mod tests {
                 &self,
                 messages: &[Message],
                 _optional_grok_tools: Option<Vec<openai_rust2::chat::GrokTool>>,
+                _optional_openai_tools: Option<Vec<openai_rust2::chat::OpenAITool>>,
             ) -> Result<Message, Box<dyn std::error::Error>> {
                 let mut count = self.call_count.lock().await;
                 *count += 1;
@@ -1107,6 +1109,7 @@ mod tests {
                 &self,
                 _messages: &[Message],
                 _optional_grok_tools: Option<Vec<openai_rust2::chat::GrokTool>>,
+                _optional_openai_tools: Option<Vec<openai_rust2::chat::OpenAITool>>,
             ) -> Result<Message, Box<dyn std::error::Error>> {
                 let mut count = self.call_count.lock().await;
                 *count += 1;

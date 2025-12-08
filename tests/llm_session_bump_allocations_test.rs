@@ -26,6 +26,7 @@ impl ClientWrapper for MockClient {
         &self,
         _messages: &[Message],
         _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         Ok(Message {
             role: Role::Assistant,
@@ -49,7 +50,7 @@ async fn test_arena_allocation() {
 
     // Send a message
     let result = session
-        .send_message(Role::User, "Test user message".to_string(), None)
+        .send_message(Role::User, "Test user message".to_string(), None, None)
         .await;
 
     assert!(result.is_ok());

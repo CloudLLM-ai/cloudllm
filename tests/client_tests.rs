@@ -35,6 +35,7 @@ fn test_claude_client() {
                 crate::Role::User,
                 "What is the capital of France?".to_string(),
                 None,
+                None,
             )
             .await;
 
@@ -76,6 +77,7 @@ fn test_gemini_client() {
             .send_message(
                 Role::User,
                 "What is the square root of 16?".to_string(),
+                None,
                 None,
             )
             .await;
@@ -125,6 +127,7 @@ pub fn test_grok_client() {
                 "What's the current price of Bitcoin? Search the web for the latest information."
                     .to_string(),
                 Some(grok_tools),
+                None,
             )
             .await;
 
@@ -163,6 +166,7 @@ fn test_openai_client() {
                 Role::User,
                 "If life is a game and you are not an NPC character, what can you while you play to benefit the higher consciousness of your avatar controller?"
                     .to_string(),
+                None,
                 None,
             )
             .await;

@@ -44,6 +44,7 @@ impl ClientWrapper for MockClient {
         &self,
         messages: &[Message],
         _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Record how many messages were sent
         let mut count_guard = self.last_message_count.lock().await;
@@ -95,7 +96,7 @@ async fn test_token_caching() {
     mock_client.set_usage(100, 50, 150).await;
 
     let _ = session
-        .send_message(Role::User, user_message.to_string(), None)
+        .send_message(Role::User, user_message.to_string(), None, None)
         .await;
 
     // Verify that both the user message and response have cached token counts
@@ -131,7 +132,7 @@ async fn test_token_caching_with_trimming() {
     // Send first message
     mock_client.set_usage(50, 25, 75).await;
     let _ = session
-        .send_message(Role::User, "First message".to_string(), None)
+        .send_message(Role::User, "First message".to_string(), None, None)
         .await;
 
     assert_eq!(session.get_conversation_history().len(), 2);
@@ -140,7 +141,7 @@ async fn test_token_caching_with_trimming() {
     // Send second message with usage that exceeds max_tokens
     mock_client.set_usage(80, 40, 120).await; // Exceeds max_tokens of 100
     let _ = session
-        .send_message(Role::User, "Second message".to_string(), None)
+        .send_message(Role::User, "Second message".to_string(), None, None)
         .await;
 
     // Some messages should have been trimmed
@@ -189,20 +190,20 @@ async fn test_pre_transmission_trimming() {
     // Add several messages that exceed the limit
     // Each message with 4 chars = (4/4).max(1) + 1 = 1 + 1 = 2 tokens
     let _ = session
-        .send_message(Role::User, "Msg1".to_string(), None)
+        .send_message(Role::User, "Msg1".to_string(), None, None)
         .await;
     let _ = session
-        .send_message(Role::User, "Msg2".to_string(), None)
+        .send_message(Role::User, "Msg2".to_string(), None, None)
         .await;
     let _ = session
-        .send_message(Role::User, "Msg3".to_string(), None)
+        .send_message(Role::User, "Msg3".to_string(), None, None)
         .await;
 
     // Add a large message that should trigger trimming
     // 40 chars = (40/4).max(1) + 1 = 10 + 1 = 11 tokens
     let large_msg = "0123456789012345678901234567890123456789"; // 40 chars
     let _ = session
-        .send_message(Role::User, large_msg.to_string(), None)
+        .send_message(Role::User, large_msg.to_string(), None, None)
         .await;
 
     // The client should have received fewer messages than we sent
@@ -238,10 +239,10 @@ async fn test_no_trimming_when_under_limit() {
 
     // Add a few small messages
     let _ = session
-        .send_message(Role::User, "Hi".to_string(), None)
+        .send_message(Role::User, "Hi".to_string(), None, None)
         .await;
     let _ = session
-        .send_message(Role::User, "Hello".to_string(), None)
+        .send_message(Role::User, "Hello".to_string(), None, None)
         .await;
 
     // The last send should include: system prompt + first user message + first assistant response + second user message
@@ -265,7 +266,7 @@ async fn test_request_buffer_reuse() {
 
     // Send first message
     let _ = session
-        .send_message(Role::User, "First".to_string(), None)
+        .send_message(Role::User, "First".to_string(), None, None)
         .await;
 
     // Should have sent: system prompt + user message = 2 messages
@@ -274,7 +275,7 @@ async fn test_request_buffer_reuse() {
 
     // Send second message
     let _ = session
-        .send_message(Role::User, "Second".to_string(), None)
+        .send_message(Role::User, "Second".to_string(), None, None)
         .await;
 
     // Should have sent: system prompt + first user + first assistant + second user = 4 messages
@@ -283,7 +284,7 @@ async fn test_request_buffer_reuse() {
 
     // Send third message
     let _ = session
-        .send_message(Role::User, "Third".to_string(), None)
+        .send_message(Role::User, "Third".to_string(), None, None)
         .await;
 
     // Should have sent: system prompt + all messages = 6 messages
