@@ -1,3 +1,16 @@
+0.7.1 DEC/08/2025
+ - fix: Test suite corrections for OpenAI tools trait parameter
+   - Fixed MockClient implementations in council.rs, llm_session_tests.rs
+   - Corrected send_message() parameter count across all test files
+   - All 45 library tests now passing
+ - new: openai_bitcoin_price_example.rs
+   - Practical example demonstrating real-time Bitcoin price lookup
+   - Shows web_search tool usage with high context configuration
+   - Demonstrates token usage tracking for financial queries
+ - fix: Removed unsupported max_num_results from web_search tool usage
+   - max_num_results is for file_search only, not web_search
+   - Example now uses only supported parameters for web_search
+
 0.7.0 DEC/08/2025
  - feat: OpenAI Responses API Support for Agentic Tool Calling
    - OpenAIClient now automatically switches between Chat Completions and Responses API
