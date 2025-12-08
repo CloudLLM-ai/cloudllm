@@ -83,7 +83,9 @@
 use crate::client_wrapper::{MessageChunk, TokenUsage};
 use lazy_static::lazy_static;
 use openai_rust::chat;
-use openai_rust::chat::{GrokTool, ResponsesArguments, ResponsesMessage};
+use openai_rust::chat::{
+    GrokTool, OpenAITool, OpenAIResponsesArguments, ResponsesArguments, ResponsesMessage,
+};
 use openai_rust2 as openai_rust;
 use std::error::Error;
 use std::time::Duration;
@@ -202,6 +204,57 @@ pub async fn send_and_track_responses(
             if log::log_enabled!(log::Level::Error) {
                 log::error!(
                     "cloudllm::clients::common::send_and_track_responses(...): xAI Responses API Error: {}",
+                    err
+                );
+            }
+            Err(err.into())
+        }
+    }
+}
+
+/// Send a request to OpenAI's Responses API (/v1/responses) with agentic tool calling.
+///
+/// This function is used when openai_tools are provided (web_search, file_search, code_interpreter),
+/// as the Responses API uses a different endpoint and request/response format than Chat Completions.
+pub async fn send_and_track_openai_responses(
+    api: &openai_rust::Client,
+    model: &str,
+    formatted_msgs: Vec<chat::Message>,
+    url_path: Option<String>,
+    usage_slot: &Mutex<Option<TokenUsage>>,
+    openai_tools: Vec<OpenAITool>,
+) -> Result<String, Box<dyn Error>> {
+    // Convert chat messages to ResponsesMessage format
+    let input: Vec<ResponsesMessage> = formatted_msgs
+        .into_iter()
+        .map(|msg| ResponsesMessage {
+            role: msg.role,
+            content: msg.content,
+        })
+        .collect();
+
+    let args = OpenAIResponsesArguments::new(model, input).with_tools(openai_tools);
+
+    let response = api.create_openai_responses(args, url_path).await;
+
+    match response {
+        Ok(response) => {
+            let usage = TokenUsage {
+                input_tokens: response.usage.input_tokens as usize,
+                output_tokens: response.usage.output_tokens as usize,
+                total_tokens: response.usage.total_tokens as usize,
+            };
+
+            // Store it for get_last_usage()
+            *usage_slot.lock().await = Some(usage);
+
+            // Return the assistant's content (with citations extracted)
+            Ok(response.get_text_content())
+        }
+        Err(err) => {
+            if log::log_enabled!(log::Level::Error) {
+                log::error!(
+                    "cloudllm::clients::common::send_and_track_openai_responses(...): OpenAI Responses API Error: {}",
                     err
                 );
             }

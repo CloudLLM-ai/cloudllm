@@ -62,7 +62,8 @@
 
 use async_trait::async_trait;
 use futures_util::stream::Stream;
-use openai_rust2::chat::GrokTool;
+use openai_rust2 as openai_rust;
+use openai_rust::chat::{GrokTool, OpenAITool};
 use std::error::Error;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -138,12 +139,15 @@ pub trait ClientWrapper: Send + Sync {
     /// The `messages` slice must include any system priming messages the caller wishes to send.
     /// The `optional_grok_tools` parameter enables xAI's server-side agentic tools (web_search,
     /// x_search, code_execution, collections_search, mcp) when using a Grok client.
-    /// Other providers will ignore this parameter.
+    /// The `optional_openai_tools` parameter enables OpenAI's server-side agentic tools
+    /// (web_search, file_search, code_interpreter) when using an OpenAI client.
+    /// Other providers will ignore these parameters.
     /// Implementations should surface provider specific errors via `Err(Box<dyn Error>)`.
     async fn send_message(
         &self,
         messages: &[Message],
         optional_grok_tools: Option<Vec<GrokTool>>,
+        optional_openai_tools: Option<Vec<OpenAITool>>,
     ) -> Result<Message, Box<dyn Error>>;
 
     /// Request a streaming response from the provider.
@@ -159,6 +163,7 @@ pub trait ClientWrapper: Send + Sync {
         &'a self,
         _messages: &'a [Message],
         _optional_grok_tools: Option<Vec<GrokTool>>,
+        _optional_openai_tools: Option<Vec<OpenAITool>>,
     ) -> MessageStreamFuture<'a> {
         Box::pin(async { Ok(None) })
     }

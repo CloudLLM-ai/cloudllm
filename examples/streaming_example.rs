@@ -45,6 +45,7 @@ async fn main() {
             Role::User,
             "Write a haiku about Rust programming.".to_string(),
             None,
+            None,
         )
         .await
     {
@@ -80,7 +81,7 @@ async fn main() {
             if !full_response.is_empty() {
                 // Note: The user message was already added; now add the assistant response
                 let _ = session
-                    .send_message(Role::Assistant, full_response, None)
+                    .send_message(Role::Assistant, full_response, None, None)
                     .await;
             }
         }

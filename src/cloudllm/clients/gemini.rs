@@ -238,6 +238,7 @@ impl ClientWrapper for GeminiClient {
         &self,
         messages: &[Message],
         optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Convert to openai_rust chat::Message
 

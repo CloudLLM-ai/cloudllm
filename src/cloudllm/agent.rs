@@ -37,7 +37,7 @@
 
 use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 use crate::cloudllm::tool_protocol::ToolRegistry;
-use openai_rust2::chat::GrokTool;
+use openai_rust2::chat::{GrokTool, OpenAITool};
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
@@ -90,6 +90,9 @@ pub struct Agent {
     /// Optional xAI server-side tools (web_search, x_search, code_execution, etc.)
     /// to forward to compatible providers (Grok).
     pub grok_tools: Option<Vec<GrokTool>>,
+    /// Optional OpenAI server-side tools (web_search, file_search, code_interpreter)
+    /// to forward to compatible providers (OpenAI).
+    pub openai_tools: Option<Vec<OpenAITool>>,
 }
 
 impl Agent {
@@ -108,6 +111,7 @@ impl Agent {
             metadata: HashMap::new(),
             tool_registry: None,
             grok_tools: None,
+            openai_tools: None,
         }
     }
 
@@ -161,6 +165,13 @@ impl Agent {
     /// Only supported by Grok clients.
     pub fn with_grok_tools(mut self, grok_tools: Vec<GrokTool>) -> Self {
         self.grok_tools = Some(grok_tools);
+        self
+    }
+
+    /// Forward OpenAI server-side tools (web_search, file_search, code_interpreter) to the underlying client.
+    /// Only supported by OpenAI clients.
+    pub fn with_openai_tools(mut self, openai_tools: Vec<OpenAITool>) -> Self {
+        self.openai_tools = Some(openai_tools);
         self
     }
 
@@ -261,9 +272,10 @@ impl Agent {
         loop {
             // Send to LLM
             let grok_tools = self.grok_tools.clone();
+            let openai_tools = self.openai_tools.clone();
             let response = self
                 .client
-                .send_message(&messages, grok_tools)
+                .send_message(&messages, grok_tools, openai_tools)
                 .await
                 .map_err(|e| {
                     Box::new(crate::council::CouncilError::ExecutionFailed(e.to_string()))

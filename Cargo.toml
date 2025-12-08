@@ -1,6 +1,6 @@
 [package]
 name = "cloudllm"
-version = "0.6.3"
+version = "0.7.0"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, and multi-agent orchestration."
@@ -13,7 +13,7 @@ tokio = { version = "1.48.0", features = ["full"] }
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
 # https://github.com/gubatron/openai-rust
-openai-rust2 = "1.7.1"
+openai-rust2 = "1.7.2"
 
 async-trait = "0.1.89"
 log = "0.4.28"

@@ -1,3 +1,44 @@
+0.7.0 DEC/08/2025
+ - feat: OpenAI Responses API Support for Agentic Tool Calling
+   - OpenAIClient now automatically switches between Chat Completions and Responses API
+   - When tools are provided (web_search, file_search, code_interpreter), uses /v1/responses endpoint
+   - Without tools, uses standard /v1/chat/completions endpoint
+   - Real-time web search with configurable context size (high/medium/low)
+   - Geographic filtering support (country, city, region, timezone)
+ - new: OpenAI tool types in openai-rust2 (1.7.2):
+   - OpenAITool struct with web_search, file_search, code_interpreter factory methods
+   - UserLocation struct for geographic filtering on web searches
+   - OpenAIResponsesArguments for Responses API requests
+   - Client::create_openai_responses() for /v1/responses endpoint
+ - new: send_and_track_openai_responses() in common.rs for OpenAI Responses API calls
+ - feature: Dual API routing pattern now available for both Grok and OpenAI clients
+   - Automatic endpoint selection based on tool presence
+   - Unified response handling through ResponsesCompletion
+   - Token usage tracking for all tool-based requests
+ - update: ClientWrapper trait now supports both Grok and OpenAI tools
+   - send_message() accepts optional_openai_tools parameter
+   - send_message_stream() accepts optional_openai_tools parameter
+   - All client implementations updated for backward compatibility
+ - update: Agent API extended with OpenAI tool support
+   - Agent::with_openai_tools() builder method
+   - Transparent tool forwarding through Agent → LLMSession → Client layers
+ - update: LLMSession supports OpenAI tools
+   - send_message() accepts optional_openai_tools parameter
+   - send_message_stream() accepts optional_openai_tools parameter
+ - new: openai_web_search_example.rs demonstrating all tool capabilities
+   - Basic web search with context size control
+   - Geographic filtering example
+   - Multi-turn LLMSession conversation with web search
+ - fix: Updated 4 existing examples for new trait signature
+   - interactive_session.rs
+   - interactive_streaming_session.rs
+   - streaming_example.rs
+   - openai_web_search_example.rs (new)
+ - deps: openai-rust2 upgraded to 1.7.2 (now supports OpenAI Responses API)
+ - docs: Comprehensive example showing all OpenAI tool usage patterns
+ - See: https://platform.openai.com/docs/guides/tools-web-search
+ - Supported Models: gpt-5, gpt-4o, and other models with Responses API support
+
 0.6.3 DEC/04/2025
  - feat: xAI Responses API Support for Agentic Tool Calling
    - GrokClient now automatically switches between Chat Completions and Responses API

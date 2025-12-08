@@ -143,6 +143,7 @@ impl ClientWrapper for GrokClient {
         &self,
         messages: &[Message],
         optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
         let mut formatted_messages = Vec::with_capacity(messages.len());
@@ -203,6 +204,7 @@ impl ClientWrapper for GrokClient {
         &'a self,
         _messages: &'a [Message],
         _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
         // Note: Streaming is not yet supported for the Responses API
         // For now, return an error indicating streaming is not available

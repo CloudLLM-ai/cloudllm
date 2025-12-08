@@ -90,7 +90,7 @@ async fn main() {
         io::stdout().flush().unwrap();
 
         let stream_result = session
-            .send_message_stream(Role::User, user_input.to_string(), None)
+            .send_message_stream(Role::User, user_input.to_string(), None, None)
             .await;
 
         match stream_result {
@@ -133,7 +133,7 @@ async fn main() {
                     // We use send_message with Role::Assistant to add the response to history
                     // This doesn't make an API call, just updates the session
                     let _ = session
-                        .send_message(Role::Assistant, full_response.clone(), None)
+                        .send_message(Role::Assistant, full_response.clone(), None, None)
                         .await;
                 }
 
@@ -153,7 +153,7 @@ async fn main() {
                 println!("Sending message...");
 
                 let response_result = session
-                    .send_message(Role::User, user_input.to_string(), None)
+                    .send_message(Role::User, user_input.to_string(), None, None)
                     .await;
 
                 match response_result {

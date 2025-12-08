@@ -76,7 +76,7 @@ use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
 use crate::client_wrapper::{MessageChunk, TokenUsage};
-use crate::clients::common::{chunks_to_stream, send_and_track, StreamError};
+use crate::clients::common::{chunks_to_stream, send_and_track, send_and_track_openai_responses, StreamError};
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use tokio::sync::Mutex;
 
@@ -227,6 +227,7 @@ impl ClientWrapper for OpenAIClient {
         &self,
         messages: &[Message],
         optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+        optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> Result<Message, Box<dyn Error>> {
         // Convert the provided messages into the format expected by openai_rust
         let mut formatted_messages = Vec::with_capacity(messages.len());
@@ -241,31 +242,44 @@ impl ClientWrapper for OpenAIClient {
             });
         }
 
-        let url_path_string = "/v1/chat/completions".to_string();
-
-        let result = send_and_track(
-            &self.client,
-            &self.model,
-            formatted_messages,
-            Some(url_path_string),
-            &self.token_usage,
-            optional_grok_tools,
-        )
-        .await;
+        // Use the Responses API when OpenAI tools are provided, otherwise use Chat Completions
+        let result = if let Some(openai_tools) = optional_openai_tools {
+            // Use the Responses API (/v1/responses) for agentic tool calling
+            send_and_track_openai_responses(
+                &self.client,
+                &self.model,
+                formatted_messages,
+                Some("/v1/responses".to_string()),
+                &self.token_usage,
+                openai_tools,
+            )
+            .await
+        } else {
+            // Use the standard Chat Completions API (/v1/chat/completions)
+            send_and_track(
+                &self.client,
+                &self.model,
+                formatted_messages,
+                Some("/v1/chat/completions".to_string()),
+                &self.token_usage,
+                optional_grok_tools,
+            )
+            .await
+        };
 
         match result {
             Ok(c) => Ok(Message {
                 role: Role::Assistant,
                 content: Arc::from(c.as_str()),
             }),
-            Err(_) => {
+            Err(e) => {
                 if log::log_enabled!(log::Level::Error) {
                     log::error!(
                         "OpenAIClient::send_message(...): OpenAI API Error: {}",
-                        "Error occurred while sending message"
+                        e
                     );
                 }
-                Err("Error occurred while sending message".into())
+                Err(e)
             }
         }
     }
@@ -274,6 +288,7 @@ impl ClientWrapper for OpenAIClient {
         &'a self,
         messages: &'a [Message],
         optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
         Box::pin(async move {
             // Convert the provided messages into the format expected by openai_rust
