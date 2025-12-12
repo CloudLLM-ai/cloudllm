@@ -190,10 +190,7 @@ impl ClientWrapper for GrokClient {
             }),
             Err(e) => {
                 if log::log_enabled!(log::Level::Error) {
-                    log::error!(
-                        "GrokClient::send_message(...): API Error: {}",
-                        e
-                    );
+                    log::error!("GrokClient::send_message(...): API Error: {}", e);
                 }
                 Err(e)
             }
@@ -208,9 +205,9 @@ impl ClientWrapper for GrokClient {
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
         // Note: Streaming is not yet supported for the Responses API
         // For now, return an error indicating streaming is not available
-        Box::pin(async move {
-            Err("Streaming is not yet supported for the xAI Responses API".into())
-        })
+        Box::pin(
+            async move { Err("Streaming is not yet supported for the xAI Responses API".into()) },
+        )
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {

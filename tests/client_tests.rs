@@ -115,10 +115,7 @@ pub fn test_grok_client() {
 
     // Use the new xAI Agent Tools API (replaces deprecated Live Search)
     // See: https://docs.x.ai/docs/guides/tools/overview
-    let grok_tools = vec![
-        GrokTool::web_search(),
-        GrokTool::x_search(),
-    ];
+    let grok_tools = vec![GrokTool::web_search(), GrokTool::x_search()];
 
     let response_message: Message = rt.block_on(async {
         let s = llm_session

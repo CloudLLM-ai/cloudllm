@@ -84,7 +84,7 @@ use crate::client_wrapper::{MessageChunk, TokenUsage};
 use lazy_static::lazy_static;
 use openai_rust::chat;
 use openai_rust::chat::{
-    GrokTool, OpenAITool, OpenAIResponsesArguments, ResponsesArguments, ResponsesMessage,
+    GrokTool, OpenAIResponsesArguments, OpenAITool, ResponsesArguments, ResponsesMessage,
 };
 use openai_rust2 as openai_rust;
 use std::error::Error;

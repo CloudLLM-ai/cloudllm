@@ -19,7 +19,7 @@
 //! - These models support the Responses API with tool calling
 
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
-use cloudllm::clients::openai::{OpenAIClient, Model};
+use cloudllm::clients::openai::{Model, OpenAIClient};
 use openai_rust2::chat::OpenAITool;
 use std::sync::Arc;
 
@@ -35,14 +35,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}\n", "=".repeat(70));
 
     // Get API key from environment
-    let openai_key = std::env::var("OPEN_AI_SECRET")
-        .expect("OPEN_AI_SECRET environment variable must be set");
+    let openai_key =
+        std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET environment variable must be set");
 
     // Create OpenAI client with gpt-5 (supports Responses API)
-    let client = Arc::new(OpenAIClient::new_with_model_enum(
-        &openai_key,
-        Model::GPT5,
-    ));
+    let client = Arc::new(OpenAIClient::new_with_model_enum(&openai_key, Model::GPT5));
 
     println!("✓ OpenAI client initialized");
     println!("✓ Model: {}\n", client.model_name());
@@ -68,16 +65,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create web search tool with high context for detailed financial data
     let tools = vec![
-        OpenAITool::web_search()
-            .with_search_context_size("high"), // High context for detailed results
+        OpenAITool::web_search().with_search_context_size("high"), // High context for detailed results
     ];
 
     println!("📊 Fetching current Bitcoin price...\n");
 
     // Send request with web search tool
-    let response = client
-        .send_message(&messages, None, Some(tools))
-        .await?;
+    let response = client.send_message(&messages, None, Some(tools)).await?;
 
     // Display the response
     println!("{}", "=".repeat(70));

@@ -188,9 +188,7 @@ async fn extension_filtering(
     Ok(())
 }
 
-async fn error_handling(
-    root_path: &Path,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn error_handling(root_path: &Path) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 5: Error Handling ---");
 
     let fs = FileSystemTool::new().with_root_path(root_path.to_path_buf());
@@ -224,9 +222,7 @@ async fn error_handling(
     Ok(())
 }
 
-async fn bulk_operations(
-    root_path: &Path,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn bulk_operations(root_path: &Path) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- Example 6: Bulk Operations ---");
 
     let fs = FileSystemTool::new().with_root_path(root_path.to_path_buf());

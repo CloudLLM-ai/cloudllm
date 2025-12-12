@@ -176,7 +176,11 @@ impl LLMSession {
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(&self.request_buffer, optional_grok_tools, optional_openai_tools)
+            .send_message(
+                &self.request_buffer,
+                optional_grok_tools,
+                optional_openai_tools,
+            )
             .await?;
 
         // Clone response for return before adding to history
@@ -271,7 +275,11 @@ impl LLMSession {
         // Get the streaming response
         let stream_result = self
             .client
-            .send_message_stream(&self.request_buffer, optional_grok_tools, optional_openai_tools)
+            .send_message_stream(
+                &self.request_buffer,
+                optional_grok_tools,
+                optional_openai_tools,
+            )
             .await?;
 
         // If streaming is not supported, remove the message we added

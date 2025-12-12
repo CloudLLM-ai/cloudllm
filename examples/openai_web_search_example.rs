@@ -19,7 +19,7 @@
 //! - Web search results are real-time and may vary
 
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
-use cloudllm::clients::openai::{OpenAIClient, Model};
+use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::LLMSession;
 use openai_rust2::chat::{OpenAITool, UserLocation};
 use std::sync::Arc;
@@ -37,8 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}\n", "=".repeat(80));
 
     // Get API key from environment
-    let openai_key = std::env::var("OPEN_AI_SECRET")
-        .expect("OPEN_AI_SECRET must be set");
+    let openai_key = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET must be set");
 
     // Create OpenAI client with gpt-5 (supports Responses API)
     // Note: gpt-5 and gpt-4o are the recommended models for tool calling
@@ -64,10 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     // Create tools with basic web search (high context for detailed results)
-    let tools_1 = vec![
-        OpenAITool::web_search()
-            .with_search_context_size("high"),
-    ];
+    let tools_1 = vec![OpenAITool::web_search().with_search_context_size("high")];
 
     println!("Sending request with web_search tool (context: high)...\n");
 
@@ -92,11 +88,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let messages_2 = vec![
         Message {
             role: Role::System,
-            content: Arc::from("You are a local events coordinator. Search for current events and news."),
+            content: Arc::from(
+                "You are a local events coordinator. Search for current events and news.",
+            ),
         },
         Message {
             role: Role::User,
-            content: Arc::from("What are the major tech events happening in San Francisco this month?"),
+            content: Arc::from(
+                "What are the major tech events happening in San Francisco this month?",
+            ),
         },
     ];
 
@@ -108,11 +108,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         timezone: Some("America/Los_Angeles".to_string()),
     };
 
-    let tools_2 = vec![
-        OpenAITool::web_search()
-            .with_search_context_size("medium")
-            .with_user_location(location),
-    ];
+    let tools_2 = vec![OpenAITool::web_search()
+        .with_search_context_size("medium")
+        .with_user_location(location)];
 
     println!("Sending request with geographic filtering (SF, CA)...\n");
 
@@ -134,9 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 3: Web Search with LLMSession");
     println!("{}\n", "=".repeat(80));
 
-    let session_client = Arc::new(
-        OpenAIClient::new_with_model_enum(&openai_key, Model::GPT5)
-    );
+    let session_client = Arc::new(OpenAIClient::new_with_model_enum(&openai_key, Model::GPT5));
 
     let mut session = LLMSession::new(
         session_client,
@@ -144,10 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         8192, // max context window
     );
 
-    let web_search_tools = vec![
-        OpenAITool::web_search()
-            .with_search_context_size("medium"),
-    ];
+    let web_search_tools = vec![OpenAITool::web_search().with_search_context_size("medium")];
 
     println!("Starting multi-turn conversation with web search capabilities...\n");
 

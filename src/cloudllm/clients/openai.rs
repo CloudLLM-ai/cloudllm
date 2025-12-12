@@ -76,13 +76,21 @@ use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
 use crate::client_wrapper::{MessageChunk, TokenUsage};
-use crate::clients::common::{chunks_to_stream, send_and_track, send_and_track_openai_responses, StreamError};
+use crate::clients::common::{
+    chunks_to_stream, send_and_track, send_and_track_openai_responses, StreamError,
+};
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use tokio::sync::Mutex;
 
 /// Official model identifiers supported by OpenAI's Chat Completions API.
 #[allow(non_camel_case_types)]
 pub enum Model {
+    /// `gpt-5.2` – Complex reasoning, broad world knowledge, and code-heavy or multi-step agentic tasks
+    GPT52,
+    /// `gpt-5.2-chat-latest` – ChatGPT's production deployment of GPT-5.2.
+    GPT52ChatLatest,
+    /// `gpt-5.2-pro` – Tough problems that may take longer to solve but require harder thinking
+    GPT52Pro,
     /// `gpt-5.1 - flagship for coding and agentic tasks with configurable reasoning and non-reasoning effort.
     GPT51,
     /// `gpt-5` – high-reasoning, medium latency, text or multimodal input.
@@ -132,6 +140,9 @@ pub enum Model {
 /// Convert a [`Model`] variant into the string identifier expected by the REST API.
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT52 => "gpt-5.2".to_string(),
+        Model::GPT52ChatLatest => "gpt-5.2-chat-latest".to_string(),
+        Model::GPT52Pro => "gpt-5.2-pro".to_string(),
         Model::GPT51 => "gpt-5.1".to_string(),
         Model::GPT5 => "gpt-5".to_string(),
         Model::GPT5Mini => "gpt-5-mini".to_string(),
@@ -219,10 +230,6 @@ impl OpenAIClient {
 
 #[async_trait]
 impl ClientWrapper for OpenAIClient {
-    fn model_name(&self) -> &str {
-        &self.model
-    }
-
     async fn send_message(
         &self,
         messages: &[Message],
@@ -274,10 +281,7 @@ impl ClientWrapper for OpenAIClient {
             }),
             Err(e) => {
                 if log::log_enabled!(log::Level::Error) {
-                    log::error!(
-                        "OpenAIClient::send_message(...): OpenAI API Error: {}",
-                        e
-                    );
+                    log::error!("OpenAIClient::send_message(...): OpenAI API Error: {}", e);
                 }
                 Err(e)
             }
@@ -376,6 +380,10 @@ impl ClientWrapper for OpenAIClient {
                 }
             }
         })
+    }
+
+    fn model_name(&self) -> &str {
+        &self.model
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {

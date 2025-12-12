@@ -62,8 +62,8 @@
 
 use async_trait::async_trait;
 use futures_util::stream::Stream;
-use openai_rust2 as openai_rust;
 use openai_rust::chat::{GrokTool, OpenAITool};
+use openai_rust2 as openai_rust;
 use std::error::Error;
 use std::pin::Pin;
 use std::sync::Arc;
