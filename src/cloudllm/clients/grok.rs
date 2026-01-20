@@ -4,7 +4,9 @@
 //! `x_search`), it automatically uses the Responses API (`/v1/responses`) for agentic tool calling.
 //! Otherwise, it uses the standard Chat Completions API (`/v1/chat/completions`).
 //!
-//! # Example
+//! It also supports image generation via Grok Imagine API for creating images from prompts.
+//!
+//! # Example: Chat Completions
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
@@ -29,9 +31,43 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Example: Image Generation
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::clients::grok::GrokClient;
+//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("XAI_KEY")?;
+//!     let client = GrokClient::new_with_model_str(&key, "grok-3-mini");
+//!
+//!     let response = client.generate_image(
+//!         "A surreal landscape with floating islands",
+//!         ImageGenerationOptions {
+//!             aspect_ratio: None,
+//!             num_images: Some(1),
+//!             response_format: Some("url".to_string()),
+//!         },
+//!     ).await?;
+//!
+//!     for image in response.images {
+//!         if let Some(url) = image.url {
+//!             println!("Generated: {}", url);
+//!         }
+//!     }
+//!     Ok(())
+//! }
+//! ```
 
 use crate::client_wrapper::{Role, TokenUsage};
 use crate::clients::common::{get_shared_http_client, send_and_track, send_and_track_responses};
+use crate::cloudllm::image_generation::{
+    ImageData, ImageGenerationClient, ImageGenerationOptions, ImageGenerationResponse,
+};
 use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
 use openai_rust2 as openai_rust;
@@ -39,6 +75,19 @@ use openai_rust2::chat;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+/// Image generation model identifiers for Grok.
+pub enum ImageModel {
+    /// `grok-2-image` – Grok's image generation model
+    Grok2Image,
+}
+
+/// Convert a [`ImageModel`] variant into the string identifier expected by the API.
+fn image_model_to_string(model: ImageModel) -> String {
+    match model {
+        ImageModel::Grok2Image => "grok-2-image".to_string(),
+    }
+}
 
 /// Client wrapper for xAI's Grok models with Responses API support.
 pub struct GrokClient {
@@ -212,5 +261,62 @@ impl ClientWrapper for GrokClient {
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
+    }
+}
+
+#[async_trait]
+impl ImageGenerationClient for GrokClient {
+    async fn generate_image(
+        &self,
+        prompt: &str,
+        options: ImageGenerationOptions,
+    ) -> Result<ImageGenerationResponse, Box<dyn Error + Send + Sync>> {
+        // Note: Grok Imagine doesn't support aspect_ratio parameter
+        // aspect_ratio is ignored here
+        if options.aspect_ratio.is_some() && log::log_enabled!(log::Level::Warn) {
+            log::warn!("Grok Imagine does not support aspect_ratio, it will be ignored");
+        }
+
+        let n = options.num_images.unwrap_or(1).min(10); // Grok max is 10
+
+        // Create ImageArguments for the API call
+        let mut args = openai_rust::images::ImageArguments::new(prompt);
+        let model_name = image_model_to_string(ImageModel::Grok2Image);
+        args.model = Some(model_name);
+        args.n = Some(n);
+
+        // Make the request to the Grok Imagine endpoint
+        let response_strings = self
+            .client
+            .create_image_old(args, Some("/v1/images/generations".to_string()))
+            .await?;
+
+        // Convert response strings to ImageData
+        let mut images = Vec::new();
+        for response_str in response_strings {
+            let image_data = if response_str.starts_with("http") {
+                // It's a URL
+                ImageData {
+                    url: Some(response_str),
+                    b64_json: None,
+                }
+            } else {
+                // It's likely base64 data
+                ImageData {
+                    url: None,
+                    b64_json: Some(response_str),
+                }
+            };
+            images.push(image_data);
+        }
+
+        Ok(ImageGenerationResponse {
+            images,
+            revised_prompt: None, // TODO: Extract from response if Grok provides it
+        })
+    }
+
+    fn model_name(&self) -> &str {
+        "grok-2-image"
     }
 }

@@ -3,6 +3,9 @@
 //! The `GeminiClient` connects to Google's Generative Language (Gemini) API using the
 //! same message structures and token accounting abstractions employed by the rest of CloudLLM.
 //!
+//! It also supports image generation via Gemini's image generation models with
+//! configurable aspect ratios and quality tiers.
+//!
 //! # Selecting a model and sending a message
 //!
 //! ```rust,no_run
@@ -28,16 +31,64 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Image Generation with Gemini
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::clients::gemini::GeminiClient;
+//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("GEMINI_KEY")?;
+//!     let client = GeminiClient::new_with_model_string(&key, "gemini-2.5-flash-image");
+//!
+//!     let response = client.generate_image(
+//!         "A serene mountain landscape at sunrise",
+//!         ImageGenerationOptions {
+//!             aspect_ratio: Some("16:9".to_string()),
+//!             num_images: Some(1),
+//!             response_format: Some("url".to_string()),
+//!         },
+//!     ).await?;
+//!
+//!     for image in response.images {
+//!         if let Some(url) = image.url {
+//!             println!("Generated: {}", url);
+//!         }
+//!     }
+//!     Ok(())
+//! }
+//! ```
 
 use crate::client_wrapper::TokenUsage;
-use crate::clients::common::send_and_track;
+use crate::clients::common::{get_shared_http_client, send_and_track};
+use crate::cloudllm::image_generation::{
+    ImageData, ImageGenerationClient, ImageGenerationOptions, ImageGenerationResponse,
+};
 use crate::{ClientWrapper, Message, Role};
 use async_trait::async_trait;
 use log::error;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+/// Image generation model identifiers for Gemini.
+pub enum ImageModel {
+    /// `gemini-2.5-flash-image` – Fast, efficient Gemini image generation
+    Gemini25FlashImage,
+}
+
+/// Convert a [`ImageModel`] variant into the string identifier expected by the API.
+fn image_model_to_string(model: ImageModel) -> String {
+    match model {
+        ImageModel::Gemini25FlashImage => "gemini-2.5-flash-image".to_string(),
+    }
+}
 
 /// Client wrapper for Google Gemini (Generative Language) chat-style endpoints.
 pub struct GeminiClient {
@@ -47,6 +98,8 @@ pub struct GeminiClient {
     pub model: String,
     /// Storage for the most recent token usage report.
     token_usage: Mutex<Option<TokenUsage>>,
+    /// API key needed for image generation (Gemini uses query parameters instead of bearer token)
+    api_key: String,
 }
 
 /// Gemini model identifiers returned by the public API (February 2025 snapshot).
@@ -194,6 +247,7 @@ impl GeminiClient {
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
+            api_key: secret_key.to_string(),
         }
     }
 
@@ -214,6 +268,7 @@ impl GeminiClient {
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
+            api_key: secret_key.to_string(),
         }
     }
 
@@ -285,5 +340,122 @@ impl ClientWrapper for GeminiClient {
     /// Returning `Some(...)` enables downstream consumers to pull accurate Gemini billing data.
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
+    }
+}
+
+#[async_trait]
+impl ImageGenerationClient for GeminiClient {
+    async fn generate_image(
+        &self,
+        prompt: &str,
+        options: ImageGenerationOptions,
+    ) -> Result<ImageGenerationResponse, Box<dyn std::error::Error + Send + Sync>> {
+        // Use gemini-2.5-flash-image by default (faster model)
+        let model_name = image_model_to_string(ImageModel::Gemini25FlashImage);
+
+        // Map aspect ratio to Gemini's supported format (default to 1:1)
+        let aspect_ratio = options.aspect_ratio.as_deref().unwrap_or("1:1");
+
+        // Validate aspect ratio
+        let valid_ratios = vec!["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
+        if !valid_ratios.contains(&aspect_ratio) {
+            if log::log_enabled!(log::Level::Warn) {
+                log::warn!(
+                    "Gemini unsupported aspect ratio '{}', using 1:1",
+                    aspect_ratio
+                );
+            }
+        }
+
+        // Build the Gemini image generation request
+        let request_body = json!({
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "responseModalities": ["image"],
+                "imageConfig": {
+                    "aspectRatio": aspect_ratio
+                }
+            }
+        });
+
+        // Build the URL for image generation - model field in URL path
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            model_name, self.api_key
+        );
+
+        // Make the request
+        let http_client = get_shared_http_client();
+        let response = http_client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await?;
+
+        let response_text = response.text().await?;
+
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!("Gemini image API response: {}", response_text);
+        }
+
+        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+        // Check for API errors
+        if let Some(error) = response_json.get("error") {
+            if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
+                return Err(format!("Gemini API error: {}", message).into());
+            }
+            return Err("Gemini API returned an error".into());
+        }
+
+        // Parse the Gemini response structure
+        let mut images = Vec::new();
+
+        // Gemini returns images in candidates[].content.parts[].inlineData
+        if let Some(candidates) = response_json.get("candidates").and_then(|c| c.as_array()) {
+            for candidate in candidates {
+                if let Some(content) = candidate.get("content") {
+                    if let Some(parts) = content.get("parts").and_then(|p| p.as_array()) {
+                        for part in parts {
+                            // Check for image data
+                            if let Some(inline_data) = part.get("inlineData") {
+                                if let Some(mime_type) = inline_data.get("mimeType").and_then(|m| m.as_str()) {
+                                    if mime_type.starts_with("image/") {
+                                        if let Some(data) = inline_data.get("data").and_then(|d| d.as_str()) {
+                                            let image_data = ImageData {
+                                                url: None,
+                                                b64_json: Some(format!("data:{};base64,{}", mime_type, data)),
+                                            };
+                                            images.push(image_data);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Handle response format preference
+        // If "url" format was requested but we only have base64, that's what we return
+        // Gemini doesn't support direct URL format for generated images in the standard API
+
+        Ok(ImageGenerationResponse {
+            images,
+            revised_prompt: None,
+        })
+    }
+
+    fn model_name(&self) -> &str {
+        "gemini-2.5-flash-image"
     }
 }

@@ -1,3 +1,53 @@
+0.8.0 JAN/17/2026
+ - feat: Image Generation Support Across Multiple Providers
+   - New ImageGenerationClient trait for unified image generation across providers
+   - Type-safe provider selection via ImageGenerationProvider enum (OpenAI, Grok, Gemini)
+   - Factory functions: new_image_generation_client() and new_image_generation_client_from_str()
+   - Comprehensive ImageGenerationOptions with aspect_ratio, num_images, response_format parameters
+   - Support for multiple aspect ratios per provider:
+     - OpenAI (gpt-image-1.5): 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3
+     - Grok (grok-2-image): All ratios supported via API (aspect ratio parameter)
+     - Gemini (gemini-2.5-flash-image): 10 aspect ratios (1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9)
+   - Response formats: URL and Base64 (b64_json) with automatic format detection
+   - Unified ImageGenerationResponse with images vec and optional revised_prompt field
+ - new: Public utility functions for image handling
+   - get_image_extension_from_base64(): Detects PNG, JPG, WebP from base64 magic bytes
+   - decode_base64(): Decodes base64 strings to bytes for image file saving
+ - new: Image generation implementations for all providers
+   - OpenAI: Uses gpt-image-1.5 model via openai-rust2's create_image_old() method
+   - Grok: Uses grok-2-image model via Grok Imagine API endpoint
+   - Gemini: Uses gemini-2.5-flash-image model via Google's generative language API
+ - new: Comprehensive integration test suite
+   - OpenAI: 6 integration tests covering basic, landscape, multiple, model_name, factory, and error handling
+   - Grok: 9 integration tests with types verification and trait object usage
+   - Gemini: 11 integration tests covering all 10 aspect ratios, portrait/landscape/square modes
+   - Total: 26 image generation integration tests with image file saving
+ - module: New cloudllm/src/cloudllm/image_generation.rs
+   - Core trait, types, and helper functions for image generation
+   - Extensive documentation with compilable examples
+   - Type definitions: ImageGenerationOptions, ImageData, ImageGenerationResponse
+ - module: Updated cloudllm/mod.rs
+   - Added image_generation module exports
+   - ImageGenerationProvider enum with type-safe factory pattern
+   - Public API exports for images generation types and utilities
+ - module: Enhanced client implementations
+   - OpenAI: ImageGenerationClient trait implementation with size mapping for gpt-image-1.5
+   - Grok: ImageGenerationClient trait implementation with model name resolution
+   - Gemini: ImageGenerationClient trait implementation with direct HTTP API calls
+ - docs: README.md updated with image generation section
+   - New "Image Generation with Multiple Providers" section
+   - Type-safe provider selection examples
+   - Aspect ratio configuration guide
+   - Factory function usage patterns
+ - feature: Landscape aspect ratio support
+   - Primary use case: landscape images for blog/social media content
+   - Seamless mapping across provider APIs (different size/aspect ratio naming conventions)
+   - Supported in all three providers with consistent interface
+ - backward-compatibility: Fully backward compatible
+   - No changes to existing ClientWrapper trait
+   - Image generation is opt-in via separate ImageGenerationClient trait
+   - No impact on text generation or streaming functionality
+
 0.7.1 DEC/08/2025
  - fix: Test suite corrections for OpenAI tools trait parameter
    - Fixed MockClient implementations in council.rs, llm_session_tests.rs

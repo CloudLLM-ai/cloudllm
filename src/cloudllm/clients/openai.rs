@@ -5,6 +5,7 @@
 //! - **`send_message`**: returns a `Message` compatible with the higher level [`LLMSession`](crate::LLMSession) API.
 //! - **Automatic usage capture**: the last token accounting is stored in a shared slot.
 //! - **Streaming support**: `send_message_stream` converts streamed responses into [`MessageChunk`] values.
+//! - **Image generation**: Uses DALL-E 3 for generating images from prompts via the [`ImageGenerationClient`] trait.
 //!
 //! # Example
 //!
@@ -64,6 +65,39 @@
 //! }
 //! ```
 //!
+//! # Image Generation with DALL-E 3
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//!
+//! use cloudllm::clients::openai::{OpenAIClient, Model};
+//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let key = std::env::var("OPEN_AI_SECRET")?;
+//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Nano);
+//!
+//!     let options = ImageGenerationOptions {
+//!         aspect_ratio: Some("16:9".to_string()),
+//!         num_images: Some(1),
+//!         response_format: Some("url".to_string()),
+//!     };
+//!
+//!     let response = client.generate_image(
+//!         "A futuristic city at sunset",
+//!         options,
+//!     ).await?;
+//!
+//!     for image in response.images {
+//!         if let Some(url) = image.url {
+//!             println!("Generated: {}", url);
+//!         }
+//!     }
+//!     Ok(())
+//! }
+//! ```
+//!
 //! # Note
 //!
 //! Make sure `OPENAI_API_KEY` is set and pick a valid model name (e.g. `"gpt-4.1-nano"`).
@@ -80,7 +114,24 @@ use crate::clients::common::{
     chunks_to_stream, send_and_track, send_and_track_openai_responses, StreamError,
 };
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+use crate::cloudllm::image_generation::{
+    ImageData, ImageGenerationClient, ImageGenerationOptions, ImageGenerationResponse,
+};
 use tokio::sync::Mutex;
+
+/// Image generation model identifiers for OpenAI.
+#[allow(non_camel_case_types)]
+pub enum ImageModel {
+    /// `gpt-image-1.5` – Current OpenAI image generation model
+    GPTImage1_5,
+}
+
+/// Convert an [`ImageModel`] variant into the string identifier expected by the API.
+pub fn image_model_to_string(model: ImageModel) -> String {
+    match model {
+        ImageModel::GPTImage1_5 => "gpt-image-1.5".to_string(),
+    }
+}
 
 /// Official model identifiers supported by OpenAI's Chat Completions API.
 #[allow(non_camel_case_types)]
@@ -388,5 +439,97 @@ impl ClientWrapper for OpenAIClient {
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
+    }
+}
+
+#[async_trait]
+impl ImageGenerationClient for OpenAIClient {
+    async fn generate_image(
+        &self,
+        prompt: &str,
+        options: ImageGenerationOptions,
+    ) -> Result<ImageGenerationResponse, Box<dyn Error + Send + Sync>> {
+        // Map aspect ratio to OpenAI's supported sizes
+        // gpt-image-1.5 supports: 1024x1024, 1024x1536 (portrait), 1536x1024 (landscape), auto
+        let size = match options.aspect_ratio.as_deref() {
+            Some("16:9") | Some("4:3") | Some("3:2") => "1536x1024", // Landscape options
+            Some("9:16") | Some("3:4") | Some("2:3") => "1024x1536", // Portrait options
+            Some("1:1") | None => "1024x1024", // Square (default)
+            Some(ratio) => {
+                if log::log_enabled!(log::Level::Warn) {
+                    log::warn!(
+                        "OpenAI unsupported aspect ratio '{}', using 1024x1024",
+                        ratio
+                    );
+                }
+                "1024x1024"
+            }
+        };
+
+        let n = options.num_images.unwrap_or(1).min(10); // OpenAI max is 10
+
+        // Create ImageArguments for the API call
+        let mut args = openai_rust::images::ImageArguments::new(prompt);
+        let model_name = image_model_to_string(ImageModel::GPTImage1_5);
+        args.model = Some(model_name.clone());
+        args.n = Some(n);
+        args.size = Some(size.to_string());
+        // Note: response_format is not supported by openai-rust2's ImageArguments,
+        // so we always get URLs back from the default response format
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!(
+                "OpenAI image generation: model={}, n={}, size={}",
+                model_name,
+                n,
+                size
+            );
+        }
+
+        // Make the request to the OpenAI images endpoint
+        let response_strings = self
+            .client
+            .create_image_old(args, Some("/v1/images/generations".to_string()))
+            .await
+            .map_err(|e| {
+                let err_msg = format!("OpenAI image generation error: {}", e);
+                if log::log_enabled!(log::Level::Error) {
+                    log::error!("{}", err_msg);
+                }
+                Box::<dyn Error + Send + Sync>::from(err_msg)
+            })?;
+
+        // Convert response strings to ImageData
+        let mut images = Vec::new();
+        for response_str in response_strings {
+            if log::log_enabled!(log::Level::Debug) {
+                log::debug!(
+                    "OpenAI image response (first 100 chars): {}...",
+                    &response_str[..100.min(response_str.len())]
+                );
+            }
+            let image_data = if response_str.starts_with("http") {
+                // It's a URL
+                ImageData {
+                    url: Some(response_str),
+                    b64_json: None,
+                }
+            } else {
+                // It's likely base64 data
+                ImageData {
+                    url: None,
+                    b64_json: Some(response_str),
+                }
+            };
+            images.push(image_data);
+        }
+
+        Ok(ImageGenerationResponse {
+            images,
+            revised_prompt: None,
+        })
+    }
+
+    fn model_name(&self) -> &str {
+        "gpt-image-1.5" // ImageModel::GPTImage1_5
     }
 }
