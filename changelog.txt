@@ -21,7 +21,8 @@
    - OpenAI: 6 integration tests covering basic, landscape, multiple, model_name, factory, and error handling
    - Grok: 9 integration tests with types verification and trait object usage
    - Gemini: 11 integration tests covering all 10 aspect ratios, portrait/landscape/square modes
-   - Total: 26 image generation integration tests with image file saving
+   - Total: 26+ image generation integration tests with image file saving
+   - Base URL normalization tests verifying consistent handling across all providers
  - module: New cloudllm/src/cloudllm/image_generation.rs
    - Core trait, types, and helper functions for image generation
    - Extensive documentation with compilable examples
@@ -34,6 +35,11 @@
    - OpenAI: ImageGenerationClient trait implementation with size mapping for gpt-image-1.5
    - Grok: ImageGenerationClient trait implementation with model name resolution
    - Gemini: ImageGenerationClient trait implementation with direct HTTP API calls
+ - refactor: Base URL normalization across all clients
+   - OpenAI, Grok, and Gemini clients now normalize base_url by removing trailing slashes
+   - Consistent URL construction with explicit "/" separators
+   - Custom base_url parameters honored for flexible endpoint configuration
+   - Backward compatible - works with both trailing and non-trailing slash URLs
  - docs: README.md updated with image generation section
    - New "Image Generation with Multiple Providers" section
    - Type-safe provider selection examples
@@ -43,6 +49,9 @@
    - Primary use case: landscape images for blog/social media content
    - Seamless mapping across provider APIs (different size/aspect ratio naming conventions)
    - Supported in all three providers with consistent interface
+ - chore: Updated .gitignore for development artifacts
+   - Ignore generated image files (PNG, JPG, JPEG, WebP, GIF)
+   - Ignore temporary markdown files created during development
  - backward-compatibility: Fully backward compatible
    - No changes to existing ClientWrapper trait
    - Image generation is opt-in via separate ImageGenerationClient trait
