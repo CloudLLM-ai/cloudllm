@@ -100,6 +100,8 @@ pub struct GeminiClient {
     token_usage: Mutex<Option<TokenUsage>>,
     /// API key needed for image generation (Gemini uses query parameters instead of bearer token)
     api_key: String,
+    /// Base URL for API calls
+    base_url: String,
 }
 
 /// Gemini model identifiers returned by the public API (February 2025 snapshot).
@@ -239,15 +241,17 @@ impl GeminiClient {
     /// Construct a client using the default Gemini base URL and an explicit model name.
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
+        let base_url = "https://generativelanguage.googleapis.com/v1beta";
         GeminiClient {
             client: openai_rust::Client::new_with_client_and_base_url(
                 secret_key,
                 get_shared_http_client().clone(),
-                "https://generativelanguage.googleapis.com/v1beta/",
+                &format!("{}/", base_url),
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
             api_key: secret_key.to_string(),
+            base_url: base_url.to_string(),
         }
     }
 
@@ -256,19 +260,21 @@ impl GeminiClient {
         Self::new_with_model_string(secret_key, &model_to_string(model))
     }
 
-    /// This function is used to create a GeminiClient with a custom base URL
-    /// The default base URL is "<https://generativelanguage.googleapis.com/v1beta/>"
+    /// This function is used to create a GeminiClient with a custom base URL.
+    /// Note: base_url should not have a trailing slash (e.g., "https://generativelanguage.googleapis.com/v1beta")
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
+        let base_url_normalized = base_url.trim_end_matches('/');
         GeminiClient {
             client: openai_rust::Client::new_with_client_and_base_url(
                 secret_key,
                 get_shared_http_client().clone(),
-                base_url,
+                &format!("{}/", base_url_normalized),
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
             api_key: secret_key.to_string(),
+            base_url: base_url_normalized.to_string(),
         }
     }
 
@@ -386,10 +392,10 @@ impl ImageGenerationClient for GeminiClient {
             }
         });
 
-        // Build the URL for image generation - model field in URL path
+        // Build the URL for image generation - model field in URL path (uses base_url)
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            model_name, self.api_key
+            "{}/models/{}:generateContent?key={}",
+            self.base_url, model_name, self.api_key
         );
 
         // Make the request
