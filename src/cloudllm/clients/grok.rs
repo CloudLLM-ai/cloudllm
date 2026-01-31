@@ -85,7 +85,7 @@ pub enum ImageModel {
 /// Convert a [`ImageModel`] variant into the string identifier expected by the API.
 fn image_model_to_string(model: ImageModel) -> String {
     match model {
-        ImageModel::Grok2Image => "grok-2-image".to_string(),
+        ImageModel::Grok2Image => "grok-2-image-1212".to_string(),
     }
 }
 
@@ -97,6 +97,10 @@ pub struct GrokClient {
     model: String,
     /// Storage for the token usage returned by the most recent request.
     token_usage: Mutex<Option<TokenUsage>>,
+    /// API key needed for image generation
+    api_key: String,
+    /// Base URL for API calls
+    base_url: String,
 }
 
 /// Grok model identifiers available as of April 2025.
@@ -160,15 +164,19 @@ impl GrokClient {
     }
 
     /// Construct a client for Grok-compatible endpoints hosted at a custom base URL.
+    /// Note: base_url should not have a trailing slash (e.g., "https://api.x.ai/v1")
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        let base_url_normalized = base_url.trim_end_matches('/');
         GrokClient {
             client: openai_rust::Client::new_with_client_and_base_url(
                 secret_key,
                 get_shared_http_client().clone(),
-                base_url,
+                &format!("{}/", base_url_normalized),
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
+            api_key: secret_key.to_string(),
+            base_url: base_url_normalized.to_string(),
         }
     }
 
@@ -279,44 +287,78 @@ impl ImageGenerationClient for GrokClient {
 
         let n = options.num_images.unwrap_or(1).min(10); // Grok max is 10
 
-        // Create ImageArguments for the API call
-        let mut args = openai_rust::images::ImageArguments::new(prompt);
-        let model_name = image_model_to_string(ImageModel::Grok2Image);
-        args.model = Some(model_name);
-        args.n = Some(n);
+        // Build request manually to handle Grok's response format
+        let request_body = serde_json::json!({
+            "model": image_model_to_string(ImageModel::Grok2Image),
+            "prompt": prompt,
+            "n": n,
+        });
 
-        // Make the request to the Grok Imagine endpoint
-        let response_strings = self
-            .client
-            .create_image_old(args, Some("/v1/images/generations".to_string()))
+        // Make direct HTTP request to Grok's image generation endpoint
+        let http_client = get_shared_http_client();
+        let url = format!("{}/images/generations", self.base_url);
+
+        let response = http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", &self.api_key))
+            .json(&request_body)
+            .send()
             .await?;
 
-        // Convert response strings to ImageData
+        let response_text = response.text().await?;
+
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!("Grok image API response: {}", response_text);
+        }
+
+        // Parse JSON response
+        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+        // Check for API errors
+        if let Some(error) = response_json.get("error") {
+            if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
+                return Err(format!("Grok API error: {}", message).into());
+            }
+            return Err("Grok API returned an error".into());
+        }
+
+        // Parse the response - Grok returns: { "data": [{ "url": "..." }, ...] }
         let mut images = Vec::new();
-        for response_str in response_strings {
-            let image_data = if response_str.starts_with("http") {
-                // It's a URL
-                ImageData {
-                    url: Some(response_str),
-                    b64_json: None,
+
+        if let Some(data_array) = response_json.get("data").and_then(|d| d.as_array()) {
+            for item in data_array {
+                if let Some(url) = item.get("url").and_then(|u| u.as_str()) {
+                    if !url.is_empty() {
+                        images.push(ImageData {
+                            url: Some(url.to_string()),
+                            b64_json: None,
+                        });
+                    }
+                } else if let Some(b64) = item.get("b64_json").and_then(|b| b.as_str()) {
+                    if !b64.is_empty() {
+                        images.push(ImageData {
+                            url: None,
+                            b64_json: Some(b64.to_string()),
+                        });
+                    }
                 }
-            } else {
-                // It's likely base64 data
-                ImageData {
-                    url: None,
-                    b64_json: Some(response_str),
-                }
-            };
-            images.push(image_data);
+            }
+        }
+
+        if images.is_empty() {
+            return Err("No images in Grok response".into());
         }
 
         Ok(ImageGenerationResponse {
             images,
-            revised_prompt: None, // TODO: Extract from response if Grok provides it
+            revised_prompt: response_json
+                .get("revised_prompt")
+                .and_then(|r| r.as_str())
+                .map(|s| s.to_string()),
         })
     }
 
     fn model_name(&self) -> &str {
-        "grok-2-image"
+        "grok-2-image-1212"
     }
 }
