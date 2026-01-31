@@ -18,3 +18,15 @@ run_example
 run_streaming_example
 
 *~
+
+# Generated image files from tests and examples
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+
+# Temporary markdown files
+*_delete_me*.md
+*_temp*.md
+temp_*.md
