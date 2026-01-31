@@ -12,7 +12,8 @@ use cloudllm::clients::gemini::GeminiClient;
 use cloudllm::clients::grok::GrokClient;
 use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::cloudllm::image_generation::{
-    decode_base64, get_image_extension_from_base64, ImageGenerationClient, ImageGenerationOptions,
+    decode_base64, get_image_extension_from_base64, register_image_generation_tool,
+    ImageGenerationClient, ImageGenerationOptions,
 };
 use cloudllm::init_logger;
 use std::fs;
@@ -1656,9 +1657,8 @@ fn test_agent_with_image_generation_tool() {
     use cloudllm::Agent;
     use cloudllm::clients::openai::{OpenAIClient, Model};
     use cloudllm::tool_protocols::CustomToolProtocol;
-    use cloudllm::tool_protocol::{ToolMetadata, ToolRegistry, ToolResult, ToolProtocol};
+    use cloudllm::tool_protocol::{ToolRegistry, ToolProtocol};
     use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
-    use serde_json::json;
 
     init_logger();
 
@@ -1679,84 +1679,20 @@ fn test_agent_with_image_generation_tool() {
 
     match image_client_result {
         Ok(image_client) => {
-            let image_client = Arc::new(image_client);
+            // image_client is already Arc<dyn ImageGenerationClient>, no need to wrap again
 
             // Create a tool protocol with image generation tool
             let protocol = Arc::new(CustomToolProtocol::new());
 
-            let client_clone = image_client.clone();
+            // Register the image generation tool (much simpler with the helper!)
             let rt = tokio::runtime::Runtime::new().unwrap();
-
-            rt.block_on(async {
-                protocol.register_async_tool(
-                    ToolMetadata::new("generate_image", "Generate an image from a text prompt")
-                        .with_parameter(
-                            cloudllm::tool_protocol::ToolParameter::new(
-                                "prompt",
-                                cloudllm::tool_protocol::ToolParameterType::String,
-                            )
-                            .with_description("The image prompt to generate")
-                            .required()
-                        )
-                        .with_parameter(
-                            cloudllm::tool_protocol::ToolParameter::new(
-                                "aspect_ratio",
-                                cloudllm::tool_protocol::ToolParameterType::String,
-                            )
-                            .with_description("Aspect ratio like 16:9, 4:3, 1:1")
-                        ),
-                    Arc::new(move |params| {
-                        let client = client_clone.clone();
-                        Box::pin(async move {
-                            let prompt = params["prompt"].as_str().ok_or("prompt required")?;
-
-                            match client.generate_image(
-                                prompt,
-                                ImageGenerationOptions {
-                                    aspect_ratio: params.get("aspect_ratio")
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string()),
-                                    num_images: Some(1),
-                                    response_format: Some("url".to_string()),
-                                },
-                            ).await {
-                                Ok(response) => {
-                                    if let Some(image) = response.images.get(0) {
-                                        if let Some(url) = &image.url {
-                                            log::info!("✓ Agent generated image via tool (URL): {}", url);
-                                            Ok(ToolResult::success(json!({
-                                                "url": url,
-                                                "model": client.model_name(),
-                                                "format": "url",
-                                                "success": true
-                                            })))
-                                        } else if let Some(b64) = &image.b64_json {
-                                            log::info!("✓ Agent generated image via tool (Base64): {} bytes", b64.len());
-                                            Ok(ToolResult::success(json!({
-                                                "b64_json": b64,
-                                                "model": client.model_name(),
-                                                "format": "base64",
-                                                "success": true
-                                            })))
-                                        } else {
-                                            Ok(ToolResult::failure("No URL or base64 in response".to_string()))
-                                        }
-                                    } else {
-                                        Ok(ToolResult::failure("No images in response".to_string()))
-                                    }
-                                }
-                                Err(e) => {
-                                    let err_msg = e.to_string();
-                                    if err_msg.contains("quota") {
-                                        log::info!("⚠️  Image generation quota exceeded");
-                                    }
-                                    Ok(ToolResult::failure(err_msg))
-                                }
-                            }
-                        })
-                    }),
-                ).await;
-            });
+            if let Err(e) = rt.block_on(register_image_generation_tool(
+                &protocol,
+                image_client.clone(),
+            )) {
+                log::error!("Failed to register image generation tool: {}", e);
+                panic!("Could not register image generation tool: {}", e);
+            }
 
             // Create an agent with image generation tool
             let registry = Arc::new(ToolRegistry::new(protocol.clone()));
@@ -1906,9 +1842,8 @@ fn test_grok_agent_with_image_generation_tool() {
     use cloudllm::Agent;
     use cloudllm::clients::grok::{GrokClient, Model};
     use cloudllm::tool_protocols::CustomToolProtocol;
-    use cloudllm::tool_protocol::{ToolMetadata, ToolRegistry, ToolResult, ToolProtocol};
+    use cloudllm::tool_protocol::{ToolRegistry, ToolProtocol};
     use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
-    use serde_json::json;
 
     init_logger();
 
@@ -1929,84 +1864,20 @@ fn test_grok_agent_with_image_generation_tool() {
 
     match image_client_result {
         Ok(image_client) => {
-            let image_client = Arc::new(image_client);
+            // image_client is already Arc<dyn ImageGenerationClient>, no need to wrap again
 
             // Create a tool protocol with image generation tool
             let protocol = Arc::new(CustomToolProtocol::new());
 
-            let client_clone = image_client.clone();
+            // Register the image generation tool (much simpler with the helper!)
             let rt = tokio::runtime::Runtime::new().unwrap();
-
-            rt.block_on(async {
-                protocol.register_async_tool(
-                    ToolMetadata::new("generate_image", "Generate an image from a text prompt")
-                        .with_parameter(
-                            cloudllm::tool_protocol::ToolParameter::new(
-                                "prompt",
-                                cloudllm::tool_protocol::ToolParameterType::String,
-                            )
-                            .with_description("The image prompt to generate")
-                            .required()
-                        )
-                        .with_parameter(
-                            cloudllm::tool_protocol::ToolParameter::new(
-                                "aspect_ratio",
-                                cloudllm::tool_protocol::ToolParameterType::String,
-                            )
-                            .with_description("Aspect ratio like 16:9, 4:3, 1:1")
-                        ),
-                    Arc::new(move |params| {
-                        let client = client_clone.clone();
-                        Box::pin(async move {
-                            let prompt = params["prompt"].as_str().ok_or("prompt required")?;
-
-                            match client.generate_image(
-                                prompt,
-                                ImageGenerationOptions {
-                                    aspect_ratio: params.get("aspect_ratio")
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string()),
-                                    num_images: Some(1),
-                                    response_format: Some("url".to_string()),
-                                },
-                            ).await {
-                                Ok(response) => {
-                                    if let Some(image) = response.images.get(0) {
-                                        if let Some(url) = &image.url {
-                                            log::info!("✓ Agent generated image via tool (URL): {}", url);
-                                            Ok(ToolResult::success(json!({
-                                                "url": url,
-                                                "model": client.model_name(),
-                                                "format": "url",
-                                                "success": true
-                                            })))
-                                        } else if let Some(b64) = &image.b64_json {
-                                            log::info!("✓ Agent generated image via tool (Base64): {} bytes", b64.len());
-                                            Ok(ToolResult::success(json!({
-                                                "b64_json": b64,
-                                                "model": client.model_name(),
-                                                "format": "base64",
-                                                "success": true
-                                            })))
-                                        } else {
-                                            Ok(ToolResult::failure("No URL or base64 in response".to_string()))
-                                        }
-                                    } else {
-                                        Ok(ToolResult::failure("No images in response".to_string()))
-                                    }
-                                }
-                                Err(e) => {
-                                    let err_msg = e.to_string();
-                                    if err_msg.contains("quota") {
-                                        log::info!("⚠️  Image generation quota exceeded");
-                                    }
-                                    Ok(ToolResult::failure(err_msg))
-                                }
-                            }
-                        })
-                    }),
-                ).await;
-            });
+            if let Err(e) = rt.block_on(register_image_generation_tool(
+                &protocol,
+                image_client.clone(),
+            )) {
+                log::error!("Failed to register image generation tool: {}", e);
+                panic!("Could not register image generation tool: {}", e);
+            }
 
             // Create an agent with image generation tool
             let registry = Arc::new(ToolRegistry::new(protocol.clone()));
