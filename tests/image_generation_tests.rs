@@ -203,6 +203,20 @@ fn test_grok_image_generation_basic() {
     }
 }
 
+/// Test Grok image generation with base64 response format.
+///
+/// This test verifies that the Grok image generation client can successfully
+/// return base64-encoded images when requested. Base64 format is useful for
+/// embedding images directly in responses without additional downloads.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_base64 -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_base64() {
     // Initialize logger
@@ -257,6 +271,20 @@ fn test_grok_image_generation_base64() {
     }
 }
 
+/// Test Grok image generation with multiple image requests.
+///
+/// This test verifies that the Grok image generation client can generate
+/// multiple variations of an image in a single request. Useful for creating
+/// alternative versions of generated content.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_multiple_images -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_multiple_images() {
     // Initialize logger
@@ -308,6 +336,20 @@ fn test_grok_image_generation_multiple_images() {
     }
 }
 
+/// Test Grok image generation with detailed artistic prompts.
+///
+/// This test verifies that the Grok image generation client properly handles
+/// complex, multi-sentence prompts with detailed artistic descriptions. Also
+/// checks if Grok revises/enhances the prompt for better results.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_detailed_prompt -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_detailed_prompt() {
     // Initialize logger
@@ -363,6 +405,20 @@ fn test_grok_image_generation_detailed_prompt() {
     }
 }
 
+/// Test Grok image generation model name verification.
+///
+/// This test verifies that the ImageGenerationClient trait correctly returns
+/// the model name for Grok's image generation (grok-2-image). Used to ensure
+/// proper model identification when using trait objects.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_model_name -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_model_name() {
     // Initialize logger
@@ -382,6 +438,20 @@ fn test_grok_image_generation_model_name() {
     log::info!("Image generation model: {}", client.model_name());
 }
 
+/// Test Grok image generation through trait object interface.
+///
+/// This test verifies that GrokClient properly implements the ImageGenerationClient
+/// trait and works correctly when accessed through a trait object reference. This
+/// is important for scenarios where clients are treated polymorphically.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_with_trait_object -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_with_trait_object() {
     // Initialize logger
@@ -432,6 +502,20 @@ fn test_grok_image_generation_with_trait_object() {
     }
 }
 
+/// Test Grok image generation client creation via factory function.
+///
+/// This test verifies that the ImageGenerationProvider factory function correctly
+/// creates a Grok image generation client from the enum variant. Factory functions
+/// provide type-safe client instantiation across different providers.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_with_factory -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_with_factory() {
     // Initialize logger
@@ -581,6 +665,20 @@ fn test_openai_image_generation_basic() {
     }
 }
 
+/// Test OpenAI image generation with landscape aspect ratio.
+///
+/// This test verifies that the OpenAI image generation client correctly
+/// generates images with 16:9 landscape aspect ratio. Landscape images are
+/// commonly used for blog headers and social media banners.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// OPEN_AI_SECRET="your-openai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_openai_image_generation_landscape -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_openai_image_generation_landscape() {
     // Initialize logger
@@ -625,6 +723,20 @@ fn test_openai_image_generation_landscape() {
     }
 }
 
+/// Test OpenAI image generation with multiple image request.
+///
+/// This test verifies that the OpenAI image generation client can request
+/// multiple image variations. Note: OpenAI may limit concurrent generations,
+/// so the actual number returned may be less than requested.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// OPEN_AI_SECRET="your-openai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_openai_image_generation_multiple -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_openai_image_generation_multiple() {
     // Initialize logger
@@ -670,6 +782,20 @@ fn test_openai_image_generation_multiple() {
     }
 }
 
+/// Test OpenAI image generation model name verification.
+///
+/// This test verifies that the ImageGenerationClient trait correctly returns
+/// the model name for OpenAI's image generation (gpt-image-1.5). Used to ensure
+/// proper model identification when using trait objects.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// OPEN_AI_SECRET="your-openai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_openai_image_generation_model_name -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_openai_image_generation_model_name() {
     // Initialize logger
@@ -688,6 +814,20 @@ fn test_openai_image_generation_model_name() {
     log::info!("Image generation model: {}", client.model_name());
 }
 
+/// Test OpenAI image generation client creation via factory function.
+///
+/// This test verifies that the ImageGenerationProvider factory function correctly
+/// creates an OpenAI image generation client from the enum variant. Factory functions
+/// provide type-safe client instantiation across different providers.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// OPEN_AI_SECRET="your-openai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_openai_image_generation_with_factory -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_openai_image_generation_with_factory() {
     // Initialize logger
@@ -747,6 +887,21 @@ fn test_openai_image_generation_with_factory() {
 
 // ===== Grok Tests =====
 
+/// Test Grok image generation error handling with invalid API key.
+///
+/// This test verifies that the Grok image generation client properly handles
+/// authentication errors when an invalid API key is provided. Error handling
+/// is critical for production use.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_error_handling -- --nocapture --test-threads=1
+/// ```
+///
+/// Note: This test does not require a valid XAI_API_KEY since it intentionally uses an invalid one.
 #[test]
 fn test_grok_image_generation_error_handling() {
     // Initialize logger
@@ -783,6 +938,20 @@ fn test_grok_image_generation_error_handling() {
     }
 }
 
+/// Test Grok image generation type and trait implementation verification.
+///
+/// This test verifies that GrokClient correctly implements the ImageGenerationClient
+/// trait and that ImageGenerationOptions can be properly constructed with all
+/// parameter combinations. This is a compile-time verification test.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_types -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_types() {
     // Initialize logger
@@ -815,6 +984,20 @@ fn test_grok_image_generation_types() {
 
 // ===== Gemini Image Generation Tests =====
 
+/// Test basic Gemini image generation with base64 response format.
+///
+/// This test verifies that the Gemini image generation client can successfully
+/// generate images and returns base64-encoded data. Gemini uses base64 format
+/// by default for image responses.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_basic -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_basic() {
     // Initialize logger
@@ -867,6 +1050,20 @@ fn test_gemini_image_generation_basic() {
     }
 }
 
+/// Test Gemini image generation with landscape aspect ratio.
+///
+/// This test verifies that the Gemini image generation client correctly
+/// generates images with 16:9 landscape aspect ratio. Gemini supports
+/// 10 different aspect ratio options.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_landscape -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_landscape() {
     // Initialize logger
@@ -911,6 +1108,20 @@ fn test_gemini_image_generation_landscape() {
     }
 }
 
+/// Test Gemini image generation with portrait aspect ratio.
+///
+/// This test verifies that the Gemini image generation client correctly
+/// generates images with 9:16 portrait aspect ratio. Portrait images are
+/// commonly used for mobile app screens and vertical social media content.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_portrait -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_portrait() {
     // Initialize logger
@@ -955,6 +1166,20 @@ fn test_gemini_image_generation_portrait() {
     }
 }
 
+/// Test Gemini image generation with square aspect ratio.
+///
+/// This test verifies that the Gemini image generation client correctly
+/// generates images with 1:1 square aspect ratio. Square images are commonly
+/// used for profile pictures, social media posts, and icon assets.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_square -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_square() {
     // Initialize logger
@@ -999,6 +1224,20 @@ fn test_gemini_image_generation_square() {
     }
 }
 
+/// Test Gemini image generation with detailed artistic prompts.
+///
+/// This test verifies that the Gemini image generation client properly handles
+/// complex, multi-sentence prompts with detailed artistic descriptions. Also
+/// tests the 4:3 aspect ratio for detailed artistic output.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_detailed_prompt -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_detailed_prompt() {
     // Initialize logger
@@ -1049,6 +1288,20 @@ fn test_gemini_image_generation_detailed_prompt() {
     }
 }
 
+/// Test Gemini image generation model name verification.
+///
+/// This test verifies that the ImageGenerationClient trait correctly returns
+/// the model name for Gemini's image generation (gemini-2.5-flash-image).
+/// Used to ensure proper model identification when using trait objects.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_model_name -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_model_name() {
     // Initialize logger
@@ -1068,6 +1321,20 @@ fn test_gemini_image_generation_model_name() {
     log::info!("Image generation model: {}", client.model_name());
 }
 
+/// Test Gemini image generation through trait object interface.
+///
+/// This test verifies that GeminiClient properly implements the ImageGenerationClient
+/// trait and works correctly when accessed through a trait object reference. This
+/// is important for scenarios where clients are treated polymorphically.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_with_trait_object -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_with_trait_object() {
     // Initialize logger
@@ -1118,6 +1385,20 @@ fn test_gemini_image_generation_with_trait_object() {
     }
 }
 
+/// Test Gemini image generation client creation via factory function.
+///
+/// This test verifies that the ImageGenerationProvider factory function correctly
+/// creates a Gemini image generation client from the enum variant. Factory functions
+/// provide type-safe client instantiation across different providers.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_with_factory -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_with_factory() {
     // Initialize logger
@@ -1175,6 +1456,20 @@ fn test_gemini_image_generation_with_factory() {
     }
 }
 
+/// Test Gemini image generation with file saving.
+///
+/// This test verifies that base64-encoded images from Gemini can be properly
+/// detected, decoded, and saved to disk with the correct file extension.
+/// Tests the 3:4 portrait aspect ratio with detailed cyberpunk theme.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_save_to_file -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_save_to_file() {
     // Initialize logger
@@ -1229,6 +1524,23 @@ fn test_gemini_image_generation_save_to_file() {
     }
 }
 
+/// Test Gemini image generation type and trait implementation verification.
+///
+/// This test verifies that GeminiClient correctly implements the ImageGenerationClient
+/// trait and tests all 10 supported aspect ratios. Verifies that ImageGenerationOptions
+/// can be properly constructed with each ratio option. This is a compile-time and
+/// runtime verification test.
+///
+/// Supported Gemini aspect ratios: 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_types -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_image_generation_types() {
     // Initialize logger
@@ -1267,6 +1579,21 @@ fn test_gemini_image_generation_types() {
     );
 }
 
+/// Test Gemini image generation error handling with invalid API key.
+///
+/// This test verifies that the Gemini image generation client properly handles
+/// authentication errors when an invalid API key is provided. Error handling
+/// is critical for production use.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_image_generation_error_handling -- --nocapture --test-threads=1
+/// ```
+///
+/// Note: This test does not require a valid GEMINI_API_KEY since it intentionally uses an invalid one.
 #[test]
 fn test_gemini_image_generation_error_handling() {
     // Initialize logger
