@@ -100,7 +100,10 @@ fn test_gemini_simple() {
         Err(e) => {
             let error_str = e.to_string();
             if error_str.contains("quota") || error_str.contains("RESOURCE_EXHAUSTED") {
-                log::info!("⚠️  Skipping: Gemini free tier quota exhausted. Message: {}", e);
+                log::info!(
+                    "⚠️  Skipping: Gemini free tier quota exhausted. Message: {}",
+                    e
+                );
                 // Skip this test if we're out of quota - it's an API issue, not an implementation issue
             } else {
                 log::error!("❌ Gemini test failed: {}", e);
@@ -160,10 +163,7 @@ fn test_grok_image_generation_basic() {
             for (idx, image) in response.images.iter().enumerate() {
                 if let Some(url) = &image.url {
                     log::info!("Image {}: {}", idx + 1, url);
-                    assert!(
-                        url.starts_with("http"),
-                        "Expected URL to start with http"
-                    );
+                    assert!(url.starts_with("http"), "Expected URL to start with http");
                 } else {
                     panic!("Expected image {} to have a URL", idx + 1);
                 }
@@ -257,10 +257,7 @@ fn test_grok_image_generation_base64() {
                         idx + 1,
                         &b64[..50.min(b64.len())]
                     );
-                    assert!(
-                        !b64.is_empty(),
-                        "Expected non-empty base64 data"
-                    );
+                    assert!(!b64.is_empty(), "Expected non-empty base64 data");
                 } else {
                     panic!("Expected image {} to have base64_json", idx + 1);
                 }
@@ -329,10 +326,7 @@ fn test_grok_image_generation_multiple_images() {
             }
         }
         Err(e) => {
-            panic!(
-                "test_grok_image_generation_multiple_images failed: {}",
-                e
-            );
+            panic!("test_grok_image_generation_multiple_images failed: {}", e);
         }
     }
 }
@@ -379,9 +373,7 @@ fn test_grok_image_generation_detailed_prompt() {
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_grok_image_generation_detailed_prompt succeeded"
-            );
+            log::info!("✓ test_grok_image_generation_detailed_prompt succeeded");
 
             assert!(
                 !response.images.is_empty(),
@@ -398,10 +390,7 @@ fn test_grok_image_generation_detailed_prompt() {
             }
         }
         Err(e) => {
-            panic!(
-                "test_grok_image_generation_detailed_prompt failed: {}",
-                e
-            );
+            panic!("test_grok_image_generation_detailed_prompt failed: {}", e);
         }
     }
 }
@@ -480,14 +469,9 @@ fn test_grok_image_generation_with_trait_object() {
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_grok_image_generation_with_trait_object succeeded"
-            );
+            log::info!("✓ test_grok_image_generation_with_trait_object succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
             log::info!(
                 "Successfully used trait object interface, generated {} images",
@@ -495,10 +479,7 @@ fn test_grok_image_generation_with_trait_object() {
             );
         }
         Err(e) => {
-            panic!(
-                "test_grok_image_generation_with_trait_object failed: {}",
-                e
-            );
+            panic!("test_grok_image_generation_with_trait_object failed: {}", e);
         }
     }
 }
@@ -545,31 +526,23 @@ fn test_grok_image_generation_with_factory() {
         };
 
         client
-            .generate_image("A serene forest with sunlight streaming through trees", options)
+            .generate_image(
+                "A serene forest with sunlight streaming through trees",
+                options,
+            )
             .await
     });
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_grok_image_generation_with_factory succeeded"
-            );
+            log::info!("✓ test_grok_image_generation_with_factory succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
-            log::info!(
-                "Factory-created client model: {}",
-                client.model_name()
-            );
+            log::info!("Factory-created client model: {}", client.model_name());
         }
         Err(e) => {
-            panic!(
-                "test_grok_image_generation_with_factory failed: {}",
-                e
-            );
+            panic!("test_grok_image_generation_with_factory failed: {}", e);
         }
     }
 }
@@ -626,10 +599,7 @@ fn test_openai_image_generation_basic() {
             for (idx, image) in response.images.iter().enumerate() {
                 if let Some(url) = &image.url {
                     log::info!("Image {} (URL): {}", idx + 1, url);
-                    assert!(
-                        url.starts_with("http"),
-                        "Expected URL to start with http"
-                    );
+                    assert!(url.starts_with("http"), "Expected URL to start with http");
                 } else if let Some(b64) = &image.b64_json {
                     log::info!(
                         "Image {} (Base64, first 50 chars): {}...",
@@ -637,7 +607,10 @@ fn test_openai_image_generation_basic() {
                         &b64[..50.min(b64.len())]
                     );
                 } else {
-                    panic!("Expected image {} to have either URL or base64 data", idx + 1);
+                    panic!(
+                        "Expected image {} to have either URL or base64 data",
+                        idx + 1
+                    );
                 }
             }
             response
@@ -706,20 +679,12 @@ fn test_openai_image_generation_landscape() {
         Ok(response) => {
             log::info!("✓ test_openai_image_generation_landscape succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
-            log::info!(
-                "Successfully generated landscape image with 16:9 aspect ratio"
-            );
+            log::info!("Successfully generated landscape image with 16:9 aspect ratio");
         }
         Err(e) => {
-            panic!(
-                "test_openai_image_generation_landscape failed: {}",
-                e
-            );
+            panic!("test_openai_image_generation_landscape failed: {}", e);
         }
     }
 }
@@ -762,15 +727,10 @@ fn test_openai_image_generation_multiple() {
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_openai_image_generation_multiple succeeded"
-            );
+            log::info!("✓ test_openai_image_generation_multiple succeeded");
 
             // Note: OpenAI may limit concurrent generations to 1, so we might get 1 instead of 2
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
             log::info!(
                 "Successfully generated {} image(s) (requested 2)",
@@ -857,20 +817,18 @@ fn test_openai_image_generation_with_factory() {
         };
 
         client
-            .generate_image("A serene forest with sunlight streaming through trees", options)
+            .generate_image(
+                "A serene forest with sunlight streaming through trees",
+                options,
+            )
             .await
     });
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_openai_image_generation_with_factory succeeded"
-            );
+            log::info!("✓ test_openai_image_generation_with_factory succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
             log::info!(
                 "Factory-created OpenAI client model: {}",
@@ -878,10 +836,7 @@ fn test_openai_image_generation_with_factory() {
             );
         }
         Err(e) => {
-            panic!(
-                "test_openai_image_generation_with_factory failed: {}",
-                e
-            );
+            panic!("test_openai_image_generation_with_factory failed: {}", e);
         }
     }
 }
@@ -1091,20 +1046,12 @@ fn test_gemini_image_generation_landscape() {
         Ok(response) => {
             log::info!("✓ test_gemini_image_generation_landscape succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
-            log::info!(
-                "Successfully generated landscape image with 16:9 aspect ratio"
-            );
+            log::info!("Successfully generated landscape image with 16:9 aspect ratio");
         }
         Err(e) => {
-            panic!(
-                "test_gemini_image_generation_landscape failed: {}",
-                e
-            );
+            panic!("test_gemini_image_generation_landscape failed: {}", e);
         }
     }
 }
@@ -1149,20 +1096,12 @@ fn test_gemini_image_generation_portrait() {
         Ok(response) => {
             log::info!("✓ test_gemini_image_generation_portrait succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
-            log::info!(
-                "Successfully generated portrait image with 9:16 aspect ratio"
-            );
+            log::info!("Successfully generated portrait image with 9:16 aspect ratio");
         }
         Err(e) => {
-            panic!(
-                "test_gemini_image_generation_portrait failed: {}",
-                e
-            );
+            panic!("test_gemini_image_generation_portrait failed: {}", e);
         }
     }
 }
@@ -1207,20 +1146,12 @@ fn test_gemini_image_generation_square() {
         Ok(response) => {
             log::info!("✓ test_gemini_image_generation_square succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
-            log::info!(
-                "Successfully generated square image with 1:1 aspect ratio"
-            );
+            log::info!("Successfully generated square image with 1:1 aspect ratio");
         }
         Err(e) => {
-            panic!(
-                "test_gemini_image_generation_square failed: {}",
-                e
-            );
+            panic!("test_gemini_image_generation_square failed: {}", e);
         }
     }
 }
@@ -1267,24 +1198,17 @@ fn test_gemini_image_generation_detailed_prompt() {
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_gemini_image_generation_detailed_prompt succeeded"
-            );
+            log::info!("✓ test_gemini_image_generation_detailed_prompt succeeded");
 
             assert!(
                 !response.images.is_empty(),
                 "Expected at least one generated image"
             );
 
-            log::info!(
-                "Successfully generated image with detailed artistic prompt"
-            );
+            log::info!("Successfully generated image with detailed artistic prompt");
         }
         Err(e) => {
-            panic!(
-                "test_gemini_image_generation_detailed_prompt failed: {}",
-                e
-            );
+            panic!("test_gemini_image_generation_detailed_prompt failed: {}", e);
         }
     }
 }
@@ -1357,20 +1281,18 @@ fn test_gemini_image_generation_with_trait_object() {
         };
 
         image_client
-            .generate_image("An abstract artwork with vibrant colors and flowing forms", options)
+            .generate_image(
+                "An abstract artwork with vibrant colors and flowing forms",
+                options,
+            )
             .await
     });
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_gemini_image_generation_with_trait_object succeeded"
-            );
+            log::info!("✓ test_gemini_image_generation_with_trait_object succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
             log::info!(
                 "Successfully used trait object interface, generated {} images",
@@ -1428,20 +1350,18 @@ fn test_gemini_image_generation_with_factory() {
         };
 
         client
-            .generate_image("A serene forest with sunlight streaming through ancient trees", options)
+            .generate_image(
+                "A serene forest with sunlight streaming through ancient trees",
+                options,
+            )
             .await
     });
 
     match result {
         Ok(response) => {
-            log::info!(
-                "✓ test_gemini_image_generation_with_factory succeeded"
-            );
+            log::info!("✓ test_gemini_image_generation_with_factory succeeded");
 
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
 
             log::info!(
                 "Factory-created Gemini client model: {}",
@@ -1449,10 +1369,7 @@ fn test_gemini_image_generation_with_factory() {
             );
         }
         Err(e) => {
-            panic!(
-                "test_gemini_image_generation_with_factory failed: {}",
-                e
-            );
+            panic!("test_gemini_image_generation_with_factory failed: {}", e);
         }
     }
 }
@@ -1489,24 +1406,21 @@ fn test_gemini_image_generation_save_to_file() {
         };
 
         client
-            .generate_image("A vibrant digital painting of a neon-lit cyberpunk city", options)
+            .generate_image(
+                "A vibrant digital painting of a neon-lit cyberpunk city",
+                options,
+            )
             .await
     });
 
     let response_obj = match result {
         Ok(response) => {
             log::info!("✓ test_gemini_image_generation_save_to_file succeeded");
-            assert!(
-                !response.images.is_empty(),
-                "Expected at least one image"
-            );
+            assert!(!response.images.is_empty(), "Expected at least one image");
             response
         }
         Err(e) => {
-            panic!(
-                "test_gemini_image_generation_save_to_file failed: {}",
-                e
-            );
+            panic!("test_gemini_image_generation_save_to_file failed: {}", e);
         }
     };
 
@@ -1575,9 +1489,7 @@ fn test_gemini_image_generation_types() {
     }
 
     log::info!("✓ test_gemini_image_generation_types succeeded");
-    log::info!(
-        "All type checks and trait implementations verified for Gemini"
-    );
+    log::info!("All type checks and trait implementations verified for Gemini");
 }
 
 /// Test Gemini image generation error handling with invalid API key.
@@ -1601,7 +1513,8 @@ fn test_gemini_image_generation_error_handling() {
     init_logger();
 
     // Use an invalid API key to test error handling
-    let client = GeminiClient::new_with_model_string("invalid_api_key_12345", "gemini-2.5-flash-image");
+    let client =
+        GeminiClient::new_with_model_string("invalid_api_key_12345", "gemini-2.5-flash-image");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
@@ -1653,12 +1566,12 @@ fn test_gemini_image_generation_error_handling() {
 /// ```
 #[test]
 fn test_agent_with_image_generation_tool() {
-    use std::sync::Arc;
-    use cloudllm::Agent;
-    use cloudllm::clients::openai::{OpenAIClient, Model};
+    use cloudllm::clients::openai::{Model, OpenAIClient};
+    use cloudllm::cloudllm::{new_image_generation_client, ImageGenerationProvider};
+    use cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
     use cloudllm::tool_protocols::CustomToolProtocol;
-    use cloudllm::tool_protocol::{ToolRegistry, ToolProtocol};
-    use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
+    use cloudllm::Agent;
+    use std::sync::Arc;
 
     init_logger();
 
@@ -1672,10 +1585,8 @@ fn test_agent_with_image_generation_tool() {
     let api_key = api_key.unwrap();
 
     // Create OpenAI image generation client
-    let image_client_result = new_image_generation_client(
-        ImageGenerationProvider::OpenAI,
-        &api_key,
-    );
+    let image_client_result =
+        new_image_generation_client(ImageGenerationProvider::OpenAI, &api_key);
 
     match image_client_result {
         Ok(image_client) => {
@@ -1702,7 +1613,7 @@ fn test_agent_with_image_generation_tool() {
                 "Image Designer Agent",
                 Arc::new(OpenAIClient::new_with_model_enum(
                     &api_key,
-                    Model::GPT41Mini
+                    Model::GPT41Mini,
                 )),
             )
             .with_tools(registry)
@@ -1719,11 +1630,13 @@ fn test_agent_with_image_generation_tool() {
             let user_message = "Generate an image of a scary clown sitting in an empty classroom. The atmosphere should be eerie and unsettling.";
 
             let result = rt.block_on(async {
-                agent.generate(
-                    system_prompt,
-                    user_message,
-                    &[], // empty conversation history
-                ).await
+                agent
+                    .generate(
+                        system_prompt,
+                        user_message,
+                        &[], // empty conversation history
+                    )
+                    .await
             });
 
             match result {
@@ -1733,7 +1646,9 @@ fn test_agent_with_image_generation_tool() {
 
                     // The agent should have actually called the tool - let's manually call it with the prompt
                     // to demonstrate it working and save the image
-                    log::info!("Calling image generation tool directly to verify and save image...");
+                    log::info!(
+                        "Calling image generation tool directly to verify and save image..."
+                    );
 
                     let rt_tool = tokio::runtime::Runtime::new().unwrap();
 
@@ -1753,7 +1668,9 @@ fn test_agent_with_image_generation_tool() {
                             log::info!("Tool result: {:?}", tool_result);
 
                             // Extract URL or base64 from the tool result
-                            if let Some(url) = tool_result.output.get("url").and_then(|u| u.as_str()) {
+                            if let Some(url) =
+                                tool_result.output.get("url").and_then(|u| u.as_str())
+                            {
                                 log::info!("✓ Got image URL from tool");
 
                                 let rt_save = tokio::runtime::Runtime::new().unwrap();
@@ -1768,7 +1685,9 @@ fn test_agent_with_image_generation_tool() {
                                         panic!("Could not save image: {}", e);
                                     }
                                 }
-                            } else if let Some(b64) = tool_result.output.get("b64_json").and_then(|b| b.as_str()) {
+                            } else if let Some(b64) =
+                                tool_result.output.get("b64_json").and_then(|b| b.as_str())
+                            {
                                 log::info!("✓ Got base64 image data from tool");
 
                                 let ext = get_image_extension_from_base64(b64);
@@ -1786,7 +1705,10 @@ fn test_agent_with_image_generation_tool() {
                                     }
                                 }
                             } else {
-                                log::error!("Tool result doesn't contain URL or base64: {:?}", tool_result.output);
+                                log::error!(
+                                    "Tool result doesn't contain URL or base64: {:?}",
+                                    tool_result.output
+                                );
                                 panic!("Tool result missing URL or base64 field");
                             }
                         }
@@ -1838,12 +1760,12 @@ fn test_agent_with_image_generation_tool() {
 /// ```
 #[test]
 fn test_grok_agent_with_image_generation_tool() {
-    use std::sync::Arc;
-    use cloudllm::Agent;
     use cloudllm::clients::grok::{GrokClient, Model};
+    use cloudllm::cloudllm::{new_image_generation_client, ImageGenerationProvider};
+    use cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
     use cloudllm::tool_protocols::CustomToolProtocol;
-    use cloudllm::tool_protocol::{ToolRegistry, ToolProtocol};
-    use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
+    use cloudllm::Agent;
+    use std::sync::Arc;
 
     init_logger();
 
@@ -1857,10 +1779,7 @@ fn test_grok_agent_with_image_generation_tool() {
     let api_key = api_key.unwrap();
 
     // Create Grok image generation client
-    let image_client_result = new_image_generation_client(
-        ImageGenerationProvider::Grok,
-        &api_key,
-    );
+    let image_client_result = new_image_generation_client(ImageGenerationProvider::Grok, &api_key);
 
     match image_client_result {
         Ok(image_client) => {
@@ -1885,10 +1804,7 @@ fn test_grok_agent_with_image_generation_tool() {
             let agent = Agent::new(
                 "grok_designer",
                 "Grok Image Designer Agent",
-                Arc::new(GrokClient::new_with_model_enum(
-                    &api_key,
-                    Model::Grok3Mini
-                )),
+                Arc::new(GrokClient::new_with_model_enum(&api_key, Model::Grok3Mini)),
             )
             .with_tools(registry)
             .with_expertise("Creating visual content with Grok")
@@ -1904,21 +1820,28 @@ fn test_grok_agent_with_image_generation_tool() {
             let user_message = "Generate an image of a scary clown sitting in an empty classroom. The atmosphere should be eerie and unsettling.";
 
             let result = rt.block_on(async {
-                agent.generate(
-                    system_prompt,
-                    user_message,
-                    &[], // empty conversation history
-                ).await
+                agent
+                    .generate(
+                        system_prompt,
+                        user_message,
+                        &[], // empty conversation history
+                    )
+                    .await
             });
 
             match result {
                 Ok(response) => {
-                    log::info!("✓ Grok agent response received (length: {})", response.len());
+                    log::info!(
+                        "✓ Grok agent response received (length: {})",
+                        response.len()
+                    );
                     log::debug!("Full response: {}", response);
 
                     // The agent should have actually called the tool - let's manually call it with the prompt
                     // to demonstrate it working and save the image
-                    log::info!("Calling Grok image generation tool directly to verify and save image...");
+                    log::info!(
+                        "Calling Grok image generation tool directly to verify and save image..."
+                    );
 
                     let rt_tool = tokio::runtime::Runtime::new().unwrap();
 
@@ -1938,7 +1861,9 @@ fn test_grok_agent_with_image_generation_tool() {
                             log::info!("Grok tool result: {:?}", tool_result);
 
                             // Extract URL or base64 from the tool result
-                            if let Some(url) = tool_result.output.get("url").and_then(|u| u.as_str()) {
+                            if let Some(url) =
+                                tool_result.output.get("url").and_then(|u| u.as_str())
+                            {
                                 log::info!("✓ Got image URL from Grok tool");
 
                                 let rt_save = tokio::runtime::Runtime::new().unwrap();
@@ -1946,14 +1871,19 @@ fn test_grok_agent_with_image_generation_tool() {
 
                                 match rt_save.block_on(save_image(url, filename)) {
                                     Ok(_) => {
-                                        log::info!("✓✓ Grok image successfully saved to: {}", filename);
+                                        log::info!(
+                                            "✓✓ Grok image successfully saved to: {}",
+                                            filename
+                                        );
                                     }
                                     Err(e) => {
                                         log::error!("Failed to save Grok image: {}", e);
                                         panic!("Could not save image: {}", e);
                                     }
                                 }
-                            } else if let Some(b64) = tool_result.output.get("b64_json").and_then(|b| b.as_str()) {
+                            } else if let Some(b64) =
+                                tool_result.output.get("b64_json").and_then(|b| b.as_str())
+                            {
                                 log::info!("✓ Got base64 image data from Grok tool");
 
                                 let ext = get_image_extension_from_base64(b64);
@@ -1963,7 +1893,10 @@ fn test_grok_agent_with_image_generation_tool() {
 
                                 match rt_save.block_on(save_image(b64, &filename)) {
                                     Ok(_) => {
-                                        log::info!("✓✓ Grok image successfully saved to: {}", filename);
+                                        log::info!(
+                                            "✓✓ Grok image successfully saved to: {}",
+                                            filename
+                                        );
                                     }
                                     Err(e) => {
                                         log::error!("Failed to save Grok image: {}", e);
@@ -1971,7 +1904,10 @@ fn test_grok_agent_with_image_generation_tool() {
                                     }
                                 }
                             } else {
-                                log::error!("Grok tool result doesn't contain URL or base64: {:?}", tool_result.output);
+                                log::error!(
+                                    "Grok tool result doesn't contain URL or base64: {:?}",
+                                    tool_result.output
+                                );
                                 panic!("Tool result missing URL or base64 field");
                             }
                         }

@@ -465,7 +465,7 @@ impl ImageGenerationClient for OpenAIClient {
         let size = match options.aspect_ratio.as_deref() {
             Some("16:9") | Some("4:3") | Some("3:2") => "1536x1024", // Landscape options
             Some("9:16") | Some("3:4") | Some("2:3") => "1024x1536", // Portrait options
-            Some("1:1") | None => "1024x1024", // Square (default)
+            Some("1:1") | None => "1024x1024",                       // Square (default)
             Some(ratio) => {
                 if log::log_enabled!(log::Level::Warn) {
                     log::warn!(

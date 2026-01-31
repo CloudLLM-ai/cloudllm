@@ -363,14 +363,14 @@ impl ImageGenerationClient for GeminiClient {
         let aspect_ratio = options.aspect_ratio.as_deref().unwrap_or("1:1");
 
         // Validate aspect ratio
-        let valid_ratios = vec!["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
-        if !valid_ratios.contains(&aspect_ratio) {
-            if log::log_enabled!(log::Level::Warn) {
-                log::warn!(
-                    "Gemini unsupported aspect ratio '{}', using 1:1",
-                    aspect_ratio
-                );
-            }
+        let valid_ratios = vec![
+            "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
+        ];
+        if !valid_ratios.contains(&aspect_ratio) && log::log_enabled!(log::Level::Warn) {
+            log::warn!(
+                "Gemini unsupported aspect ratio '{}', using 1:1",
+                aspect_ratio
+            );
         }
 
         // Build the Gemini image generation request
@@ -400,11 +400,7 @@ impl ImageGenerationClient for GeminiClient {
 
         // Make the request
         let http_client = get_shared_http_client();
-        let response = http_client
-            .post(&url)
-            .json(&request_body)
-            .send()
-            .await?;
+        let response = http_client.post(&url).json(&request_body).send().await?;
 
         let response_text = response.text().await?;
 
@@ -433,12 +429,19 @@ impl ImageGenerationClient for GeminiClient {
                         for part in parts {
                             // Check for image data
                             if let Some(inline_data) = part.get("inlineData") {
-                                if let Some(mime_type) = inline_data.get("mimeType").and_then(|m| m.as_str()) {
+                                if let Some(mime_type) =
+                                    inline_data.get("mimeType").and_then(|m| m.as_str())
+                                {
                                     if mime_type.starts_with("image/") {
-                                        if let Some(data) = inline_data.get("data").and_then(|d| d.as_str()) {
+                                        if let Some(data) =
+                                            inline_data.get("data").and_then(|d| d.as_str())
+                                        {
                                             let image_data = ImageData {
                                                 url: None,
-                                                b64_json: Some(format!("data:{};base64,{}", mime_type, data)),
+                                                b64_json: Some(format!(
+                                                    "data:{};base64,{}",
+                                                    mime_type, data
+                                                )),
                                             };
                                             images.push(image_data);
                                         }

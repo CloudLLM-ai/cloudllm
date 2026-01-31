@@ -68,6 +68,21 @@ pub enum ImageGenerationProvider {
     Gemini,
 }
 
+use std::error::Error;
+use std::fmt;
+use std::str::FromStr;
+
+#[derive(Debug, Clone)]
+pub struct ImageGenerationProviderError(String);
+
+impl fmt::Display for ImageGenerationProviderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Error for ImageGenerationProviderError {}
+
 impl ImageGenerationProvider {
     /// Convert the provider enum to its string representation.
     ///
@@ -88,35 +103,6 @@ impl ImageGenerationProvider {
         }
     }
 
-    /// Parse a provider name string into the enum variant.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use cloudllm::cloudllm::ImageGenerationProvider;
-    ///
-    /// assert_eq!(
-    ///     ImageGenerationProvider::from_str("openai").unwrap(),
-    ///     ImageGenerationProvider::OpenAI
-    /// );
-    /// assert_eq!(
-    ///     ImageGenerationProvider::from_str("grok").unwrap(),
-    ///     ImageGenerationProvider::Grok
-    /// );
-    /// assert!(ImageGenerationProvider::from_str("unknown").is_err());
-    /// ```
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        match s.to_lowercase().as_str() {
-            "openai" => Ok(ImageGenerationProvider::OpenAI),
-            "grok" => Ok(ImageGenerationProvider::Grok),
-            "gemini" => Ok(ImageGenerationProvider::Gemini),
-            _ => Err(format!(
-                "Unknown image generation provider '{}'. Supported providers: openai, grok, gemini",
-                s
-            )),
-        }
-    }
-
     /// Get a human-readable name for the provider.
     ///
     /// # Examples
@@ -131,6 +117,22 @@ impl ImageGenerationProvider {
             ImageGenerationProvider::OpenAI => "OpenAI (DALL-E 3)",
             ImageGenerationProvider::Grok => "Grok Imagine",
             ImageGenerationProvider::Gemini => "Google Gemini",
+        }
+    }
+}
+
+impl FromStr for ImageGenerationProvider {
+    type Err = ImageGenerationProviderError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "openai" => Ok(ImageGenerationProvider::OpenAI),
+            "grok" => Ok(ImageGenerationProvider::Grok),
+            "gemini" => Ok(ImageGenerationProvider::Gemini),
+            _ => Err(ImageGenerationProviderError(format!(
+                "Unknown image generation provider '{}'. Supported providers: openai, grok, gemini",
+                s
+            ))),
         }
     }
 }
@@ -244,6 +246,6 @@ pub fn new_image_generation_client_from_str(
     provider: &str,
     api_key: &str,
 ) -> Result<Arc<dyn ImageGenerationClient>, String> {
-    let parsed_provider = ImageGenerationProvider::from_str(provider)?;
+    let parsed_provider = ImageGenerationProvider::from_str(provider).map_err(|e| e.to_string())?;
     new_image_generation_client(parsed_provider, api_key)
 }

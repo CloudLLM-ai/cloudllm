@@ -405,22 +405,19 @@ pub fn get_image_extension_from_base64(b64_data: &str) -> &str {
 /// assert_eq!(decoded, b"Hello World");
 /// ```
 pub fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
-    let bytes = input
-        .as_bytes()
-        .iter()
-        .fold(Vec::new(), |mut acc, &b| {
-            let val = match b {
-                b'A'..=b'Z' => (b - b'A') as u8,
-                b'a'..=b'z' => (b - b'a' + 26) as u8,
-                b'0'..=b'9' => (b - b'0' + 52) as u8,
-                b'+' => 62,
-                b'/' => 63,
-                b'=' => return acc,
-                _ => return acc,
-            };
-            acc.push(val);
-            acc
-        });
+    let bytes = input.as_bytes().iter().fold(Vec::new(), |mut acc, &b| {
+        let val = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => return acc,
+            _ => return acc,
+        };
+        acc.push(val);
+        acc
+    });
 
     let mut result = Vec::new();
     for chunk in bytes.chunks(4) {
@@ -617,71 +614,70 @@ pub async fn register_image_generation_tool(
     use crate::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
     use serde_json::json;
 
-    protocol.register_async_tool(
-        ToolMetadata::new("generate_image", "Generate an image from a text prompt")
-            .with_parameter(
-                ToolParameter::new("prompt", ToolParameterType::String)
-                    .with_description("The image prompt to generate")
-                    .required(),
-            )
-            .with_parameter(
-                ToolParameter::new("aspect_ratio", ToolParameterType::String)
-                    .with_description("Aspect ratio like 16:9, 4:3, 1:1"),
-            ),
-        std::sync::Arc::new(move |params| {
-            let client = image_client.clone();
-            Box::pin(async move {
-                let prompt = params["prompt"]
-                    .as_str()
-                    .ok_or("prompt parameter required")?;
+    protocol
+        .register_async_tool(
+            ToolMetadata::new("generate_image", "Generate an image from a text prompt")
+                .with_parameter(
+                    ToolParameter::new("prompt", ToolParameterType::String)
+                        .with_description("The image prompt to generate")
+                        .required(),
+                )
+                .with_parameter(
+                    ToolParameter::new("aspect_ratio", ToolParameterType::String)
+                        .with_description("Aspect ratio like 16:9, 4:3, 1:1"),
+                ),
+            std::sync::Arc::new(move |params| {
+                let client = image_client.clone();
+                Box::pin(async move {
+                    let prompt = params["prompt"]
+                        .as_str()
+                        .ok_or("prompt parameter required")?;
 
-                match client
-                    .generate_image(
-                        prompt,
-                        ImageGenerationOptions {
-                            aspect_ratio: params
-                                .get("aspect_ratio")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string()),
-                            num_images: Some(1),
-                            response_format: Some("url".to_string()),
-                        },
-                    )
-                    .await
-                {
-                    Ok(response) => {
-                        if let Some(image) = response.images.get(0) {
-                            if let Some(url) = &image.url {
-                                Ok(ToolResult::success(json!({
-                                    "url": url,
-                                    "model": client.model_name(),
-                                    "format": "url",
-                                    "success": true
-                                })))
-                            } else if let Some(b64) = &image.b64_json {
-                                Ok(ToolResult::success(json!({
-                                    "b64_json": b64,
-                                    "model": client.model_name(),
-                                    "format": "base64",
-                                    "success": true
-                                })))
+                    match client
+                        .generate_image(
+                            prompt,
+                            ImageGenerationOptions {
+                                aspect_ratio: params
+                                    .get("aspect_ratio")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string()),
+                                num_images: Some(1),
+                                response_format: Some("url".to_string()),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(response) => {
+                            if let Some(image) = response.images.first() {
+                                if let Some(url) = &image.url {
+                                    Ok(ToolResult::success(json!({
+                                        "url": url,
+                                        "model": client.model_name(),
+                                        "format": "url",
+                                        "success": true
+                                    })))
+                                } else if let Some(b64) = &image.b64_json {
+                                    Ok(ToolResult::success(json!({
+                                        "b64_json": b64,
+                                        "model": client.model_name(),
+                                        "format": "base64",
+                                        "success": true
+                                    })))
+                                } else {
+                                    Ok(ToolResult::failure(
+                                        "No URL or base64 data in image response".to_string(),
+                                    ))
+                                }
                             } else {
-                                Ok(ToolResult::failure(
-                                    "No URL or base64 data in image response".to_string(),
-                                ))
+                                Ok(ToolResult::failure("No images were generated".to_string()))
                             }
-                        } else {
-                            Ok(ToolResult::failure(
-                                "No images were generated".to_string(),
-                            ))
                         }
+                        Err(e) => Ok(ToolResult::failure(e.to_string())),
                     }
-                    Err(e) => Ok(ToolResult::failure(e.to_string())),
-                }
-            })
-        }),
-    )
-    .await;
+                })
+            }),
+        )
+        .await;
 
     Ok(())
 }
