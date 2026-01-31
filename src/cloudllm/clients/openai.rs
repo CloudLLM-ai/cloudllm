@@ -231,6 +231,10 @@ pub struct OpenAIClient {
     model: String,
     /// Storage for the token usage returned by the most recent request.
     token_usage: Mutex<Option<TokenUsage>>,
+    /// API key needed for image generation
+    api_key: String,
+    /// Base URL for API calls
+    base_url: String,
 }
 
 impl OpenAIClient {
@@ -245,6 +249,7 @@ impl OpenAIClient {
     /// (e.g. OpenAI compatible self-hosted deployments).
     pub fn new_with_model_string(secret_key: &str, model_name: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
+        let base_url = "https://api.openai.com/v1";
         OpenAIClient {
             client: openai_rust::Client::new_with_client(
                 secret_key,
@@ -252,20 +257,26 @@ impl OpenAIClient {
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
+            api_key: secret_key.to_string(),
+            base_url: base_url.to_string(),
         }
     }
 
     /// Construct a client targeting a custom OpenAI compatible base URL.
+    /// Note: base_url should not have a trailing slash (e.g., "https://api.openai.com/v1")
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
+        let base_url_normalized = base_url.trim_end_matches('/');
         OpenAIClient {
             client: openai_rust::Client::new_with_client_and_base_url(
                 secret_key,
                 get_shared_http_client().clone(),
-                base_url,
+                &format!("{}/", base_url_normalized),
             ),
             model: model_name.to_string(),
             token_usage: Mutex::new(None),
+            api_key: secret_key.to_string(),
+            base_url: base_url_normalized.to_string(),
         }
     }
 
@@ -468,14 +479,16 @@ impl ImageGenerationClient for OpenAIClient {
 
         let n = options.num_images.unwrap_or(1).min(10); // OpenAI max is 10
 
-        // Create ImageArguments for the API call
-        let mut args = openai_rust::images::ImageArguments::new(prompt);
         let model_name = image_model_to_string(ImageModel::GPTImage1_5);
-        args.model = Some(model_name.clone());
-        args.n = Some(n);
-        args.size = Some(size.to_string());
-        // Note: response_format is not supported by openai-rust2's ImageArguments,
-        // so we always get URLs back from the default response format
+
+        // Build request body for direct HTTP call (honors base_url)
+        let request_body = serde_json::json!({
+            "model": model_name,
+            "prompt": prompt,
+            "n": n,
+            "size": size,
+        });
+
         if log::log_enabled!(log::Level::Debug) {
             log::debug!(
                 "OpenAI image generation: model={}, n={}, size={}",
@@ -485,10 +498,15 @@ impl ImageGenerationClient for OpenAIClient {
             );
         }
 
-        // Make the request to the OpenAI images endpoint
-        let response_strings = self
-            .client
-            .create_image_old(args, Some("/v1/images/generations".to_string()))
+        // Make direct HTTP request to honor base_url
+        let http_client = crate::clients::common::get_shared_http_client();
+        let url = format!("{}/images/generations", self.base_url);
+
+        let response = http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", &self.api_key))
+            .json(&request_body)
+            .send()
             .await
             .map_err(|e| {
                 let err_msg = format!("OpenAI image generation error: {}", e);
@@ -498,29 +516,47 @@ impl ImageGenerationClient for OpenAIClient {
                 Box::<dyn Error + Send + Sync>::from(err_msg)
             })?;
 
-        // Convert response strings to ImageData
-        let mut images = Vec::new();
-        for response_str in response_strings {
-            if log::log_enabled!(log::Level::Debug) {
-                log::debug!(
-                    "OpenAI image response (first 100 chars): {}...",
-                    &response_str[..100.min(response_str.len())]
-                );
+        let response_text = response.text().await?;
+
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!("OpenAI image API response: {}", response_text);
+        }
+
+        let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+        // Check for API errors
+        if let Some(error) = response_json.get("error") {
+            if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
+                return Err(format!("OpenAI API error: {}", message).into());
             }
-            let image_data = if response_str.starts_with("http") {
-                // It's a URL
-                ImageData {
-                    url: Some(response_str),
-                    b64_json: None,
+            return Err("OpenAI API returned an error".into());
+        }
+
+        // Parse the response - OpenAI returns: { "data": [{ "url": "..." }, ...] }
+        let mut images = Vec::new();
+
+        if let Some(data_array) = response_json.get("data").and_then(|d| d.as_array()) {
+            for item in data_array {
+                if let Some(url) = item.get("url").and_then(|u| u.as_str()) {
+                    if !url.is_empty() {
+                        images.push(ImageData {
+                            url: Some(url.to_string()),
+                            b64_json: None,
+                        });
+                    }
+                } else if let Some(b64) = item.get("b64_json").and_then(|b| b.as_str()) {
+                    if !b64.is_empty() {
+                        images.push(ImageData {
+                            url: None,
+                            b64_json: Some(b64.to_string()),
+                        });
+                    }
                 }
-            } else {
-                // It's likely base64 data
-                ImageData {
-                    url: None,
-                    b64_json: Some(response_str),
-                }
-            };
-            images.push(image_data);
+            }
+        }
+
+        if images.is_empty() {
+            return Err("No images in OpenAI response".into());
         }
 
         Ok(ImageGenerationResponse {
