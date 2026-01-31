@@ -1420,6 +1420,49 @@ let client = new_image_generation_client(
 )?;
 ```
 
+### Parsing from Strings with FromStr
+
+For dynamic provider selection from strings, use the `FromStr` trait:
+
+```rust,no_run
+use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
+use std::str::FromStr;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let provider_name = "grok";  // From config, user input, etc.
+
+    // Parse string to enum using FromStr trait
+    let provider = ImageGenerationProvider::from_str(provider_name)?;
+
+    // Create client with parsed provider
+    let client = new_image_generation_client(
+        provider,
+        &std::env::var("XAI_KEY")?,
+    )?;
+
+    println!("Using provider: {}", provider.display_name());
+    Ok(())
+}
+```
+
+**Supported provider strings (case-insensitive):**
+- `"openai"` → OpenAI (DALL-E 3)
+- `"grok"` → Grok Imagine
+- `"gemini"` → Google Gemini
+
+Alternatively, use the convenience function for string-based provider selection:
+
+```rust,no_run
+use cloudllm::cloudllm::new_image_generation_client_from_str;
+
+// Pass provider name as string directly
+let client = new_image_generation_client_from_str(
+    "grok",  // String provider name
+    &std::env::var("XAI_KEY")?,
+)?;
+```
+
 ### Helper Function Benefits
 
 The `register_image_generation_tool()` helper eliminates boilerplate:

@@ -121,6 +121,34 @@ impl ImageGenerationProvider {
     }
 }
 
+/// Standard library [`FromStr`] trait implementation for string-to-enum conversion.
+///
+/// Allows using the `from_str()` method from the `FromStr` trait to parse
+/// provider names. This is the recommended way to convert strings to the enum.
+///
+/// # Supported Strings
+///
+/// - `"openai"` (case-insensitive) → [`ImageGenerationProvider::OpenAI`]
+/// - `"grok"` (case-insensitive) → [`ImageGenerationProvider::Grok`]
+/// - `"gemini"` (case-insensitive) → [`ImageGenerationProvider::Gemini`]
+///
+/// # Examples
+///
+/// ```
+/// use cloudllm::cloudllm::ImageGenerationProvider;
+/// use std::str::FromStr;
+///
+/// // Parse from string using FromStr trait
+/// let provider = ImageGenerationProvider::from_str("openai").unwrap();
+/// assert_eq!(provider, ImageGenerationProvider::OpenAI);
+///
+/// // Case-insensitive
+/// let provider = ImageGenerationProvider::from_str("GROK").unwrap();
+/// assert_eq!(provider, ImageGenerationProvider::Grok);
+///
+/// // Invalid provider returns error
+/// assert!(ImageGenerationProvider::from_str("invalid").is_err());
+/// ```
 impl FromStr for ImageGenerationProvider {
     type Err = ImageGenerationProviderError;
 
