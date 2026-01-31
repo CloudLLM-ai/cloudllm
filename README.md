@@ -9,6 +9,8 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 
 * **Agents with Tools**: Create agents that connect to LLMs and execute actions through a flexible,
   multi-protocol tool system (local, remote MCP, Memory, custom protocols),
+* **Image Generation**: Unified image generation across OpenAI (DALL-E), Grok, and Google Gemini with the
+  simplified `register_image_generation_tool()` helper,
 * **Server Deployment**: Easy standalone MCP server creation via [`MCPServerBuilder`](https://docs.rs/cloudllm/latest/cloudllm/mcp_server/struct.MCPServerBuilder.html)
   with HTTP, authentication, and IP filtering,
 * **Flexible Tool Creation**: From simple Rust closures to advanced custom protocol implementations,
@@ -30,7 +32,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.6.0"
+cloudllm = "0.8.0"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.
@@ -1279,6 +1281,183 @@ println!("Size: {} bytes, Modified: {}", metadata.size, metadata.modified);
 - Works safely with untrusted input
 
 For comprehensive documentation and examples, see the [`FileSystemTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.FileSystemTool.html) and `examples/filesystem_example.rs`.
+
+---
+
+## Image Generation
+
+CloudLLM provides unified image generation across OpenAI, Grok, and Google Gemini. The new `register_image_generation_tool()` helper dramatically simplifies adding image generation capabilities to agents.
+
+### Quick Start: Image Generation Tool
+
+Register an image generation tool with a single line:
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::Agent;
+use cloudllm::clients::openai::{OpenAIClient, Model};
+use cloudllm::cloudllm::image_generation::register_image_generation_tool;
+use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
+use cloudllm::tool_protocols::CustomToolProtocol;
+use cloudllm::tool_protocol::ToolRegistry;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("OPEN_AI_SECRET")?;
+
+    // Create image generation client (choose provider: OpenAI, Grok, or Gemini)
+    let image_client = new_image_generation_client(
+        ImageGenerationProvider::OpenAI,
+        &api_key,
+    )?;
+
+    // Create a tool protocol
+    let protocol = Arc::new(CustomToolProtocol::new());
+
+    // Register the image generation tool (much simpler than manual implementation!)
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(register_image_generation_tool(&protocol, image_client.clone()))?;
+
+    // Create agent with image generation capability
+    let registry = Arc::new(ToolRegistry::new(protocol));
+
+    let agent = Agent::new(
+        "designer",
+        "Creative Designer",
+        Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini)),
+    )
+    .with_tools(registry)
+    .with_expertise("Creating visual content")
+    .with_personality("Creative and detailed");
+
+    println!("✓ Agent created with image generation capability");
+    println!("✓ Agent can now generate images from text prompts");
+    Ok(())
+}
+```
+
+### Image Generation Features
+
+**Supported Providers:**
+- **OpenAI (DALL-E 3)**: High-quality realistic images, `gpt-image-1.5` model
+- **Grok (Grok Imagine)**: Fast image generation, `grok-2-image-1212` model
+- **Google Gemini**: Flexible aspect ratios, `gemini-2.5-flash-image` model
+
+**Tool Parameters:**
+- `prompt` (string, required): Detailed image description
+- `aspect_ratio` (string, optional): Aspect ratio like "16:9", "4:3", "1:1", etc.
+
+**Response Formats:**
+- URL: Direct link to generated image
+- Base64: Embedded image data for immediate processing
+
+### Advanced Usage: Custom Image Options
+
+```rust,no_run
+use cloudllm::cloudllm::image_generation::{
+    ImageGenerationClient, ImageGenerationOptions
+};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client: Arc<dyn ImageGenerationClient> = /* ... */;
+
+    // Generate landscape image
+    let response = client.generate_image(
+        "A serene Japanese garden at sunset",
+        ImageGenerationOptions {
+            aspect_ratio: Some("16:9".to_string()),  // Landscape
+            num_images: Some(1),
+            response_format: Some("url".to_string()),
+        },
+    ).await?;
+
+    // Process generated images
+    for image in response.images {
+        if let Some(url) = image.url {
+            println!("Image URL: {}", url);
+        } else if let Some(b64) = image.b64_json {
+            println!("Base64 image: {} bytes", b64.len());
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Provider-Specific Aspect Ratios
+
+**Supported aspect ratios vary by provider:**
+
+| Provider | Supported Ratios |
+|----------|------------------|
+| OpenAI   | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3 |
+| Grok     | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3, and more |
+| Gemini   | 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 |
+
+### Using Different Providers
+
+```rust,no_run
+use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
+
+// OpenAI (realistic, high-quality)
+let client = new_image_generation_client(
+    ImageGenerationProvider::OpenAI,
+    &std::env::var("OPEN_AI_SECRET")?,
+)?;
+
+// Grok (fast, creative)
+let client = new_image_generation_client(
+    ImageGenerationProvider::Grok,
+    &std::env::var("XAI_KEY")?,
+)?;
+
+// Gemini (flexible aspect ratios)
+let client = new_image_generation_client(
+    ImageGenerationProvider::Gemini,
+    &std::env::var("GEMINI_API_KEY")?,
+)?;
+```
+
+### Helper Function Benefits
+
+The `register_image_generation_tool()` helper eliminates boilerplate:
+
+**Before (60+ lines of closure code):**
+```
+Manual tool registration with ~80 lines of:
+- Parameter handling and marshalling
+- Error handling and formatting
+- Response parsing and validation
+```
+
+**After (1 line):**
+```rust
+register_image_generation_tool(&protocol, image_client).await?;
+```
+
+### Image Generation with Base64 Handling
+
+When working with base64-encoded images, use the provided utilities:
+
+```rust,no_run
+use cloudllm::cloudllm::image_generation::{
+    decode_base64, get_image_extension_from_base64
+};
+
+// Detect image format from base64 magic bytes
+let extension = get_image_extension_from_base64(&b64_data);
+// Returns: "png", "jpg", or "webp"
+
+// Decode base64 to bytes for file saving
+let bytes = decode_base64(&b64_data)?;
+std::fs::write(format!("image.{}", extension), bytes)?;
+```
+
+For comprehensive documentation, see the [`image_generation` module docs](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/image_generation/index.html).
+
+---
 
 ### Creating Custom Protocol Adapters
 

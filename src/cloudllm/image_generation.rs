@@ -154,6 +154,58 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Agent Integration with the Helper Function
+//!
+//! The `register_image_generation_tool()` helper dramatically simplifies adding image
+//! generation to agents. Instead of 50+ lines of boilerplate, register a tool in one line:
+//!
+//! ```rust,no_run
+//! use std::sync::Arc;
+//! use cloudllm::Agent;
+//! use cloudllm::clients::openai::{OpenAIClient, Model};
+//! use cloudllm::image_generation::register_image_generation_tool;
+//! use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
+//! use cloudllm::tool_protocols::CustomToolProtocol;
+//! use cloudllm::tool_protocol::ToolRegistry;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let api_key = std::env::var("OPEN_AI_SECRET")?;
+//!
+//!     // Create image generation client
+//!     let image_client = new_image_generation_client(
+//!         ImageGenerationProvider::OpenAI,
+//!         &api_key,
+//!     )?;
+//!
+//!     // Create tool protocol
+//!     let protocol = Arc::new(CustomToolProtocol::new());
+//!
+//!     // Register image generation tool in ONE LINE!
+//!     let rt = tokio::runtime::Runtime::new()?;
+//!     rt.block_on(register_image_generation_tool(&protocol, image_client))?;
+//!
+//!     // Create agent with image generation capability
+//!     let registry = Arc::new(ToolRegistry::new(protocol));
+//!     let agent = Agent::new(
+//!         "designer",
+//!         "Creative Designer",
+//!         Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini)),
+//!     )
+//!     .with_tools(registry);
+//!
+//!     println!("✓ Agent can now generate images!");
+//!     Ok(())
+//! }
+//! ```
+//!
+//! The helper handles:
+//! - Tool metadata and parameter definitions
+//! - Async closure implementation
+//! - Response parsing (URL and Base64 formats)
+//! - Error handling and formatting
+//! - Tool registration
 
 use async_trait::async_trait;
 use std::error::Error;
@@ -505,17 +557,43 @@ pub trait ImageGenerationClient: Send + Sync {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust,no_run
 /// use cloudllm::image_generation::register_image_generation_tool;
+/// use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
 /// use cloudllm::tool_protocols::CustomToolProtocol;
+/// use cloudllm::tool_protocol::ToolRegistry;
+/// use cloudllm::Agent;
+/// use cloudllm::clients::openai::{OpenAIClient, Model};
 /// use std::sync::Arc;
 ///
-/// let protocol = Arc::new(CustomToolProtocol::new());
-/// let image_client: Arc<dyn ImageGenerationClient> = /* ... */;
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let api_key = std::env::var("OPEN_AI_SECRET")?;
 ///
-/// register_image_generation_tool(&protocol, image_client.clone()).await?;
+///     // Create image generation client
+///     let image_client = new_image_generation_client(
+///         ImageGenerationProvider::OpenAI,
+///         &api_key,
+///     )?;
 ///
-/// // Now agents can use the "generate_image" tool!
+///     // Create protocol and register image tool
+///     let protocol = Arc::new(CustomToolProtocol::new());
+///     let rt = tokio::runtime::Runtime::new()?;
+///     rt.block_on(register_image_generation_tool(&protocol, image_client))?;
+///
+///     // Create agent with image generation capability
+///     let registry = Arc::new(ToolRegistry::new(protocol));
+///     let agent = Agent::new(
+///         "designer",
+///         "Creative Designer",
+///         Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini)),
+///     )
+///     .with_tools(registry);
+///
+///     // Agent can now generate images!
+///     println!("✓ Agent ready with image generation tool");
+///     Ok(())
+/// }
 /// ```
 ///
 /// # Tool Parameters
