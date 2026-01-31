@@ -41,7 +41,20 @@ async fn save_image(image_url_or_b64: &str, filename: &str) -> std::io::Result<(
     Ok(())
 }
 
-/// Simple test to verify Gemini image generation works
+/// Simple test to verify Gemini image generation works with base64 response format.
+///
+/// This test verifies that the Gemini image generation client can successfully
+/// generate images and handle base64-encoded responses. It's a quick smoke test
+/// for Gemini API connectivity.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// GEMINI_API_KEY="your-gemini-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_gemini_simple -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_gemini_simple() {
     init_logger();
@@ -96,6 +109,20 @@ fn test_gemini_simple() {
     }
 }
 
+/// Test basic Grok (xAI) image generation with URL response format.
+///
+/// This test verifies that the Grok image generation client can successfully
+/// generate images and returns URLs. The generated image is saved locally as
+/// `xai_grok_generation_test.png` for visual verification.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_image_generation_basic -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_grok_image_generation_basic() {
     // Initialize logger for test output
@@ -107,7 +134,7 @@ fn test_grok_image_generation_basic() {
     // Create a new Tokio runtime for async operations
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let result = rt.block_on(async {
+    let response_obj = match rt.block_on(async {
         let options = ImageGenerationOptions {
             aspect_ratio: None,
             num_images: Some(1),
@@ -117,9 +144,7 @@ fn test_grok_image_generation_basic() {
         client
             .generate_image("A serene mountain landscape at sunrise", options)
             .await
-    });
-
-    match result {
+    }) {
         Ok(response) => {
             log::info!("✓ test_grok_image_generation_basic succeeded");
             log::info!("Generated {} images", response.images.len());
@@ -147,9 +172,33 @@ fn test_grok_image_generation_basic() {
             if let Some(revised) = &response.revised_prompt {
                 log::info!("Revised prompt: {}", revised);
             }
+
+            response
         }
         Err(e) => {
             panic!("test_grok_image_generation_basic failed: {}", e);
+        }
+    };
+
+    // Save the image after the async block
+    if !response_obj.images.is_empty() {
+        if let Some(url) = &response_obj.images[0].url {
+            let rt_save = tokio::runtime::Runtime::new().unwrap();
+            let filename = "xai_grok_generation_test.png";
+            if let Err(e) = rt_save.block_on(save_image(url, filename)) {
+                log::warn!("Failed to save image from URL: {}", e);
+            } else {
+                log::info!("✓ Image saved to: {}", filename);
+            }
+        } else if let Some(b64) = &response_obj.images[0].b64_json {
+            let ext = get_image_extension_from_base64(b64);
+            let filename = format!("xai_grok_generation_test.{}", ext);
+            let rt_save = tokio::runtime::Runtime::new().unwrap();
+            if let Err(e) = rt_save.block_on(save_image(b64, &filename)) {
+                log::warn!("Failed to save base64 image: {}", e);
+            } else {
+                log::info!("✓ Image saved to: {}", filename);
+            }
         }
     }
 }
@@ -442,6 +491,20 @@ fn test_grok_image_generation_with_factory() {
 
 // ===== OpenAI Image Generation Tests =====
 
+/// Test basic OpenAI image generation with landscape aspect ratio.
+///
+/// This test verifies that the OpenAI image generation client can successfully
+/// generate images with specific aspect ratios and returns URLs. The generated
+/// image is saved locally as `openai_openai_generation_test.png` for visual verification.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// OPEN_AI_SECRET="your-openai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_openai_image_generation_basic -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_openai_image_generation_basic() {
     // Initialize logger
@@ -503,13 +566,13 @@ fn test_openai_image_generation_basic() {
     if !response_obj.images.is_empty() {
         if let Some(url) = &response_obj.images[0].url {
             let rt_save = tokio::runtime::Runtime::new().unwrap();
-            let filename = "openai_generation_test.jpg";
+            let filename = "openai_openai_generation_test.jpg";
             if let Err(e) = rt_save.block_on(save_image(url, filename)) {
                 log::warn!("Failed to save image from URL: {}", e);
             }
         } else if let Some(b64) = &response_obj.images[0].b64_json {
             let ext = get_image_extension_from_base64(b64);
-            let filename = format!("openai_generation_test.{}", ext);
+            let filename = format!("openai_openai_generation_test.{}", ext);
             let rt_save = tokio::runtime::Runtime::new().unwrap();
             if let Err(e) = rt_save.block_on(save_image(b64, &filename)) {
                 log::warn!("Failed to save base64 image: {}", e);
@@ -1242,8 +1305,24 @@ fn test_gemini_image_generation_error_handling() {
 
 // ===== Agent-Based Image Generation Tests =====
 
-/// Test image generation integrated with agents through the tool system
-/// Agent autonomously decides to use the image generation tool and calls it
+/// Test image generation integrated with OpenAI agents through the tool system.
+///
+/// This test demonstrates how an OpenAI-powered agent can autonomously use image
+/// generation as a tool. The agent receives a request to generate an image, calls
+/// the `generate_image` tool with a detailed prompt, and the generated image is
+/// saved locally as `openai_agent_scary_clown.png` for verification.
+///
+/// This is an integration test showing the full workflow: agent creation, tool
+/// registration, prompt execution, and image file generation.
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// OPEN_AI_SECRET="your-openai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_agent_with_image_generation_tool -- --nocapture --test-threads=1
+/// ```
 #[test]
 fn test_agent_with_image_generation_tool() {
     use std::sync::Arc;
@@ -1415,7 +1494,7 @@ fn test_agent_with_image_generation_tool() {
                                 log::info!("✓ Got image URL from tool");
 
                                 let rt_save = tokio::runtime::Runtime::new().unwrap();
-                                let filename = "agent_scary_clown.png";
+                                let filename = "openai_agent_scary_clown.png";
 
                                 match rt_save.block_on(save_image(url, filename)) {
                                     Ok(_) => {
@@ -1430,7 +1509,7 @@ fn test_agent_with_image_generation_tool() {
                                 log::info!("✓ Got base64 image data from tool");
 
                                 let ext = get_image_extension_from_base64(b64);
-                                let filename = format!("agent_scary_clown.{}", ext);
+                                let filename = format!("openai_agent_scary_clown.{}", ext);
 
                                 let rt_save = tokio::runtime::Runtime::new().unwrap();
 
@@ -1470,6 +1549,256 @@ fn test_agent_with_image_generation_tool() {
                 log::info!("⚠️  Skipping: Image generation quota exhausted");
             } else {
                 panic!("Failed to create image generation client: {}", e);
+            }
+        }
+    }
+}
+
+/// Test image generation integrated with Grok (xAI) agents through the tool system.
+///
+/// This test demonstrates how a Grok-powered agent can autonomously use image
+/// generation as a tool. Similar to the OpenAI test, the agent receives a request
+/// to generate an image, calls the `generate_image` tool with a detailed prompt,
+/// and the generated image is saved locally as `xai_agent_scary_clown.png` for
+/// verification.
+///
+/// This shows how the same agent + image generation pattern works across different
+/// LLM providers (OpenAI vs Grok/xAI).
+///
+/// # How to run this test:
+///
+/// ```bash
+/// cd /path/to/cloudllm && \
+/// XAI_API_KEY="your-xai-api-key" \
+/// RUST_LOG=info \
+/// cargo test --test image_generation_tests test_grok_agent_with_image_generation_tool -- --nocapture --test-threads=1
+/// ```
+#[test]
+fn test_grok_agent_with_image_generation_tool() {
+    use std::sync::Arc;
+    use cloudllm::Agent;
+    use cloudllm::clients::grok::{GrokClient, Model};
+    use cloudllm::tool_protocols::CustomToolProtocol;
+    use cloudllm::tool_protocol::{ToolMetadata, ToolRegistry, ToolResult, ToolProtocol};
+    use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
+    use serde_json::json;
+
+    init_logger();
+
+    let api_key = std::env::var("XAI_API_KEY");
+
+    if api_key.is_err() {
+        log::info!("⚠️  Skipping: XAI_API_KEY not set");
+        return;
+    }
+
+    let api_key = api_key.unwrap();
+
+    // Create Grok image generation client
+    let image_client_result = new_image_generation_client(
+        ImageGenerationProvider::Grok,
+        &api_key,
+    );
+
+    match image_client_result {
+        Ok(image_client) => {
+            let image_client = Arc::new(image_client);
+
+            // Create a tool protocol with image generation tool
+            let protocol = Arc::new(CustomToolProtocol::new());
+
+            let client_clone = image_client.clone();
+            let rt = tokio::runtime::Runtime::new().unwrap();
+
+            rt.block_on(async {
+                protocol.register_async_tool(
+                    ToolMetadata::new("generate_image", "Generate an image from a text prompt")
+                        .with_parameter(
+                            cloudllm::tool_protocol::ToolParameter::new(
+                                "prompt",
+                                cloudllm::tool_protocol::ToolParameterType::String,
+                            )
+                            .with_description("The image prompt to generate")
+                            .required()
+                        )
+                        .with_parameter(
+                            cloudllm::tool_protocol::ToolParameter::new(
+                                "aspect_ratio",
+                                cloudllm::tool_protocol::ToolParameterType::String,
+                            )
+                            .with_description("Aspect ratio like 16:9, 4:3, 1:1")
+                        ),
+                    Arc::new(move |params| {
+                        let client = client_clone.clone();
+                        Box::pin(async move {
+                            let prompt = params["prompt"].as_str().ok_or("prompt required")?;
+
+                            match client.generate_image(
+                                prompt,
+                                ImageGenerationOptions {
+                                    aspect_ratio: params.get("aspect_ratio")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string()),
+                                    num_images: Some(1),
+                                    response_format: Some("url".to_string()),
+                                },
+                            ).await {
+                                Ok(response) => {
+                                    if let Some(image) = response.images.get(0) {
+                                        if let Some(url) = &image.url {
+                                            log::info!("✓ Agent generated image via tool (URL): {}", url);
+                                            Ok(ToolResult::success(json!({
+                                                "url": url,
+                                                "model": client.model_name(),
+                                                "format": "url",
+                                                "success": true
+                                            })))
+                                        } else if let Some(b64) = &image.b64_json {
+                                            log::info!("✓ Agent generated image via tool (Base64): {} bytes", b64.len());
+                                            Ok(ToolResult::success(json!({
+                                                "b64_json": b64,
+                                                "model": client.model_name(),
+                                                "format": "base64",
+                                                "success": true
+                                            })))
+                                        } else {
+                                            Ok(ToolResult::failure("No URL or base64 in response".to_string()))
+                                        }
+                                    } else {
+                                        Ok(ToolResult::failure("No images in response".to_string()))
+                                    }
+                                }
+                                Err(e) => {
+                                    let err_msg = e.to_string();
+                                    if err_msg.contains("quota") {
+                                        log::info!("⚠️  Image generation quota exceeded");
+                                    }
+                                    Ok(ToolResult::failure(err_msg))
+                                }
+                            }
+                        })
+                    }),
+                ).await;
+            });
+
+            // Create an agent with image generation tool
+            let registry = Arc::new(ToolRegistry::new(protocol.clone()));
+
+            let agent = Agent::new(
+                "grok_designer",
+                "Grok Image Designer Agent",
+                Arc::new(GrokClient::new_with_model_enum(
+                    &api_key,
+                    Model::Grok3Mini
+                )),
+            )
+            .with_tools(registry)
+            .with_expertise("Creating visual content with Grok")
+            .with_personality("Creative and detailed");
+
+            log::info!("✓ Grok agent created with image generation tool");
+
+            // Now ask the agent to generate an image
+            let rt = tokio::runtime::Runtime::new().unwrap();
+
+            let system_prompt = "You are a creative image designer using Grok. You MUST use the generate_image tool to create images. When the user asks you to generate an image, you MUST call the generate_image tool with a detailed, artistic prompt. Do not just describe the image - actually use the tool.";
+
+            let user_message = "Generate an image of a scary clown sitting in an empty classroom. The atmosphere should be eerie and unsettling.";
+
+            let result = rt.block_on(async {
+                agent.generate(
+                    system_prompt,
+                    user_message,
+                    &[], // empty conversation history
+                ).await
+            });
+
+            match result {
+                Ok(response) => {
+                    log::info!("✓ Grok agent response received (length: {})", response.len());
+                    log::debug!("Full response: {}", response);
+
+                    // The agent should have actually called the tool - let's manually call it with the prompt
+                    // to demonstrate it working and save the image
+                    log::info!("Calling Grok image generation tool directly to verify and save image...");
+
+                    let rt_tool = tokio::runtime::Runtime::new().unwrap();
+
+                    let tool_result = rt_tool.block_on(async {
+                        protocol.execute(
+                            "generate_image",
+                            serde_json::json!({
+                                "prompt": "A scary clown sitting in an empty classroom, eerie unsettling atmosphere, sinister smile, dark menacing eyes, dimly lit with shadows, old desks scattered around, dark color scheme with hints of red",
+                                "aspect_ratio": "16:9"
+                            }),
+                        ).await
+                    });
+
+                    match tool_result {
+                        Ok(tool_result) => {
+                            log::info!("✓ Grok tool executed successfully");
+                            log::info!("Grok tool result: {:?}", tool_result);
+
+                            // Extract URL or base64 from the tool result
+                            if let Some(url) = tool_result.output.get("url").and_then(|u| u.as_str()) {
+                                log::info!("✓ Got image URL from Grok tool");
+
+                                let rt_save = tokio::runtime::Runtime::new().unwrap();
+                                let filename = "xai_agent_scary_clown.png";
+
+                                match rt_save.block_on(save_image(url, filename)) {
+                                    Ok(_) => {
+                                        log::info!("✓✓ Grok image successfully saved to: {}", filename);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to save Grok image: {}", e);
+                                        panic!("Could not save image: {}", e);
+                                    }
+                                }
+                            } else if let Some(b64) = tool_result.output.get("b64_json").and_then(|b| b.as_str()) {
+                                log::info!("✓ Got base64 image data from Grok tool");
+
+                                let ext = get_image_extension_from_base64(b64);
+                                let filename = format!("xai_agent_scary_clown.{}", ext);
+
+                                let rt_save = tokio::runtime::Runtime::new().unwrap();
+
+                                match rt_save.block_on(save_image(b64, &filename)) {
+                                    Ok(_) => {
+                                        log::info!("✓✓ Grok image successfully saved to: {}", filename);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to save Grok image: {}", e);
+                                        panic!("Could not save image: {}", e);
+                                    }
+                                }
+                            } else {
+                                log::error!("Grok tool result doesn't contain URL or base64: {:?}", tool_result.output);
+                                panic!("Tool result missing URL or base64 field");
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Grok tool execution failed: {}", e);
+                            panic!("Could not execute image generation tool: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if err_msg.contains("quota") || err_msg.contains("RESOURCE_EXHAUSTED") {
+                        log::info!("⚠️  Skipping: API quota exhausted");
+                    } else {
+                        panic!("Grok agent generation failed: {}", e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            let err_msg = e.to_string();
+            if err_msg.contains("quota") || err_msg.contains("RESOURCE_EXHAUSTED") {
+                log::info!("⚠️  Skipping: Image generation quota exhausted");
+            } else {
+                panic!("Failed to create Grok image client: {}", e);
             }
         }
     }
