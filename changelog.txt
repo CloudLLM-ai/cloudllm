@@ -49,6 +49,32 @@
    - Primary use case: landscape images for blog/social media content
    - Seamless mapping across provider APIs (different size/aspect ratio naming conventions)
    - Supported in all three providers with consistent interface
+ - new: register_image_generation_tool() helper function
+   - Dramatically simplifies tool registration for agents (boilerplate reduction: ~80 lines → 1 line)
+   - Automatically handles tool metadata, parameter marshalling, response parsing, and error handling
+   - Encapsulates all complexity of closing image generation into tools
+   - Usage: protocol.register_image_generation_tool(image_client).await
+ - new: FromStr trait implementation for ImageGenerationProvider
+   - Implements standard library FromStr trait for string-to-enum conversion
+   - Case-insensitive parsing: "openai", "grok", "gemini" (any case)
+   - New ImageGenerationProviderError type implementing std::error::Error
+   - Enables idiomatic Rust: let provider = ImageGenerationProvider::from_str("openai")?;
+   - Convenience function new_image_generation_client_from_str() wraps FromStr internally
+ - docs: Module-level documentation enhancements
+   - Comprehensive examples in image_generation.rs with compilable code snippets
+   - FromStr trait usage examples showing case-insensitive parsing
+   - ImageGenerationProvider enum methods documented: as_str(), display_name()
+   - Provider-specific implementation notes and response format details
+ - docs: README.md "Parsing from Strings with FromStr" section
+   - Demonstrates FromStr trait for runtime provider selection
+   - Shows both traits-based and convenience function approaches
+   - Practical examples with error handling
+ - fix: Code quality improvements (6 clippy warnings resolved)
+   - Collapsed nested if statement in Gemini aspect ratio validation
+   - Removed unnecessary u8 casts in base64 decoder
+   - Replaced get(0) with first() for idiomaticity
+   - Proper FromStr trait implementation (not custom method)
+   - All code passes: cargo clippy -- -D warnings
  - chore: Updated .gitignore for development artifacts
    - Ignore generated image files (PNG, JPG, JPEG, WebP, GIF)
    - Ignore temporary markdown files created during development
