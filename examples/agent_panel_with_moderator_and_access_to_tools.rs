@@ -1,9 +1,9 @@
 //! Four-Agent Panel with Moderator and Shared Tools
 //!
-//! This example demonstrates a sophisticated multi-agent system using the Council API
+//! This example demonstrates a sophisticated multi-agent system using the Orchestration API
 //! to estimate global CO₂ emissions from Bitcoin mining. It showcases:
 //!
-//! - **Parallel execution**: Three workers run simultaneously via Council.Parallel mode
+//! - **Parallel execution**: Three workers run simultaneously via Orchestration.Parallel mode
 //! - **Two iterative rounds**: Independent work (Round 1) → Moderator feedback → Revisions (Round 2)
 //! - **Shared tools**: Memory (KV store), Calculator (mathematical operations)
 //! - **Agent autonomy**: LLM models decide which tools to use based on tasks
@@ -19,7 +19,7 @@ use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, To
 use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
 use cloudllm::tools::Memory;
 use cloudllm::{
-    council::{Council, CouncilMode},
+    orchestration::{Orchestration, OrchestrationMode},
     Agent,
 };
 use std::collections::HashMap;
@@ -163,14 +163,14 @@ impl PanelWorkflow {
 
         println!("🔄 Launching three workers in PARALLEL...\n");
 
-        // Create a council for parallel worker execution
-        let mut council = Council::new("workers-panel", "Worker Analysis Panel")
-            .with_mode(CouncilMode::Parallel)
+        // Create an orchestration for parallel worker execution
+        let mut orchestration = Orchestration::new("workers-panel", "Worker Analysis Panel")
+            .with_mode(OrchestrationMode::Parallel)
             .with_max_tokens(4096);
 
-        council.add_agent(self.worker_a.clone())?;
-        council.add_agent(self.worker_b.clone())?;
-        council.add_agent(self.worker_c.clone())?;
+        orchestration.add_agent(self.worker_a.clone())?;
+        orchestration.add_agent(self.worker_b.clone())?;
+        orchestration.add_agent(self.worker_c.clone())?;
 
         let prompt = r#"You are part of a three-agent research team analyzing Bitcoin mining CO₂ emissions.
 
@@ -199,7 +199,7 @@ ALL WORKERS: Use Memory tool to store findings with:
 Execute your task independently. Do NOT wait for others.
 "#;
 
-        let response = council.discuss(prompt, 1).await?;
+        let response = orchestration.discuss(prompt, 1).await?;
 
         println!("✓ Round 1 complete. All workers completed in parallel:");
         for msg in &response.messages {
@@ -264,14 +264,14 @@ Allow Round-2: Workers may now read r1/source.* and r1/energy.* for validation.
 
         println!("🔄 Launching three workers in PARALLEL for revisions...\n");
 
-        // Create council for parallel Round 2 execution
-        let mut council = Council::new("workers-r2", "Worker Revision Panel")
-            .with_mode(CouncilMode::Parallel)
+        // Create orchestration for parallel Round 2 execution
+        let mut orchestration = Orchestration::new("workers-r2", "Worker Revision Panel")
+            .with_mode(OrchestrationMode::Parallel)
             .with_max_tokens(4096);
 
-        council.add_agent(self.worker_a.clone())?;
-        council.add_agent(self.worker_b.clone())?;
-        council.add_agent(self.worker_c.clone())?;
+        orchestration.add_agent(self.worker_a.clone())?;
+        orchestration.add_agent(self.worker_b.clone())?;
+        orchestration.add_agent(self.worker_c.clone())?;
 
         let prompt = r#"
 Round 2: Refine your Round 1 estimates with uncertainty bounds.
@@ -293,7 +293,7 @@ ALL: Use ISO-8601 timestamps, include sources and confidence scores.
 Execute in parallel. Store results using Memory tool with .v2 suffix.
 "#;
 
-        let response = council.discuss(prompt, 1).await?;
+        let response = orchestration.discuss(prompt, 1).await?;
 
         println!("✓ Round 2 complete. All workers revised estimates in parallel:");
         for msg in &response.messages {
@@ -364,7 +364,11 @@ Store all three in Memory (no TTL for final outputs).
                 println!("📌 {}", key);
                 // Truncate very long values
                 let display_value = if value.len() > 400 {
-                    format!("{}...", &value[..400])
+                    let mut end = 400;
+                    while !value.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}...", &value[..end])
                 } else {
                     value
                 };
@@ -398,7 +402,7 @@ async fn main() {
     println!("   ");
     println!("   Shared Tools: Memory (KV store), Calculator (math operations)");
     println!("   ");
-    println!("   Execution: Council.Parallel for workers, single agent for moderator");
+    println!("   Execution: Orchestration.Parallel for workers, single agent for moderator");
     println!("   Each round: workers run simultaneously, then moderator reviews.");
 
     match PanelWorkflow::new(&api_key_grok, &api_key_openai).await {

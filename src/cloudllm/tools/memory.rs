@@ -21,7 +21,7 @@
 //! # Common Use Cases
 //!
 //! 1. **Single-Agent Progress Tracking**: Store document metadata, checkpoints, and recovery instructions
-//! 2. **Multi-Agent Coordination**: Shared memory for councils to track decisions and build consensus
+//! 2. **Multi-Agent Coordination**: Shared memory for orchestrations to track decisions and build consensus
 //! 3. **Session Recovery**: Save state to resume interrupted work
 //! 4. **Audit Trails**: Maintain records of decisions and milestones
 //!

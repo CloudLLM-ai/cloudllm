@@ -445,7 +445,7 @@ impl ToolProtocol for OpenAIFunctionsProtocol {
 /// The protocol is designed to minimize token usage while being easily understood by LLMs.
 ///
 /// This adapter implements the [`ToolProtocol`] trait, allowing Memory to work with
-/// CloudLLM's agent and council systems. It translates between LLM tool calls and Memory
+/// CloudLLM's agent and orchestration systems. It translates between LLM tool calls and Memory
 /// operations.
 ///
 /// # Protocol Commands
@@ -476,7 +476,7 @@ impl ToolProtocol for OpenAIFunctionsProtocol {
 ///     .with_tools(registry);
 /// ```
 ///
-/// # Usage with Councils
+/// # Usage with Orchestrations
 ///
 /// For multi-agent coordination, create a shared Memory:
 ///

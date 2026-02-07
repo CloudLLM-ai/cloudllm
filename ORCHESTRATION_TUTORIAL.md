@@ -1,16 +1,16 @@
-# Multi-Agent Council Tutorial: A Practical Cookbook
+# Multi-Agent Orchestration Tutorial: A Practical Cookbook
 
 ## Introduction
 
-This tutorial demonstrates how to build multi-agent AI systems using CloudLLM's Council framework. We'll progress from simple to complex collaboration patterns, solving increasingly difficult problems with teams of AI agents from different providers (OpenAI, Claude, Gemini, Grok).
+This tutorial demonstrates how to build multi-agent AI systems using CloudLLM's Orchestration framework. We'll progress from simple to complex collaboration patterns, solving increasingly difficult problems with teams of AI agents from different providers (OpenAI, Claude, Gemini, Grok).
 
-**The Challenge**: Throughout this tutorial, we'll tackle a pressing scientific problem: **designing an optimal carbon capture and storage (CCS) strategy** to combat climate change. This is a real-world problem with known solutions, allowing us to evaluate how well our AI councils converge on optimal approaches.
+**The Challenge**: Throughout this tutorial, we'll tackle a pressing scientific problem: **designing an optimal carbon capture and storage (CCS) strategy** to combat climate change. This is a real-world problem with known solutions, allowing us to evaluate how well our AI orchestrations converge on optimal approaches.
 
 ## Prerequisites
 
 ```rust
 use cloudllm::{
-    council::{Agent, Council, CouncilMode},
+    orchestration::{Agent, Orchestration, OrchestrationMode},
     clients::{
         openai::OpenAIClient,
         claude::ClaudeClient,
@@ -35,7 +35,7 @@ let xai_key = std::env::var("XAI_KEY").expect("XAI_KEY not set");
 
 **Problem**: Evaluate the three main carbon capture technologies: Direct Air Capture (DAC), Point Source Capture, and Ocean-based capture.
 
-### The Council
+### The Orchestration
 
 ```rust
 async fn parallel_carbon_capture_analysis() -> Result<(), Box<dyn std::error::Error>> {
@@ -73,23 +73,23 @@ async fn parallel_carbon_capture_analysis() -> Result<(), Box<dyn std::error::Er
     .with_expertise("Industrial processes, energy efficiency, systems integration")
     .with_personality("Practical, systems-thinking, focuses on implementation challenges");
 
-    // Build the council
-    let mut council = Council::new(
-        "carbon-capture-council",
-        "Carbon Capture Technology Assessment Council"
+    // Build the orchestration
+    let mut orchestration = Orchestration::new(
+        "carbon-capture-orchestration",
+        "Carbon Capture Technology Assessment Orchestration"
     )
-    .with_mode(CouncilMode::Parallel)
+    .with_mode(OrchestrationMode::Parallel)
     .with_system_context(
         "You are part of an expert panel evaluating carbon capture technologies. \
          Provide your independent analysis based on your domain expertise."
     );
 
-    council.add_agent(agent_chemistry)?;
-    council.add_agent(agent_economics)?;
-    council.add_agent(agent_engineering)?;
+    orchestration.add_agent(agent_chemistry)?;
+    orchestration.add_agent(agent_economics)?;
+    orchestration.add_agent(agent_engineering)?;
 
     // Execute parallel analysis
-    let response = council.discuss(
+    let response = orchestration.discuss(
         "Analyze the three main carbon capture technologies (DAC, Point Source, Ocean-based) \
          and identify the most promising approach for immediate deployment. Consider: \
          1) Technical maturity, 2) Cost per ton CO2, 3) Scalability, 4) Environmental impact.",
@@ -127,11 +127,11 @@ async fn parallel_carbon_capture_analysis() -> Result<(), Box<dyn std::error::Er
 
 **Problem**: Design a comprehensive carbon capture deployment strategy, where each expert adds their layer of analysis.
 
-### The Council
+### The Orchestration
 
 ```rust
 async fn round_robin_deployment_strategy() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a 4-agent council with specific sequencing
+    // Create a 4-agent orchestration with specific sequencing
     let agent_scientist = Agent::new(
         "climate-scientist",
         "Dr. Thompson (Climate Scientist)",
@@ -176,24 +176,24 @@ async fn round_robin_deployment_strategy() -> Result<(), Box<dyn std::error::Err
     .with_expertise("Emerging technologies, R&D acceleration, moonshot thinking")
     .with_personality("Optimistic, forward-thinking, challenges assumptions");
 
-    let mut council = Council::new(
-        "deployment-council",
-        "Carbon Capture Deployment Strategy Council"
+    let mut orchestration = Orchestration::new(
+        "deployment-orchestration",
+        "Carbon Capture Deployment Strategy Orchestration"
     )
-    .with_mode(CouncilMode::RoundRobin)
+    .with_mode(OrchestrationMode::RoundRobin)
     .with_system_context(
         "You are collaboratively designing a global carbon capture deployment strategy. \
          Build upon previous experts' insights while adding your unique perspective."
     );
 
     // Order matters in Round-Robin!
-    council.add_agent(agent_scientist)?;  // Sets the scientific foundation
-    council.add_agent(agent_engineer)?;   // Adds engineering reality
-    council.add_agent(agent_economist)?;  // Layers in policy/economics
-    council.add_agent(agent_innovator)?;  // Challenges with innovation
+    orchestration.add_agent(agent_scientist)?;  // Sets the scientific foundation
+    orchestration.add_agent(agent_engineer)?;   // Adds engineering reality
+    orchestration.add_agent(agent_economist)?;  // Layers in policy/economics
+    orchestration.add_agent(agent_innovator)?;  // Challenges with innovation
 
     // Run 2 rounds - each agent speaks twice
-    let response = council.discuss(
+    let response = orchestration.discuss(
         "Design a 10-year global deployment strategy for carbon capture to remove \
          5 gigatons CO2/year by 2035. Address: \
          1) Technology selection and phasing, \
@@ -245,7 +245,7 @@ async fn round_robin_deployment_strategy() -> Result<(), Box<dyn std::error::Err
 
 **Problem**: Answer technical questions about carbon capture implementation, with a moderator selecting the right expert for each query.
 
-### The Council
+### The Orchestration
 
 ```rust
 async fn moderated_qa_session() -> Result<(), Box<dyn std::error::Error>> {
@@ -306,25 +306,25 @@ async fn moderated_qa_session() -> Result<(), Box<dyn std::error::Error>> {
     .with_expertise("Full lifecycle analysis, net carbon accounting, environmental impact")
     .with_personality("Holistic thinker, considers entire system impacts");
 
-    let mut council = Council::new(
-        "moderated-qa-council",
+    let mut orchestration = Orchestration::new(
+        "moderated-qa-orchestration",
         "Carbon Capture Q&A Panel"
     )
-    .with_mode(CouncilMode::Moderated {
+    .with_mode(OrchestrationMode::Moderated {
         moderator_id: "moderator".to_string()
     })
     .with_system_context(
         "You are participating in a technical Q&A session about carbon capture technology."
     );
 
-    council.add_agent(moderator)?;
-    council.add_agent(agent_chemical)?;
-    council.add_agent(agent_energy)?;
-    council.add_agent(agent_storage)?;
-    council.add_agent(agent_lifecycle)?;
+    orchestration.add_agent(moderator)?;
+    orchestration.add_agent(agent_chemical)?;
+    orchestration.add_agent(agent_energy)?;
+    orchestration.add_agent(agent_storage)?;
+    orchestration.add_agent(agent_lifecycle)?;
 
     // Ask a complex question requiring expert knowledge
-    let response = council.discuss(
+    let response = orchestration.discuss(
         "We're considering a 1 MT/year direct air capture facility powered by geothermal energy \
          in Iceland, storing CO2 in basalt formations. What are the key technical challenges and \
          is the net carbon balance truly negative when accounting for construction and operations?",
@@ -364,7 +364,7 @@ async fn moderated_qa_session() -> Result<(), Box<dyn std::error::Error>> {
 
 **Problem**: Evaluate and select the optimal carbon capture technology portfolio for three different regions with different constraints.
 
-### The Council
+### The Orchestration
 
 ```rust
 async fn hierarchical_technology_selection() -> Result<(), Box<dyn std::error::Error>> {
@@ -422,11 +422,11 @@ async fn hierarchical_technology_selection() -> Result<(), Box<dyn std::error::E
     .with_expertise("Strategic planning, portfolio management, resource allocation")
     .with_personality("Decisive, balances multiple objectives, long-term vision");
 
-    let mut council = Council::new(
-        "hierarchical-council",
+    let mut orchestration = Orchestration::new(
+        "hierarchical-orchestration",
         "Global Carbon Capture Portfolio Selection"
     )
-    .with_mode(CouncilMode::Hierarchical {
+    .with_mode(OrchestrationMode::Hierarchical {
         layers: vec![
             // Layer 1: Regional workers (parallel)
             vec![
@@ -448,14 +448,14 @@ async fn hierarchical_technology_selection() -> Result<(), Box<dyn std::error::E
     );
 
     // Add all agents
-    council.add_agent(worker_north_america)?;
-    council.add_agent(worker_europe)?;
-    council.add_agent(worker_asia)?;
-    council.add_agent(supervisor_tech)?;
-    council.add_agent(supervisor_business)?;
-    council.add_agent(executive)?;
+    orchestration.add_agent(worker_north_america)?;
+    orchestration.add_agent(worker_europe)?;
+    orchestration.add_agent(worker_asia)?;
+    orchestration.add_agent(supervisor_tech)?;
+    orchestration.add_agent(supervisor_business)?;
+    orchestration.add_agent(executive)?;
 
-    let response = council.discuss(
+    let response = orchestration.discuss(
         "Evaluate carbon capture technology options for deployment in: \
          1) North America (abundant natural gas, existing industrial CO2 sources), \
          2) Europe (strong renewables, carbon pricing, limited storage), \
@@ -517,7 +517,7 @@ This mimics real organizational decision-making with clear information flow up t
 
 **Problem**: Determine the optimal carbon price needed to make carbon capture economically viable. This is contentious with no single answer - perfect for debate.
 
-### The Council
+### The Orchestration
 
 ```rust
 async fn debate_carbon_pricing() -> Result<(), Box<dyn std::error::Error>> {
@@ -586,11 +586,11 @@ async fn debate_carbon_pricing() -> Result<(), Box<dyn std::error::Error>> {
          Challenges simplistic arguments from all sides."
     );
 
-    let mut council = Council::new(
-        "debate-council",
-        "Carbon Pricing Debate Council"
+    let mut orchestration = Orchestration::new(
+        "debate-orchestration",
+        "Carbon Pricing Debate Orchestration"
     )
-    .with_mode(CouncilMode::Debate {
+    .with_mode(OrchestrationMode::Debate {
         max_rounds: 5,
         convergence_threshold: Some(0.65),  // 65% similarity triggers convergence
     })
@@ -600,13 +600,13 @@ async fn debate_carbon_pricing() -> Result<(), Box<dyn std::error::Error>> {
          based on evidence presented by others. Seek truth through dialectic."
     );
 
-    council.add_agent(agent_market_optimist)?;
-    council.add_agent(agent_climate_hawk)?;
-    council.add_agent(agent_pragmatist)?;
-    council.add_agent(agent_industry_realist)?;
-    council.add_agent(agent_systems_thinker)?;
+    orchestration.add_agent(agent_market_optimist)?;
+    orchestration.add_agent(agent_climate_hawk)?;
+    orchestration.add_agent(agent_pragmatist)?;
+    orchestration.add_agent(agent_industry_realist)?;
+    orchestration.add_agent(agent_systems_thinker)?;
 
-    let response = council.discuss(
+    let response = orchestration.discuss(
         "What carbon price ($/ton CO2) should be implemented globally to make carbon capture \
          and storage economically competitive while being politically and economically feasible? \
          \
@@ -675,7 +675,7 @@ The debate mode is powerful because it surfaces and resolves conflicts through a
 
 ## Advanced: Combining Tools with Agents
 
-All council modes support tool-augmented agents. Here's an example with real calculations:
+All orchestration modes support tool-augmented agents. Here's an example with real calculations:
 
 ```rust
 use cloudllm::{
@@ -683,7 +683,7 @@ use cloudllm::{
     tool_protocol::{ToolRegistry, ToolMetadata, ToolParameter, ToolParameterType, ToolResult},
 };
 
-async fn council_with_tools() -> Result<(), Box<dyn std::error::Error>> {
+async fn orchestration_with_tools() -> Result<(), Box<dyn std::error::Error>> {
     // Create a calculator tool for carbon accounting
     let mut adapter = CustomToolAdapter::new();
 
@@ -733,12 +733,12 @@ async fn council_with_tools() -> Result<(), Box<dyn std::error::Error>> {
     .with_expertise("Carbon economics, cost analysis, financial modeling")
     .with_tools(registry);
 
-    let mut council = Council::new("analysis-council", "CCS Cost Analysis")
-        .with_mode(CouncilMode::Parallel);
+    let mut orchestration = Orchestration::new("analysis-orchestration", "CCS Cost Analysis")
+        .with_mode(OrchestrationMode::Parallel);
 
-    council.add_agent(agent_analyst)?;
+    orchestration.add_agent(agent_analyst)?;
 
-    let response = council.discuss(
+    let response = orchestration.discuss(
         "Calculate the total cost of deploying 5 MT/year carbon capture capacity \
          over 20 years at $100/ton. Use the calculate_ccs_cost tool.",
         1
@@ -783,15 +783,15 @@ The agent will:
 - **Provider diversity**: Mix Claude (analytical), GPT-4 (balanced), Gemini (creative), Grok (contrarian)
 - **Agent names**: Use realistic names and titles for better role-playing
 
-### 3. **Prompt Engineering for Councils**
+### 3. **Prompt Engineering for Orchestrations**
 
-Good council prompts:
+Good orchestration prompts:
 - ✅ Are specific and measurable
 - ✅ Require multiple perspectives
 - ✅ Have constrained solution spaces
 - ✅ Provide context and constraints
 
-Poor council prompts:
+Poor orchestration prompts:
 - ❌ Are too open-ended
 - ❌ Can be answered by one expert
 - ❌ Lack success criteria
@@ -801,11 +801,11 @@ Poor council prompts:
 
 ```rust
 // Monitor token usage
-let response = council.discuss(prompt, rounds).await?;
+let response = orchestration.discuss(prompt, rounds).await?;
 println!("Tokens used: {}", response.total_tokens_used);
 
 // For expensive debates, limit rounds
-CouncilMode::Debate {
+OrchestrationMode::Debate {
     max_rounds: 3,  // Lower for cost control
     convergence_threshold: Some(0.70)  // Higher = earlier convergence = lower cost
 }
@@ -827,7 +827,7 @@ Here's a complete program combining multiple modes:
 
 ```rust
 use cloudllm::{
-    council::{Agent, Council, CouncilMode},
+    orchestration::{Agent, Orchestration, OrchestrationMode},
     clients::{openai::OpenAIClient, claude::ClaudeClient, gemini::GeminiClient, grok::GrokClient},
 };
 use std::sync::Arc;
@@ -841,26 +841,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let xai_key = std::env::var("XAI_KEY")?;
 
     println!("╔════════════════════════════════════════════════════════╗");
-    println!("║  Carbon Capture Strategy: Multi-Mode Council Pipeline  ║");
+    println!("║  Carbon Capture Strategy: Multi-Mode Orchestration Pipeline  ║");
     println!("╚════════════════════════════════════════════════════════╝\n");
 
     // STAGE 1: Parallel analysis of technologies
     println!("📊 STAGE 1: Independent Technology Assessment (Parallel Mode)\n");
 
-    let mut stage1_council = Council::new("stage1", "Tech Assessment")
-        .with_mode(CouncilMode::Parallel);
+    let mut stage1_orchestration = Orchestration::new("stage1", "Tech Assessment")
+        .with_mode(OrchestrationMode::Parallel);
 
-    stage1_council.add_agent(Agent::new(
+    stage1_orchestration.add_agent(Agent::new(
         "tech1", "Technology Analyst A",
         Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-5-sonnet-20241022"))
     ).with_expertise("Direct Air Capture"))?;
 
-    stage1_council.add_agent(Agent::new(
+    stage1_orchestration.add_agent(Agent::new(
         "tech2", "Technology Analyst B",
         Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
     ).with_expertise("Point Source Capture"))?;
 
-    let stage1_result = stage1_council.discuss(
+    let stage1_result = stage1_orchestration.discuss(
         "Evaluate your assigned carbon capture technology. Provide: \
          1) Readiness level (TRL 1-9), 2) Current cost, 3) Key challenges.",
         1
@@ -875,20 +875,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // STAGE 2: Debate to select optimal approach
     println!("\n💬 STAGE 2: Technology Selection Debate (Debate Mode)\n");
 
-    let mut stage2_council = Council::new("stage2", "Selection Debate")
-        .with_mode(CouncilMode::Debate { max_rounds: 3, convergence_threshold: Some(0.70) });
+    let mut stage2_orchestration = Orchestration::new("stage2", "Selection Debate")
+        .with_mode(OrchestrationMode::Debate { max_rounds: 3, convergence_threshold: Some(0.70) });
 
-    stage2_council.add_agent(Agent::new(
+    stage2_orchestration.add_agent(Agent::new(
         "advocate1", "DAC Advocate",
         Arc::new(GeminiClient::new_with_model_string(&gemini_key, "gemini-1.5-pro"))
     ))?;
 
-    stage2_council.add_agent(Agent::new(
+    stage2_orchestration.add_agent(Agent::new(
         "advocate2", "Point Source Advocate",
         Arc::new(GrokClient::new_with_model_str(&xai_key, "grok-beta"))
     ))?;
 
-    let stage2_result = stage2_council.discuss(
+    let stage2_result = stage2_orchestration.discuss(
         "Based on the stage 1 assessment, argue for your preferred technology. \
          Consider cost, scalability, and timeline to 2035.",
         3
@@ -902,30 +902,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // STAGE 3: Hierarchical deployment planning
     println!("🏗️  STAGE 3: Deployment Strategy (Hierarchical Mode)\n");
 
-    let mut stage3_council = Council::new("stage3", "Deployment Planning")
-        .with_mode(CouncilMode::Hierarchical {
+    let mut stage3_orchestration = Orchestration::new("stage3", "Deployment Planning")
+        .with_mode(OrchestrationMode::Hierarchical {
             layers: vec![
                 vec!["regional1".to_string(), "regional2".to_string()],
                 vec!["executive".to_string()],
             ],
         });
 
-    stage3_council.add_agent(Agent::new(
+    stage3_orchestration.add_agent(Agent::new(
         "regional1", "Regional Planner US",
         Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini"))
     ))?;
 
-    stage3_council.add_agent(Agent::new(
+    stage3_orchestration.add_agent(Agent::new(
         "regional2", "Regional Planner EU",
         Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-haiku-20240307"))
     ))?;
 
-    stage3_council.add_agent(Agent::new(
+    stage3_orchestration.add_agent(Agent::new(
         "executive", "Strategy Director",
         Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
     ))?;
 
-    let stage3_result = stage3_council.discuss(
+    let stage3_result = stage3_orchestration.discuss(
         "Create a 5-year deployment roadmap for the selected technology \
          in US and EU markets. Executives synthesize into unified strategy.",
         1

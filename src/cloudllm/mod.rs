@@ -11,13 +11,13 @@
 //! - **tool_protocols**: Concrete ToolProtocol implementations (Custom, MCP, Memory, OpenAI)
 //! - **resource_protocol**: MCP Resource support for application-provided context
 //! - **tools**: Built-in tools (Memory, Bash, HTTP Client, etc.)
-//! - **council**: Multi-agent orchestration system with 5 collaboration modes
+//! - **orchestration**: Multi-agent orchestration system with 5 collaboration modes
 //! - **mcp_server**: Unified MCP server for tool aggregation and routing
 
 pub mod agent;
 pub mod client_wrapper;
 pub mod clients;
-pub mod council;
+pub mod orchestration;
 pub mod image_generation;
 pub mod llm_session;
 pub mod mcp_http_adapter;

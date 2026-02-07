@@ -27,7 +27,7 @@ CloudLLM maintains **production-grade documentation** with excellent coverage an
 | File | Type | Lines | Status |
 |------|------|-------|--------|
 | README.md | Main docs | 1,428 | ✅ Current (v0.5.0) |
-| COUNCIL_TUTORIAL.md | Tutorial | 800+ | ✅ Current |
+| ORCHESTRATION_TUTORIAL.md | Tutorial | 800+ | ✅ Current |
 | HANDOFF.md | Session handoff | 788 | ✅ Latest session |
 | DOCUMENTATION_AUDIT.md | This audit | - | ✅ New |
 
@@ -50,7 +50,7 @@ CloudLLM maintains **production-grade documentation** with excellent coverage an
 2. src/cloudllm/mod.rs - Module tree (28 lines)
 3. src/cloudllm/agent.rs - Agent system (36 lines)
 4. src/cloudllm/client_wrapper.rs - Trait documentation (61+ lines)
-5. src/cloudllm/council.rs - Multi-agent orchestration (59 lines)
+5. src/cloudllm/orchestration.rs - Multi-agent orchestration (59 lines)
 6. src/cloudllm/llm_session.rs - Session management (51+ lines)
 7. src/cloudllm/tool_protocol.rs - Tool system architecture (61+ lines)
 8. src/cloudllm/tool_protocols.rs - Protocol implementations (33+ lines)
@@ -62,8 +62,8 @@ CloudLLM maintains **production-grade documentation** with excellent coverage an
 | Example | Purpose |
 |---------|---------|
 | calculator_example.rs | Scientific calculator with 30+ operations |
-| council_demo.rs | Council collaboration modes |
-| council_with_memory.rs | Shared memory across agents |
+| orchestration_demo.rs | Orchestration collaboration modes |
+| orchestration_with_memory.rs | Shared memory across agents |
 | bash_tool_basic.rs | Secure command execution |
 | http_client_example.rs | HTTP client with all methods |
 | filesystem_example.rs | Safe file operations |
@@ -103,7 +103,7 @@ test result: ok. 33 passed; 0 failed; 54 ignored; 0 measured
 - ✅ Tool adapter examples (5)
 - ✅ Built-in tools examples (15+)
 - ✅ Multi-protocol examples (3)
-- ✅ Council examples (1+)
+- ✅ Orchestration examples (1+)
 
 **Status**: All examples are current with v0.5.0 API
 
@@ -122,8 +122,8 @@ test src/lib.rs - crate-level examples ... ok (2 examples)
 ```bash
 # All build successfully
 examples/calculator_example.rs ✅
-examples/council_demo.rs ✅
-examples/council_with_memory.rs ✅
+examples/orchestration_demo.rs ✅
+examples/orchestration_with_memory.rs ✅
 examples/bash_tool_basic.rs ✅
 examples/http_client_example.rs ✅
 examples/filesystem_example.rs ✅
@@ -197,12 +197,12 @@ README.md
   ├── Providers (client wrappers)
   ├── Tools (five adapter types)
   ├── Built-in Tools (each with examples)
-  └── Councils (multi-agent patterns)
+  └── Orchestrations (multi-agent patterns)
 
 examples/
   ├── README.md (navigation)
   ├── Guides (Memory, Multi-MCP, Architecture)
-  ├── Demo examples (council, calculator, etc.)
+  ├── Demo examples (orchestration, calculator, etc.)
   ├── Tool examples (bash, http, filesystem)
   └── Advanced scenarios (debates, multi-agent)
 
@@ -320,7 +320,7 @@ src/
 - [x] Multi-agent system explained
 - [x] Tool protocol architecture described
 - [x] Multi-MCP routing documented
-- [x] Council modes explained
+- [x] Orchestration modes explained
 - [x] State management patterns documented
 
 ---
@@ -407,7 +407,7 @@ cargo clippy                       # Verify warnings
 ```
 /Users/gubatron/workspace/cloudllm/
 ├── README.md (1,428 lines) ✅ Main documentation
-├── COUNCIL_TUTORIAL.md (800+ lines) ✅ Tutorial
+├── ORCHESTRATION_TUTORIAL.md (800+ lines) ✅ Tutorial
 ├── HANDOFF.md (788 lines) ✅ Session handoff
 ├── DOCUMENTATION_AUDIT.md ✅ This audit
 │
@@ -416,7 +416,7 @@ cargo clippy                       # Verify warnings
 │   └── cloudllm/
 │       ├── mod.rs (28 lines of //)
 │       ├── agent.rs (36 lines of //)
-│       ├── council.rs (59 lines of //)
+│       ├── orchestration.rs (59 lines of //)
 │       ├── tool_protocol.rs (61+ lines of //)
 │       └── tools/
 │           ├── calculator.rs (100+ lines of //)

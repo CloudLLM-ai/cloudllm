@@ -5,7 +5,7 @@
 //!
 //! Agents are the fundamental building blocks for LLM applications in CloudLLM and can be used:
 //! - Standalone for single-agent interactions
-//! - In councils for multi-agent orchestration patterns
+//! - In orchestrations for multi-agent orchestration patterns
 //! - In custom workflows for specialized use cases
 //!
 //! # Core Components
@@ -66,10 +66,10 @@ pub struct AgentResponse {
 /// - Generate responses based on system prompts and user messages
 /// - Access tools through a ToolRegistry (single or multi-protocol)
 /// - Maintain state through expertise and personality attributes
-/// - Be orchestrated by councils or used independently
+/// - Be orchestrated by orchestrations or used independently
 #[derive(Clone)]
 pub struct Agent {
-    /// Stable identifier referenced inside council orchestration.
+    /// Stable identifier referenced inside orchestration coordination.
     pub id: String,
     /// Human-readable display name for logging and UI surfaces.
     pub name: String,
@@ -196,12 +196,12 @@ impl Agent {
     }
 
     /// Send a message to the backing model and capture the response plus token usage.
-    /// This is used internally by councils and can be used for direct agent interaction.
+    /// This is used internally by orchestrations and can be used for direct agent interaction.
     pub async fn generate_with_tokens(
         &self,
         system_prompt: &str,
         user_message: &str,
-        conversation_history: &[crate::council::CouncilMessage],
+        conversation_history: &[crate::orchestration::OrchestrationMessage],
     ) -> Result<AgentResponse, Box<dyn Error + Send + Sync>> {
         let augmented_system = self.augment_system_prompt(system_prompt);
 
@@ -278,7 +278,7 @@ impl Agent {
                 .send_message(&messages, grok_tools, openai_tools)
                 .await
                 .map_err(|e| {
-                    Box::new(crate::council::CouncilError::ExecutionFailed(e.to_string()))
+                    Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(e.to_string()))
                         as Box<dyn Error + Send + Sync>
                 })?;
 
@@ -377,7 +377,7 @@ impl Agent {
         &self,
         system_prompt: &str,
         user_message: &str,
-        conversation_history: &[crate::council::CouncilMessage],
+        conversation_history: &[crate::orchestration::OrchestrationMessage],
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let response = self
             .generate_with_tokens(system_prompt, user_message, conversation_history)

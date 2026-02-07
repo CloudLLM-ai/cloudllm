@@ -1,4 +1,4 @@
-//! Multi-Agent Council System
+//! Multi-Agent Orchestration System
 //!
 //! This module provides abstractions for orchestrating multiple LLM agents in various
 //! collaboration patterns. Each agent can have its own LLM provider, expertise, personality,
@@ -15,7 +15,7 @@
 //! # Architecture
 //!
 //! ```text
-//! Council (orchestration engine)
+//! Orchestration (orchestration engine)
 //!   ├─ Agent 1 (OpenAI GPT-4)
 //!   │   ├─ Tools: Local + YouTube MCP Server
 //!   │   └─ Expertise: "Video Analysis"
@@ -32,12 +32,12 @@
 //! # Tool Integration
 //!
 //! Starting in 0.5.0, agents can access tools from multiple protocols simultaneously.
-//! This enables rich multi-source interaction patterns in councils.
+//! This enables rich multi-source interaction patterns in orchestrations.
 //!
 //! # Example
 //!
 //! ```rust,no_run
-//! use cloudllm::{Agent, council::{Council, CouncilMode}};
+//! use cloudllm::{Agent, orchestration::{Orchestration, OrchestrationMode}};
 //! use cloudllm::clients::openai::OpenAIClient;
 //! use std::sync::Arc;
 //!
@@ -48,13 +48,13 @@
 //!     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o"))
 //! );
 //!
-//! let mut council = Council::new("tech-council", "Technical Advisory Council")
-//!     .with_mode(CouncilMode::Parallel)
+//! let mut orchestration = Orchestration::new("tech-team", "Technical Advisory Orchestration")
+//!     .with_mode(OrchestrationMode::Parallel)
 //!     .with_max_tokens(8192);
 //!
-//! council.add_agent(agent).unwrap();
+//! orchestration.add_agent(agent).unwrap();
 //!
-//! let response = council.discuss("How should we architect this system?", 1).await.unwrap();
+//! let response = orchestration.discuss("How should we architect this system?", 1).await.unwrap();
 //! # };
 //! ```
 
@@ -66,9 +66,9 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-/// Collaboration modes for councils
+/// Collaboration modes for orchestrations
 #[derive(Debug, Clone)]
-pub enum CouncilMode {
+pub enum OrchestrationMode {
     /// All agents respond in parallel to each prompt
     Parallel,
     /// Agents take turns responding in sequence
@@ -84,9 +84,9 @@ pub enum CouncilMode {
     },
 }
 
-/// A message in a council discussion
+/// A message in an orchestration discussion
 #[derive(Debug, Clone)]
-pub struct CouncilMessage {
+pub struct OrchestrationMessage {
     /// Timestamp the message was added to the conversation.
     pub timestamp: DateTime<Utc>,
     /// Identifier of the agent that generated the message (if any).
@@ -101,7 +101,7 @@ pub struct CouncilMessage {
     pub metadata: HashMap<String, String>,
 }
 
-impl CouncilMessage {
+impl OrchestrationMessage {
     pub fn new(role: Role, content: impl Into<String>) -> Self {
         Self {
             timestamp: Utc::now(),
@@ -134,14 +134,14 @@ impl CouncilMessage {
     }
 }
 
-/// Response from a council discussion
+/// Response from an orchestration discussion
 #[derive(Debug)]
-pub struct CouncilResponse {
+pub struct OrchestrationResponse {
     /// Messages generated during the discussion.
-    pub messages: Vec<CouncilMessage>,
+    pub messages: Vec<OrchestrationMessage>,
     /// Number of rounds executed.
     pub round: usize,
-    /// Whether the council completed according to the selected mode's termination criteria.
+    /// Whether the orchestration completed according to the selected mode's termination criteria.
     pub is_complete: bool,
     /// Optional convergence metric for debate mode.
     pub convergence_score: Option<f32>,
@@ -149,61 +149,61 @@ pub struct CouncilResponse {
     pub total_tokens_used: usize,
 }
 
-/// Error types for council operations
+/// Error types for orchestration operations
 #[derive(Debug, Clone)]
-pub enum CouncilError {
+pub enum OrchestrationError {
     /// Requested agent identifier could not be found.
     AgentNotFound(String),
     /// Invalid configuration encountered for the selected collaboration mode.
     InvalidMode(String),
     /// Underlying execution error surfaced while gathering responses.
     ExecutionFailed(String),
-    /// Attempt to run a council action without any members.
+    /// Attempt to run an orchestration action without any members.
     NoAgents,
 }
 
-impl fmt::Display for CouncilError {
+impl fmt::Display for OrchestrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CouncilError::AgentNotFound(id) => write!(f, "Agent not found: {}", id),
-            CouncilError::InvalidMode(msg) => write!(f, "Invalid mode: {}", msg),
-            CouncilError::ExecutionFailed(msg) => write!(f, "Execution failed: {}", msg),
-            CouncilError::NoAgents => write!(f, "No agents in council"),
+            OrchestrationError::AgentNotFound(id) => write!(f, "Agent not found: {}", id),
+            OrchestrationError::InvalidMode(msg) => write!(f, "Invalid mode: {}", msg),
+            OrchestrationError::ExecutionFailed(msg) => write!(f, "Execution failed: {}", msg),
+            OrchestrationError::NoAgents => write!(f, "No agents in orchestration"),
         }
     }
 }
 
-impl Error for CouncilError {}
+impl Error for OrchestrationError {}
 
-/// A council managing multiple agents in various collaboration modes
-pub struct Council {
+/// An orchestration managing multiple agents in various collaboration modes
+pub struct Orchestration {
     /// Stable identifier for integrations and logging.
     pub id: String,
-    /// Human readable name of the council.
+    /// Human readable name of the orchestration.
     pub name: String,
     /// Storage for registered agents keyed by identifier.
     agents: HashMap<String, Agent>,
     /// Insertion order of agents used for deterministic iteration.
     agent_order: Vec<String>, // Preserve insertion order for round-robin
-    /// Collaboration strategy used by the council.
-    mode: CouncilMode,
+    /// Collaboration strategy used by the orchestration.
+    mode: OrchestrationMode,
     /// Ongoing conversation history maintained across rounds.
-    conversation_history: Vec<CouncilMessage>,
+    conversation_history: Vec<OrchestrationMessage>,
     /// Global system context shared by all agents.
     system_context: String,
     /// Soft token budget used for pre-trimming.
     max_tokens: usize,
 }
 
-impl Council {
-    /// Create a council with the provided identifiers and default to [`CouncilMode::Parallel`].
+impl Orchestration {
+    /// Create an orchestration with the provided identifiers and default to [`OrchestrationMode::Parallel`].
     pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
             agents: HashMap::new(),
             agent_order: Vec::new(),
-            mode: CouncilMode::Parallel,
+            mode: OrchestrationMode::Parallel,
             conversation_history: Vec::new(),
             system_context: String::from(
                 "You are participating in a collaborative discussion with other AI agents.",
@@ -212,8 +212,8 @@ impl Council {
         }
     }
 
-    /// Select the collaboration mode the council will use during [`Council::discuss`].
-    pub fn with_mode(mut self, mode: CouncilMode) -> Self {
+    /// Select the collaboration mode the orchestration will use during [`Orchestration::discuss`].
+    pub fn with_mode(mut self, mode: OrchestrationMode) -> Self {
         self.mode = mode;
         self
     }
@@ -230,11 +230,11 @@ impl Council {
         self
     }
 
-    /// Register a new agent with the council.
-    pub fn add_agent(&mut self, agent: Agent) -> Result<(), CouncilError> {
+    /// Register a new agent with the orchestration.
+    pub fn add_agent(&mut self, agent: Agent) -> Result<(), OrchestrationError> {
         let id = agent.id.clone();
         if self.agents.contains_key(&id) {
-            return Err(CouncilError::ExecutionFailed(format!(
+            return Err(OrchestrationError::ExecutionFailed(format!(
                 "Agent with id '{}' already exists",
                 id
             )));
@@ -263,37 +263,37 @@ impl Council {
             .collect()
     }
 
-    /// Execute a discussion according to the configured [`CouncilMode`].
+    /// Execute a discussion according to the configured [`OrchestrationMode`].
     ///
-    /// The `prompt` is broadcast to the council according to the active mode.  The `rounds`
+    /// The `prompt` is broadcast to the orchestration according to the active mode.  The `rounds`
     /// parameter controls how many iterations to run for deterministic modes (parallel and
     /// round-robin).  Other modes interpret the value as a safety bound.
     pub async fn discuss(
         &mut self,
         prompt: &str,
         rounds: usize,
-    ) -> Result<CouncilResponse, Box<dyn Error + Send + Sync>> {
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
         if self.agents.is_empty() {
-            return Err(Box::new(CouncilError::NoAgents));
+            return Err(Box::new(OrchestrationError::NoAgents));
         }
 
         // Add user message to history
         self.conversation_history
-            .push(CouncilMessage::new(Role::User, prompt));
+            .push(OrchestrationMessage::new(Role::User, prompt));
 
         // Clone mode to avoid borrow issues
         let mode = self.mode.clone();
 
         match mode {
-            CouncilMode::Parallel => self.execute_parallel(prompt, rounds).await,
-            CouncilMode::RoundRobin => self.execute_round_robin(prompt, rounds).await,
-            CouncilMode::Moderated { moderator_id } => {
+            OrchestrationMode::Parallel => self.execute_parallel(prompt, rounds).await,
+            OrchestrationMode::RoundRobin => self.execute_round_robin(prompt, rounds).await,
+            OrchestrationMode::Moderated { moderator_id } => {
                 self.execute_moderated(prompt, rounds, &moderator_id).await
             }
-            CouncilMode::Hierarchical { layers } => {
+            OrchestrationMode::Hierarchical { layers } => {
                 self.execute_hierarchical(prompt, &layers).await
             }
-            CouncilMode::Debate {
+            OrchestrationMode::Debate {
                 max_rounds,
                 convergence_threshold,
             } => {
@@ -308,7 +308,7 @@ impl Council {
         &mut self,
         prompt: &str,
         rounds: usize,
-    ) -> Result<CouncilResponse, Box<dyn Error + Send + Sync>> {
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
         let mut all_messages = Vec::new();
         let mut total_tokens = 0;
 
@@ -358,7 +358,7 @@ impl Council {
             // Collect results
             for task in tasks {
                 let (agent_id, agent_name, result) = task.await.map_err(|e| {
-                    Box::new(CouncilError::ExecutionFailed(format!(
+                    Box::new(OrchestrationError::ExecutionFailed(format!(
                         "Task join error: {}",
                         e
                     ))) as Box<dyn Error + Send + Sync>
@@ -371,7 +371,7 @@ impl Council {
                             total_tokens += usage.total_tokens;
                         }
 
-                        let msg = CouncilMessage::from_agent(
+                        let msg = OrchestrationMessage::from_agent(
                             agent_id,
                             agent_name,
                             agent_response.content,
@@ -388,7 +388,7 @@ impl Council {
             all_messages.extend(round_messages);
         }
 
-        Ok(CouncilResponse {
+        Ok(OrchestrationResponse {
             messages: all_messages,
             round: rounds,
             is_complete: true,
@@ -402,8 +402,8 @@ impl Council {
         &mut self,
         prompt: &str,
         rounds: usize,
-    ) -> Result<CouncilResponse, Box<dyn Error + Send + Sync>> {
-        let mut all_messages: Vec<CouncilMessage> = Vec::new();
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
         let mut total_tokens = 0;
 
         for round in 0..rounds {
@@ -436,7 +436,7 @@ impl Council {
                             total_tokens += usage.total_tokens;
                         }
 
-                        let msg = CouncilMessage::from_agent(
+                        let msg = OrchestrationMessage::from_agent(
                             agent.id.clone(),
                             agent.name.clone(),
                             agent_response.content,
@@ -451,7 +451,7 @@ impl Council {
             }
         }
 
-        Ok(CouncilResponse {
+        Ok(OrchestrationResponse {
             messages: all_messages,
             round: rounds,
             is_complete: true,
@@ -466,13 +466,13 @@ impl Council {
         prompt: &str,
         rounds: usize,
         moderator_id: &str,
-    ) -> Result<CouncilResponse, Box<dyn Error + Send + Sync>> {
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
         let moderator = self
             .agents
             .get(moderator_id)
-            .ok_or_else(|| CouncilError::AgentNotFound(moderator_id.to_string()))?;
+            .ok_or_else(|| OrchestrationError::AgentNotFound(moderator_id.to_string()))?;
 
-        let mut all_messages: Vec<CouncilMessage> = Vec::new();
+        let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
         let mut total_tokens = 0;
 
         for round_num in 0..rounds {
@@ -563,7 +563,7 @@ impl Council {
                     total_tokens += usage.total_tokens;
                 }
 
-                let msg = CouncilMessage::from_agent(
+                let msg = OrchestrationMessage::from_agent(
                     agent.id.clone(),
                     agent.name.clone(),
                     agent_result.content,
@@ -576,7 +576,7 @@ impl Council {
             }
         }
 
-        Ok(CouncilResponse {
+        Ok(OrchestrationResponse {
             messages: all_messages,
             round: rounds,
             is_complete: true,
@@ -590,7 +590,7 @@ impl Council {
         &mut self,
         prompt: &str,
         layers: &[Vec<String>],
-    ) -> Result<CouncilResponse, Box<dyn Error + Send + Sync>> {
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
         let mut all_messages = Vec::new();
         let mut layer_results = prompt.to_string();
         let mut total_tokens = 0;
@@ -605,7 +605,7 @@ impl Council {
                 let agent = self
                     .agents
                     .get(agent_id)
-                    .ok_or_else(|| CouncilError::AgentNotFound(agent_id.clone()))?;
+                    .ok_or_else(|| OrchestrationError::AgentNotFound(agent_id.clone()))?;
 
                 let system_prompt = self.system_context.clone();
                 let history = self.conversation_history.clone();
@@ -643,7 +643,7 @@ impl Council {
             // Collect layer results
             for task in tasks {
                 let (agent_id, agent_name, result) = task.await.map_err(|e| {
-                    Box::new(CouncilError::ExecutionFailed(format!(
+                    Box::new(OrchestrationError::ExecutionFailed(format!(
                         "Task join error: {}",
                         e
                     ))) as Box<dyn Error + Send + Sync>
@@ -656,7 +656,7 @@ impl Council {
                             total_tokens += usage.total_tokens;
                         }
 
-                        let msg = CouncilMessage::from_agent(
+                        let msg = OrchestrationMessage::from_agent(
                             agent_id,
                             agent_name,
                             agent_response.content,
@@ -688,7 +688,7 @@ impl Council {
             all_messages.extend(layer_messages);
         }
 
-        Ok(CouncilResponse {
+        Ok(OrchestrationResponse {
             messages: all_messages,
             round: layers.len(),
             is_complete: true,
@@ -703,8 +703,8 @@ impl Council {
         prompt: &str,
         max_rounds: usize,
         convergence_threshold: Option<f32>,
-    ) -> Result<CouncilResponse, Box<dyn Error + Send + Sync>> {
-        let mut all_messages: Vec<CouncilMessage> = Vec::new();
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
         let threshold = convergence_threshold.unwrap_or(0.75); // Default: 75% similarity
         let mut converged = false;
         let mut final_convergence_score = None;
@@ -749,7 +749,7 @@ impl Council {
                             total_tokens += usage.total_tokens;
                         }
 
-                        let msg = CouncilMessage::from_agent(
+                        let msg = OrchestrationMessage::from_agent(
                             agent.id.clone(),
                             agent.name.clone(),
                             agent_response.content,
@@ -781,7 +781,7 @@ impl Council {
             all_messages.extend(round_messages);
         }
 
-        Ok(CouncilResponse {
+        Ok(OrchestrationResponse {
             messages: all_messages,
             round: actual_rounds,
             is_complete: converged || actual_rounds >= max_rounds,
@@ -794,8 +794,8 @@ impl Council {
     /// Uses Jaccard similarity on word sets to detect when agents' positions converge
     fn calculate_convergence_score(
         &self,
-        all_messages: &[CouncilMessage],
-        current_round: &[CouncilMessage],
+        all_messages: &[OrchestrationMessage],
+        current_round: &[OrchestrationMessage],
     ) -> f32 {
         // Get messages from the previous round
         let num_agents = self.agents.len();
@@ -861,11 +861,11 @@ impl Council {
         intersection_size as f32 / union_size as f32
     }
 
-    pub fn get_conversation_history(&self) -> &[CouncilMessage] {
+    pub fn get_conversation_history(&self) -> &[OrchestrationMessage] {
         &self.conversation_history
     }
 
-    /// Remove all historical messages, resetting the council state.
+    /// Remove all historical messages, resetting the orchestration state.
     pub fn clear_history(&mut self) {
         self.conversation_history.clear();
     }
@@ -922,7 +922,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_council_parallel_mode() {
+    async fn test_orchestration_parallel_mode() {
         let agent1 = Agent::new(
             "agent1",
             "Agent 1",
@@ -941,20 +941,20 @@ mod tests {
             }),
         );
 
-        let mut council =
-            Council::new("test-council", "Test Council").with_mode(CouncilMode::Parallel);
+        let mut orchestration =
+            Orchestration::new("test-orchestration", "Test Orchestration").with_mode(OrchestrationMode::Parallel);
 
-        council.add_agent(agent1).unwrap();
-        council.add_agent(agent2).unwrap();
+        orchestration.add_agent(agent1).unwrap();
+        orchestration.add_agent(agent2).unwrap();
 
-        let response = council.discuss("Test question", 1).await.unwrap();
+        let response = orchestration.discuss("Test question", 1).await.unwrap();
 
         assert_eq!(response.messages.len(), 2);
         assert!(response.is_complete);
     }
 
     #[tokio::test]
-    async fn test_council_round_robin_mode() {
+    async fn test_orchestration_round_robin_mode() {
         let agent1 = Agent::new(
             "agent1",
             "Agent 1",
@@ -973,13 +973,13 @@ mod tests {
             }),
         );
 
-        let mut council =
-            Council::new("test-council", "Test Council").with_mode(CouncilMode::RoundRobin);
+        let mut orchestration =
+            Orchestration::new("test-orchestration", "Test Orchestration").with_mode(OrchestrationMode::RoundRobin);
 
-        council.add_agent(agent1).unwrap();
-        council.add_agent(agent2).unwrap();
+        orchestration.add_agent(agent1).unwrap();
+        orchestration.add_agent(agent2).unwrap();
 
-        let response = council.discuss("Test question", 2).await.unwrap();
+        let response = orchestration.discuss("Test question", 2).await.unwrap();
 
         assert_eq!(response.messages.len(), 4); // 2 agents * 2 rounds
         assert!(response.is_complete);
@@ -1164,16 +1164,16 @@ mod tests {
             }),
         );
 
-        let mut council =
-            Council::new("debate-council", "Debate Council").with_mode(CouncilMode::Debate {
+        let mut orchestration =
+            Orchestration::new("debate-orchestration", "Debate Orchestration").with_mode(OrchestrationMode::Debate {
                 max_rounds: 5,
                 convergence_threshold: Some(0.6), // 60% similarity threshold
             });
 
-        council.add_agent(agent1).unwrap();
-        council.add_agent(agent2).unwrap();
+        orchestration.add_agent(agent1).unwrap();
+        orchestration.add_agent(agent2).unwrap();
 
-        let response = council
+        let response = orchestration
             .discuss("What approach should we use?", 5)
             .await
             .unwrap();

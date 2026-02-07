@@ -1,6 +1,6 @@
-//! Council Discussion with Shared Memory Example
+//! Orchestration Discussion with Shared Memory Example
 //!
-//! This example demonstrates how a council of agents can use a shared Memory tool to:
+//! This example demonstrates how an orchestration of agents can use a shared Memory tool to:
 //! - Coordinate their work on a complex problem
 //! - Store decisions and consensus points
 //! - Track the discussion state for recovery
@@ -14,7 +14,7 @@ use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;
 use cloudllm::{
-    council::{Council, CouncilMode},
+    orchestration::{Orchestration, OrchestrationMode},
     Agent,
 };
 use std::sync::Arc;
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let api_key = std::env::var("OPEN_AI_SECRET").unwrap_or_else(|_| "sk-test".to_string());
 
-    // Create shared memory for the council
+    // Create shared memory for the orchestration
     let shared_memory = Arc::new(Memory::new());
 
     // Create memory adapter and registry - ALL AGENTS WILL SHARE THIS
@@ -69,12 +69,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_personality("Pragmatic, detail-oriented, risk-aware")
     .with_tools(shared_registry.clone());
 
-    // Create a council with these agents
-    let mut council = Council::new("decision-council", "Strategic Decision Council")
-        .with_mode(CouncilMode::RoundRobin)
+    // Create an orchestration with these agents
+    let mut orchestration = Orchestration::new("decision-orchestration", "Strategic Decision Orchestration")
+        .with_mode(OrchestrationMode::RoundRobin)
         .with_system_context(
-            "You are part of a council making strategic decisions. \
-             You have access to SHARED MEMORY where the council records:\
+            "You are part of an orchestration making strategic decisions. \
+             You have access to SHARED MEMORY where the orchestration records:\
              - Key findings and insights from other agents\
              - Consensus points and decisions\
              - Action items and next steps\n\n\
@@ -90,15 +90,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_max_tokens(8192);
 
-    council.add_agent(analyst)?;
-    council.add_agent(strategist)?;
-    council.add_agent(implementer)?;
+    orchestration.add_agent(analyst)?;
+    orchestration.add_agent(strategist)?;
+    orchestration.add_agent(implementer)?;
 
-    println!("=== Council Configuration ===");
-    println!("Council: {}", council.name);
+    println!("=== Orchestration Configuration ===");
+    println!("Orchestration: {}", orchestration.name);
     println!("Mode: Round-Robin discussion");
-    println!("Agents: {}", council.list_agents().len());
-    for agent in council.list_agents() {
+    println!("Agents: {}", orchestration.list_agents().len());
+    for agent in orchestration.list_agents() {
         println!("  - {} ({})", agent.name, agent.id);
         println!("    Has shared memory: {}", agent.tool_registry.is_some());
     }
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{}\n", problem);
 
-    println!("=== How the Council Uses Shared Memory ===");
+    println!("=== How the Orchestration Uses Shared Memory ===");
     println!("Round 1: Data Analyst");
     println!("  → Analyzes platforms and stores findings in shared memory");
     println!("  → Records metrics: \"P platform_comparison Option_A_Best_performance 3600\"");
@@ -131,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Shared Memory Lifecycle ===");
 
     // Pre-populate some data to simulate agent interactions
-    println!("Simulating council discussion with shared memory...\n");
+    println!("Simulating orchestration discussion with shared memory...\n");
 
     // Simulate analyst storing findings
     println!("Analyst stores initial findings...");
@@ -161,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Implementer reviews all insights and decides...");
     let all_keys = shared_memory.list_keys();
     println!(
-        "  Council memory now contains {} items: {:?}",
+        "  Orchestration memory now contains {} items: {:?}",
         all_keys.len(),
         all_keys
     );
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(3600),
     );
     shared_memory.put(
-        "council_decision".to_string(),
+        "orchestration_decision".to_string(),
         "CONSENSUS: Proceed with Platform_A immediately".to_string(),
         Some(7200), // Longer TTL for final decision
     );
@@ -193,7 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("\n=== Key Benefits for Council Discussions ===");
+    println!("\n=== Key Benefits for Orchestration Discussions ===");
     println!("✓ All agents access the same facts and previous decisions");
     println!("✓ Enables sophisticated consensus-building");
     println!("✓ Natural way to track multi-round discussions");
@@ -202,10 +202,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Audit trail of how decisions were reached");
 
     println!("\n=== Session Recovery ===");
-    println!("If the council is interrupted and restarted:");
+    println!("If the orchestration is interrupted and restarted:");
     println!("  - All agents can review the full discussion history");
     println!("  - Consensus points are preserved");
-    println!("  - Council can resume from where it left off");
+    println!("  - Orchestration can resume from where it left off");
     println!("  - No need to re-analyze or repeat discussions");
 
     Ok(())

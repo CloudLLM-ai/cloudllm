@@ -1,6 +1,6 @@
 //! Digimon vs Pokemon Debate Example
 //!
-//! This example demonstrates the Council API in Moderated mode with a fun debate
+//! This example demonstrates the Orchestration API in Moderated mode with a fun debate
 //! between two experts arguing about which franchise is better: Digimon or Pokemon.
 //!
 //! The debate features:
@@ -29,7 +29,7 @@
 use cloudllm::clients::claude::ClaudeClient;
 use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::{
-    council::{Council, CouncilMode},
+    orchestration::{Orchestration, OrchestrationMode},
     Agent,
 };
 use std::error::Error as StdError;
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("\n{}", "=".repeat(80));
     println!("  🎮 THE GREAT DEBATE: Digimon vs Pokemon 🎮");
-    println!("  Demonstrating Moderated Council Mode");
+    println!("  Demonstrating Moderated Orchestration Mode");
     println!("{}\n", "=".repeat(80));
 
     // Create the moderator
@@ -114,9 +114,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
          Be confident but acknowledge Digimon's strengths. Use specific examples.",
     );
 
-    // Create council in Moderated mode
-    let mut council = Council::new("anime-debate", "The Great Digimon vs Pokemon Debate")
-        .with_mode(CouncilMode::Moderated {
+    // Create orchestration in Moderated mode
+    let mut orchestration = Orchestration::new("anime-debate", "The Great Digimon vs Pokemon Debate")
+        .with_mode(OrchestrationMode::Moderated {
             moderator_id: "moderator".to_string(),
         })
         .with_system_context(
@@ -126,9 +126,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         );
 
     // Add all agents
-    council.add_agent(moderator)?;
-    council.add_agent(digimon_expert)?;
-    council.add_agent(pokemon_expert)?;
+    orchestration.add_agent(moderator)?;
+    orchestration.add_agent(digimon_expert)?;
+    orchestration.add_agent(pokemon_expert)?;
 
     println!("✅ Debate panel assembled:");
     println!("   🎭 Moderator: Debate Moderator (gpt-4o)");
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     io::stdout().flush().unwrap();
 
     // Run debate for 5 rounds
-    let response = council
+    let response = orchestration
         .discuss(opening_question, 5)
         .await
         .map_err(|e| format!("Debate failed: {}", e))?;

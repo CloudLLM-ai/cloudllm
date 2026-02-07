@@ -166,7 +166,7 @@ c487bf7 - feat: Add inverse hyperbolic functions (asinh, acosh, atanh) to Calcul
 - After: ✅ CLEAN - No future incompatibility warnings
 
 **Rebase Conflict Resolution**:
-- Successfully rebased `example-multi-agent-council-with-tools` branch on updated master
+- Successfully rebased `example-multi-agent-orchestration-with-tools` branch on updated master
 - Resolved merge conflict in calculator.rs (keeping new evalexpr implementation)
 - Branch now includes all master improvements
 
@@ -255,7 +255,7 @@ c487bf7 - feat: Add inverse hyperbolic functions (asinh, acosh, atanh) to Calcul
 - Protocol commands reference table (6 commands)
 - 4 detailed use case examples
 - Best practices section (5 practices)
-- Multi-agent council example
+- Multi-agent orchestration example
 - Fixed API documentation link
 
 **Benefits**:
@@ -302,7 +302,7 @@ ToolRegistry (Multi-Protocol Router)
 - Updated tool_protocol.rs with architecture diagrams
 - Updated tool_protocols.rs with implementation list
 - Updated tools/mod.rs with feature descriptions
-- Enhanced council.rs documentation with examples
+- Enhanced orchestration.rs documentation with examples
 
 **Files Modified**:
 - `src/lib.rs` - Crate documentation refresh
@@ -310,7 +310,7 @@ ToolRegistry (Multi-Protocol Router)
 - `src/cloudllm/tool_protocol.rs` - Architecture diagrams and details
 - `src/cloudllm/tool_protocols.rs` - Implementation documentation
 - `src/cloudllm/tools/mod.rs` - Tool features documentation
-- `src/cloudllm/council.rs` - Enhanced method documentation
+- `src/cloudllm/orchestration.rs` - Enhanced method documentation
 
 ---
 
@@ -330,7 +330,7 @@ ToolRegistry (Multi-Protocol Router)
 - `Cargo.toml` - Version 0.5.0
 - `changelog.txt` - Comprehensive release notes
 - `README.md` - Multi-protocol section added
-- `src/cloudllm/council.rs` - Enhanced examples
+- `src/cloudllm/orchestration.rs` - Enhanced examples
 - `src/cloudllm/tool_protocol.rs` - Release-related clarifications
 
 ---
@@ -344,7 +344,7 @@ ToolRegistry (Multi-Protocol Router)
 
 **Files Modified**:
 - `src/cloudllm/tool_protocol.rs` - Complete ToolRegistry refactoring (433 new lines)
-- `src/cloudllm/council.rs` - Updated tool discovery and execution (57 line changes)
+- `src/cloudllm/orchestration.rs` - Updated tool discovery and execution (57 line changes)
 
 **Key API Changes**:
 ```rust
@@ -406,7 +406,7 @@ registry.add_protocol("github", github_protocol).await?;
 - `tests/tool_adapters_test.rs` - 4 tool adapter tests
 - `tests/memory_adapters_doc_tests.rs` - 6 documentation tests
 - `examples/memory_session_with_snapshots.rs` - Single agent example
-- `examples/council_with_memory.rs` - Multi-agent example
+- `examples/orchestration_with_memory.rs` - Multi-agent example
 - `examples/MEMORY_TOOL_GUIDE.md` - Comprehensive guide
 
 **Files Modified**:
@@ -483,7 +483,7 @@ registry.add_protocol("github", github_protocol).await?;
 - Bash tool examples: 3 tests (ignored, not runnable in doc tests)
 - Calculator operations: 6 tests (ignored)
 - MCP server builder utilities: 11 tests (passing)
-- `cloudllm::council` tests: 5
+- `cloudllm::orchestration` tests: 5
 
 ### Test Execution:
 ```bash
@@ -708,7 +708,7 @@ cloudllm/
 │   │   └── memory.rs              # Memory implementation
 │   ├── tool_adapters.rs           # All adapter implementations
 │   ├── tool_protocol.rs           # ToolProtocol trait definition
-│   ├── council.rs                 # Multi-agent orchestration
+│   ├── orchestration.rs                 # Multi-agent orchestration
 │   └── ...
 ├── tests/
 │   ├── bash_tool_test.rs          # BashTool tests (15)
@@ -720,7 +720,7 @@ cloudllm/
 ├── examples/
 │   ├── bash_tool_basic.rs         # BashTool demo
 │   ├── memory_session_with_snapshots.rs    # Single agent
-│   ├── council_with_memory.rs     # Multi-agent
+│   ├── orchestration_with_memory.rs     # Multi-agent
 │   ├── mcp_memory_client.rs       # Client usage
 │   ├── mcp_memory_server.rs       # Server guide
 │   └── ...

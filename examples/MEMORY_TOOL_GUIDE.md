@@ -9,7 +9,7 @@ The Memory tool provides:
 - **TTL-Based Expiration**: Automatic cleanup of old data
 - **Metadata Tracking**: Know when data was stored and when it expires
 - **Token Efficiency**: Minimal overhead in LLM prompts
-- **Easy Integration**: Works with single agents or councils
+- **Easy Integration**: Works with single agents or orchestrations
 
 ## Core Concepts
 
@@ -23,7 +23,7 @@ An agent can use Memory to:
 
 ### 2. Multi-Agent Shared Memory
 
-Multiple agents in a Council can share Memory to:
+Multiple agents in an Orchestration can share Memory to:
 - Coordinate decisions across a team
 - Build on each other's analysis
 - Maintain a shared record of conclusions
@@ -65,13 +65,13 @@ let agent = Agent::new("analyzer", "Data Analyzer", client)
     .with_tools(registry);
 ```
 
-### With a Council
+### With an Orchestration
 
 ```rust
-use cloudllm::council::Council;
+use cloudllm::orchestration::Orchestration;
 
-let mut council = Council::new("council", "Analysis Council")
-    .with_mode(CouncilMode::RoundRobin);
+let mut orchestration = Orchestration::new("orchestration", "Analysis Orchestration")
+    .with_mode(OrchestrationMode::RoundRobin);
 
 // Create shared memory
 let shared_memory = Arc::new(Memory::new());
@@ -82,8 +82,8 @@ let shared_registry = Arc::new(ToolRegistry::new(shared_adapter));
 let agent1 = Agent::new("a1", "Analyst 1", client1).with_tools(shared_registry.clone());
 let agent2 = Agent::new("a2", "Analyst 2", client2).with_tools(shared_registry.clone());
 
-council.add_agent(agent1)?;
-council.add_agent(agent2)?;
+orchestration.add_agent(agent1)?;
+orchestration.add_agent(agent2)?;
 ```
 
 ## Protocol Reference
@@ -243,12 +243,12 @@ Example workflow:
 4. Check progress: G current_section META
 ```
 
-### Council with Shared Memory
+### Orchestration with Shared Memory
 
 ```
-You are part of a strategic decision council.
+You are part of a strategic decision orchestration.
 
-All council members share a memory system. Use it to:
+All orchestration members share a memory system. Use it to:
 1. Record your analysis and findings
 2. Review other members' contributions
 3. Build consensus decisions
@@ -292,7 +292,7 @@ registry.execute_tool("memory",
     })).await?;
 ```
 
-### Example 2: Council Decision Tracking
+### Example 2: Orchestration Decision Tracking
 
 ```rust
 // All agents share this memory
@@ -476,12 +476,12 @@ P executive_decision Proceed_with_both 7200
 See the complete examples in the `examples/` directory:
 
 1. **`memory_session_with_snapshots.rs`**: Single agent using memory for progress tracking
-2. **`council_with_memory.rs`**: Multiple agents coordinating via shared memory
+2. **`orchestration_with_memory.rs`**: Multiple agents coordinating via shared memory
 
 Run examples:
 ```bash
 cargo run --example memory_session_with_snapshots
-cargo run --example council_with_memory
+cargo run --example orchestration_with_memory
 ```
 
 ## API Reference
@@ -536,7 +536,7 @@ pub struct MemoryMetadata {
 The Memory tool works seamlessly with:
 
 - **Agents**: Each agent can have a memory registry
-- **Councils**: All council members can share memory
+- **Orchestrations**: All orchestration members can share memory
 - **Sessions**: Memory persists across LLMSession calls
 - **Tool Registry**: Memory is registered like any other tool
 - **Custom Protocols**: Can be adapted for other communication protocols

@@ -1,6 +1,6 @@
 //! Venezuela Regime Change Debate Example
 //!
-//! This example demonstrates the Council API with debate mode and multi-agent collaboration.
+//! This example demonstrates the Orchestration API with debate mode and multi-agent collaboration.
 //! A panel of Grok-4 analysts debates various scenarios for addressing the Venezuelan political
 //! crisis, analyzing:
 //! - Military intervention options
@@ -23,13 +23,13 @@
 //! ```
 //!
 //! **Note**: This example takes 2-5 minutes to complete as it makes sequential API calls
-//! to 5 different agents across multiple debate rounds. The Council API does not currently
+//! to 5 different agents across multiple debate rounds. The Orchestration API does not currently
 //! support streaming or real-time progress updates during execution.
 
 use chrono::{Duration, Utc};
 use cloudllm::clients::grok::{GrokClient, Model as GrokModel};
 use cloudllm::{
-    council::{Council, CouncilMode},
+    orchestration::{Orchestration, OrchestrationMode},
     Agent,
 };
 use openai_rust2::chat::GrokTool;
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     println!("\n{}", "=".repeat(80));
     println!("  Venezuela Regime Change Strategy Debate");
-    println!("  Demonstrating Multi-Agent Council Collaboration");
+    println!("  Demonstrating Multi-Agent Orchestration Collaboration");
     println!("{}\n", "=".repeat(80));
 
     let now = Utc::now();
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     ];
 
     // Create agents with different expertises
-    println!("Setting up council agents...\n");
+    println!("Setting up orchestration agents...\n");
 
     let military_strategist = Agent::new(
         "military",
@@ -146,10 +146,10 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     )
     .with_grok_tools(base_grok_tools.clone());
 
-    // Create council in Debate mode with convergence detection
+    // Create orchestration in Debate mode with convergence detection
     // Using fewer rounds (3) for faster execution - increase to 5+ for deeper analysis
-    let mut council = Council::new("venezuela-council", "Venezuela Strategy Council")
-        .with_mode(CouncilMode::Debate {
+    let mut orchestration = Orchestration::new("venezuela-orchestration", "Venezuela Strategy Orchestration")
+        .with_mode(OrchestrationMode::Debate {
             max_rounds: 3,                     // Reduced from 5 for faster testing
             convergence_threshold: Some(0.65), // 65% similarity to converge
         })
@@ -161,15 +161,15 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         );
 
     // Add all agents
-    council.add_agent(military_strategist)?;
-    council.add_agent(diplomat)?;
-    council.add_agent(intelligence_analyst)?;
-    council.add_agent(economist)?;
-    council.add_agent(regional_expert)?;
+    orchestration.add_agent(military_strategist)?;
+    orchestration.add_agent(diplomat)?;
+    orchestration.add_agent(intelligence_analyst)?;
+    orchestration.add_agent(economist)?;
+    orchestration.add_agent(regional_expert)?;
 
     println!(
-        "Council configured with {} agents\n",
-        council.list_agents().len()
+        "Orchestration configured with {} agents\n",
+        orchestration.list_agents().len()
     );
 
     // Initial strategic question
@@ -196,7 +196,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     println!("{}\n", "=".repeat(80));
 
     // Start the debate - Note: This may take several minutes as 5 agents respond sequentially
-    // The Council API doesn't currently support streaming or progress callbacks
+    // The Orchestration API doesn't currently support streaming or progress callbacks
     println!("Starting debate (max 3 rounds, converges at 65% similarity)...");
     println!("⚠️  This will take 2-5 minutes as each agent generates a response.");
     println!("   With 5 agents × 3 rounds = up to 15 sequential API calls\n");
@@ -206,10 +206,10 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     use std::io::{self, Write};
     io::stdout().flush().unwrap();
 
-    let response = council
+    let response = orchestration
         .discuss(question, 3)
         .await
-        .map_err(|e| format!("Council discussion failed: {}", e))?;
+        .map_err(|e| format!("Orchestration discussion failed: {}", e))?;
 
     println!("✅ Complete!\n");
 
@@ -245,9 +245,14 @@ async fn main() -> Result<(), Box<dyn StdError>> {
             // Truncate very long responses for readability
             let content = message.content.as_ref();
             if content.len() > 1500 {
+                // Find nearest char boundary at or before byte 1500
+                let mut end = 1500;
+                while !content.is_char_boundary(end) {
+                    end -= 1;
+                }
                 println!(
                     "{}...\n[Response truncated - {} chars total]",
-                    &content[..1500],
+                    &content[..end],
                     content.len()
                 );
             } else {

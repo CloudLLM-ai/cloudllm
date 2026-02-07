@@ -16,7 +16,7 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 * **Flexible Tool Creation**: From simple Rust closures to advanced custom protocol implementations,
 * **Stateful Sessions**: A [`LLMSession`](https://docs.rs/cloudllm/latest/cloudllm/struct.LLMSession.html) for
   managing conversation history with context trimming and token accounting,
-* **Multi-Agent Orchestration**: A [`council`](https://docs.rs/cloudllm/latest/cloudllm/council/index.html) engine
+* **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/index.html) engine
   supporting Parallel, RoundRobin, Moderated, Hierarchical, and Debate collaboration patterns,
 * **Provider Flexibility**: Unified [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/index.html)
   trait for OpenAI, Claude, Gemini, Grok, and custom OpenAI-compatible endpoints.
@@ -302,7 +302,7 @@ Available on the `mcp-server` feature. Other agents connect via `McpClientProtoc
 
 ## Creating Tools: Simple to Advanced
 
-CloudLLM provides a powerful, protocol-agnostic tool system that works seamlessly with agents and councils.
+CloudLLM provides a powerful, protocol-agnostic tool system that works seamlessly with agents and orchestrations.
 Tools enable agents to take actions beyond conversation—calculate values, query databases, call APIs, or
 maintain state across sessions.
 
@@ -537,7 +537,7 @@ For comprehensive documentation, see [`Calculator` API docs](https://docs.rs/clo
 
 #### Memory Tool
 
-A persistent, TTL-aware key-value store for maintaining agent state across sessions. Perfect for single agents to track progress or multi-agent councils to coordinate decisions.
+A persistent, TTL-aware key-value store for maintaining agent state across sessions. Perfect for single agents to track progress or multi-agent orchestrations to coordinate decisions.
 
 **Features:**
 - Key-value storage with optional TTL (time-to-live) expiration
@@ -589,7 +589,7 @@ use std::sync::Arc;
 use cloudllm::tools::Memory;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tool_protocol::ToolRegistry;
-use cloudllm::council::Agent;
+use cloudllm::orchestration::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
 
 #[tokio::main]
@@ -642,7 +642,7 @@ The Memory tool uses a token-efficient protocol designed for LLM communication:
    Later: "G document_checkpoint" → retrieves current progress
    ```
 
-2. **Multi-Agent Council Coordination:**
+2. **Multi-Agent Orchestration Coordination:**
    ```
    Agent A stores: "P decision_consensus Approved TTL:3600"
    Agent B reads: "G decision_consensus"
@@ -676,7 +676,7 @@ use std::sync::Arc;
 use cloudllm::tools::Memory;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tool_protocol::ToolRegistry;
-use cloudllm::council::{Agent, Council, CouncilMode};
+use cloudllm::orchestration::{Agent, Orchestration, OrchestrationMode};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -686,7 +686,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let protocol = Arc::new(MemoryProtocol::new(shared_memory));
     let registry = Arc::new(ToolRegistry::new(protocol));
 
-    // Create council of agents
+    // Create orchestration of agents
     let agent1 = Agent::new(...)
         .with_tools(registry.clone());
 
@@ -694,9 +694,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tools(registry.clone());
 
     // Both agents access same memory
-    let mut council = Council::new("research", "Collaborative Research");
-    council.add_agent(agent1)?;
-    council.add_agent(agent2)?;
+    let mut orchestration = Orchestration::new("research", "Collaborative Research");
+    orchestration.add_agent(agent1)?;
+    orchestration.add_agent(agent2)?;
 
     // Agents can:
     // 1. Coordinate: Agent A stores findings, Agent B retrieves
@@ -972,7 +972,7 @@ This MCP server can now be referenced by agents using `McpClientProtocol::new("h
 
 ```rust,no_run
 use std::sync::Arc;
-use cloudllm::council::Agent;
+use cloudllm::orchestration::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::CustomToolProtocol;
@@ -1151,7 +1151,7 @@ Combine HTTP Client with other tools via multiple MCP servers:
 
 ```rust,no_run
 use std::sync::Arc;
-use cloudllm::council::Agent;
+use cloudllm::orchestration::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::CustomToolProtocol;
@@ -1579,15 +1579,15 @@ For more examples, see the `examples/` directory and run `cargo doc --open` for 
 
 ---
 
-## Councils: multi-agent orchestration
+## Orchestrations: multi-agent orchestration
 
-The `council` module orchestrates conversations between agents built on any `ClientWrapper`.
+The `orchestration` module orchestrates conversations between agents built on any `ClientWrapper`.
 Choose from parallel, round-robin, moderated, hierarchical, or debate modes.
 
 ```rust,no_run
 use std::sync::Arc;
 
-use cloudllm::council::{Agent, Council, CouncilMode};
+use cloudllm::orchestration::{Agent, Orchestration, OrchestrationMode};
 use cloudllm::clients::openai::{Model, OpenAIClient};
 
 #[tokio::main]
@@ -1610,14 +1610,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_expertise("Test automation")
     .with_personality("Sceptical, detail-oriented");
 
-    let mut council = Council::new("design-review", "Deployment Review")
-        .with_mode(CouncilMode::RoundRobin)
+    let mut orchestration = Orchestration::new("design-review", "Deployment Review")
+        .with_mode(OrchestrationMode::RoundRobin)
         .with_system_context("Collaboratively review the proposed architecture.");
 
-    council.add_agent(architect)?;
-    council.add_agent(tester)?;
+    orchestration.add_agent(architect)?;
+    orchestration.add_agent(tester)?;
 
-    let outcome = council
+    let outcome = orchestration
         .discuss("Evaluate whether the blue/green rollout plan is sufficient.", 2)
         .await?;
 
@@ -1631,7 +1631,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For a deep dive, read [`COUNCIL_TUTORIAL.md`](./COUNCIL_TUTORIAL.md) which walks through each
+For a deep dive, read [`ORCHESTRATION_TUTORIAL.md`](./ORCHESTRATION_TUTORIAL.md) which walks through each
 collaboration mode with progressively sophisticated examples.
 
 ---
@@ -1648,7 +1648,7 @@ export XAI_KEY=...
 
 cargo run --example interactive_session
 cargo run --example streaming_session
-cargo run --example council_demo
+cargo run --example orchestration_demo
 ```
 
 Each example corresponds to a module in the documentation so you can cross-reference the code with

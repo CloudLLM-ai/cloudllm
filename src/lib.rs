@@ -13,7 +13,7 @@
 //!   with HTTP support, authentication, and IP filtering
 //! * **Stateful Conversations**: [`LLMSession`] for maintaining rolling conversation history
 //!   with context trimming and token accounting
-//! * **Multi-Agent Orchestration**: [`council`] module for coordinating discussions across
+//! * **Multi-Agent Orchestration**: [`orchestration`] module for coordinating discussions across
 //!   multiple agents with Parallel, RoundRobin, Moderated, Hierarchical, or Debate patterns
 //! * **Provider Flexibility**: [`ClientWrapper`] trait implemented for OpenAI, Anthropic Claude,
 //!   Google Gemini, xAI Grok, and custom OpenAI-compatible endpoints
@@ -123,7 +123,7 @@
 //!
 //! ### Multi-Agent Orchestration
 //!
-//! The [`council`] module orchestrates conversations between multiple agents across a variety
+//! The [`orchestration`] module orchestrates conversations between multiple agents across a variety
 //! of collaboration patterns:
 //! - **Parallel**: All agents respond simultaneously with aggregated results
 //! - **RoundRobin**: Agents take sequential turns building on previous responses
@@ -301,8 +301,8 @@ pub use cloudllm::client_wrapper::{
 pub use cloudllm::clients;
 pub use cloudllm::llm_session::LLMSession;
 
-// Re-export tool protocol and council functionality
-pub use cloudllm::council;
+// Re-export tool protocol and orchestration functionality
+pub use cloudllm::orchestration;
 pub use cloudllm::mcp_server;
 pub use cloudllm::tool_protocol;
 pub use cloudllm::tool_protocols;

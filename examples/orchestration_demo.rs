@@ -1,6 +1,6 @@
-//! Comprehensive Council Demo
+//! Comprehensive Orchestration Demo
 //!
-//! This example demonstrates all Council modes and tool integration features:
+//! This example demonstrates all Orchestration modes and tool integration features:
 //! - Parallel mode: Multiple agents respond simultaneously
 //! - RoundRobin mode: Agents take turns
 //! - Moderated mode: One agent orchestrates others
@@ -13,7 +13,7 @@
 //! export ANTHROPIC_KEY=your_anthropic_key (optional, for Claude)
 //! export XAI_KEY=your_xai_key (optional, for Grok)
 //!
-//! Then run: cargo run --example council_demo
+//! Then run: cargo run --example orchestration_demo
 
 use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::tool_protocol::{
@@ -21,14 +21,14 @@ use cloudllm::tool_protocol::{
 };
 use cloudllm::tool_protocols::CustomToolProtocol;
 use cloudllm::{
-    council::{Council, CouncilMode},
+    orchestration::{Orchestration, OrchestrationMode},
     Agent,
 };
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== CloudLLM Council Demonstration ===\n");
+    println!("=== CloudLLM Orchestration Demonstration ===\n");
 
     // Setup: Create a simple calculator tool
     let tool_adapter = CustomToolProtocol::new();
@@ -108,22 +108,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_personality("Data-driven, focuses on metrics and benchmarks")
     .with_tools(tool_registry.clone());
 
-    let mut parallel_council = Council::new("expert-panel", "Technical Expert Panel")
-        .with_mode(CouncilMode::Parallel)
+    let mut parallel_orchestration = Orchestration::new("expert-panel", "Technical Expert Panel")
+        .with_mode(OrchestrationMode::Parallel)
         .with_system_context(
             "You are participating in a technical panel. Provide concise, expert analysis from your domain.",
         )
         .with_max_tokens(4096);
 
-    parallel_council.add_agent(agent1)?;
-    parallel_council.add_agent(agent2)?;
-    parallel_council.add_agent(agent3)?;
+    parallel_orchestration.add_agent(agent1)?;
+    parallel_orchestration.add_agent(agent2)?;
+    parallel_orchestration.add_agent(agent3)?;
 
     let question = "We're building a payment processing system that needs to handle 10,000 transactions per second. What are the key considerations?";
 
     println!("Question: {}\n", question);
 
-    match parallel_council.discuss(question, 1).await {
+    match parallel_orchestration.discuss(question, 1).await {
         Ok(response) => {
             for msg in response.messages {
                 if let Some(name) = msg.agent_name {
@@ -164,20 +164,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_expertise("Node.js, databases, API design")
     .with_personality("Systematic, detail-oriented");
 
-    let mut roundrobin_council = Council::new("dev-team", "Development Team")
-        .with_mode(CouncilMode::RoundRobin)
+    let mut roundrobin_orchestration = Orchestration::new("dev-team", "Development Team")
+        .with_mode(OrchestrationMode::RoundRobin)
         .with_system_context(
             "You are on a development team. Listen to your teammates and build on their ideas. Keep responses brief.",
         );
 
-    roundrobin_council.add_agent(agent_a)?;
-    roundrobin_council.add_agent(agent_b)?;
+    roundrobin_orchestration.add_agent(agent_a)?;
+    roundrobin_orchestration.add_agent(agent_b)?;
 
     let task = "Design a real-time notification system for a chat application.";
 
     println!("Task: {}\n", task);
 
-    match roundrobin_council.discuss(task, 2).await {
+    match roundrobin_orchestration.discuss(task, 2).await {
         Ok(response) => {
             for (i, msg) in response.messages.iter().enumerate() {
                 if let Some(name) = &msg.agent_name {
@@ -224,8 +224,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_expertise("System integration, architectural decisions");
 
-    let mut hierarchical_council = Council::new("project-team", "Project Team Hierarchy")
-        .with_mode(CouncilMode::Hierarchical {
+    let mut hierarchical_orchestration = Orchestration::new("project-team", "Project Team Hierarchy")
+        .with_mode(OrchestrationMode::Hierarchical {
             layers: vec![
                 vec!["db-analyst".to_string(), "api-analyst".to_string()],
                 vec!["tech-lead".to_string()],
@@ -233,15 +233,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .with_system_context("Analyze the problem from your perspective. Be concise.");
 
-    hierarchical_council.add_agent(worker1)?;
-    hierarchical_council.add_agent(worker2)?;
-    hierarchical_council.add_agent(supervisor)?;
+    hierarchical_orchestration.add_agent(worker1)?;
+    hierarchical_orchestration.add_agent(worker2)?;
+    hierarchical_orchestration.add_agent(supervisor)?;
 
     let problem = "We need to migrate from a monolithic database to a microservices architecture.";
 
     println!("Problem: {}\n", problem);
 
-    match hierarchical_council.discuss(problem, 1).await {
+    match hierarchical_orchestration.discuss(problem, 1).await {
         Ok(response) => {
             for msg in response.messages {
                 let layer = msg.metadata.get("layer").map(|s| s.as_str()).unwrap_or("0");
@@ -281,8 +281,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_personality("Practical, considers constraints");
 
-    let mut debate_council = Council::new("debate-team", "Technical Debate")
-        .with_mode(CouncilMode::Debate {
+    let mut debate_orchestration = Orchestration::new("debate-team", "Technical Debate")
+        .with_mode(OrchestrationMode::Debate {
             max_rounds: 2,
             convergence_threshold: Some(0.8),
         })
@@ -290,14 +290,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Engage in constructive debate. Challenge ideas respectfully and find common ground. Keep responses concise.",
         );
 
-    debate_council.add_agent(debater1)?;
-    debate_council.add_agent(debater2)?;
+    debate_orchestration.add_agent(debater1)?;
+    debate_orchestration.add_agent(debater2)?;
 
     let topic = "Should we use TypeScript or JavaScript for our new project?";
 
     println!("Debate Topic: {}\n", topic);
 
-    match debate_council.discuss(topic, 1).await {
+    match debate_orchestration.discuss(topic, 1).await {
         Ok(response) => {
             for msg in response.messages {
                 let round = msg.metadata.get("round").map(|s| s.as_str()).unwrap_or("0");
@@ -312,7 +312,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     }
 
-    println!("\n=== Council Demonstration Complete ===");
+    println!("\n=== Orchestration Demonstration Complete ===");
     println!("\nKey Takeaways:");
     println!("✓ Parallel: Fast, independent analysis");
     println!("✓ Round-Robin: Iterative, builds context");

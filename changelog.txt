@@ -1,4 +1,14 @@
 0.8.0 JAN/17/2026
+ - refactor: Rename "Council" to "Orchestration" across the entire codebase
+   - Renamed council.rs → orchestration.rs
+   - Renamed COUNCIL_TUTORIAL.md → ORCHESTRATION_TUTORIAL.md
+   - Renamed examples: council_demo.rs → orchestration_demo.rs, council_with_memory.rs → orchestration_with_memory.rs
+   - All public types renamed: Council → Orchestration, CouncilMode → OrchestrationMode, CouncilMessage → OrchestrationMessage, CouncilResponse → OrchestrationResponse
+   - Updated all documentation, examples, and internal references
+   - No behavioral changes — purely a naming improvement for clarity
+ - fix: UTF-8 safe string truncation in examples
+   - Fixed panic when truncating multi-byte UTF-8 strings (e.g., 'á', 'é') in debate/panel examples
+   - Now finds nearest char boundary before slicing instead of assuming ASCII byte offsets
  - feat: Image Generation Support Across Multiple Providers
    - New ImageGenerationClient trait for unified image generation across providers
    - Type-safe provider selection via ImageGenerationProvider enum (OpenAI, Grok, Gemini)
@@ -85,7 +95,7 @@
 
 0.7.1 DEC/08/2025
  - fix: Test suite corrections for OpenAI tools trait parameter
-   - Fixed MockClient implementations in council.rs, llm_session_tests.rs
+   - Fixed MockClient implementations in orchestration.rs, llm_session_tests.rs
    - Corrected send_message() parameter count across all test files
    - All 45 library tests now passing
  - new: openai_bitcoin_price_example.rs
@@ -252,7 +262,7 @@
  - feat: Agent Tool Discovery Enhancements
    - Agent.with_tools() documentation enhanced with multi-protocol examples
    - Tool registry field documentation clarifies single and multi-protocol modes
-   - Council module updated to support multi-protocol tool registries
+   - Orchestration module updated to support multi-protocol tool registries
  - example: New Multi-MCP Agent Example
    - examples/multi_mcp_agent.rs demonstrates connecting to 3 MCP servers:
      - Local MCP server (custom tools)
@@ -289,17 +299,17 @@
    - Complete feature list and backwards compatibility notes
 
 0.4.0 OCT/13/2025
- - feat: Multi-Agent Council System
-   - New council.rs module implementing collaborative multi-agent orchestration
-   - Five council modes for different collaboration patterns:
+ - feat: Multi-Agent Orchestration System
+   - New orchestration.rs module implementing collaborative multi-agent orchestration
+   - Five orchestration modes for different collaboration patterns:
      - Parallel: All agents process prompt simultaneously, responses aggregated
      - RoundRobin: Agents take sequential turns building on previous responses
      - Moderated: Agents submit proposals, moderator synthesizes final answer
      - Hierarchical: Lead agent coordinates, specialists handle specific aspects
      - Debate: Agents discuss and challenge each other until convergence
    - Agent identity system with name, expertise, personality, and optional tool access
-   - Conversation history tracking with CouncilMessage and round metadata
-   - CouncilResponse includes final answer, message history, rounds executed, convergence score, and total tokens used
+   - Conversation history tracking with OrchestrationMessage and round metadata
+   - OrchestrationResponse includes final answer, message history, rounds executed, convergence score, and total tokens used
  - feat: Tool Protocol Abstraction Layer (tool_protocol.rs)
    - Flexible abstraction for connecting agents to various tool protocols
    - ToolProtocol trait with execute(), list_tools(), get_tool_metadata()
@@ -328,21 +338,21 @@
    - Compares word sets between consecutive debate rounds
    - Configurable convergence threshold (default: 0.75 / 75% similarity)
    - Early termination when agents reach consensus, saving tokens and cost
-   - Convergence score returned in CouncilResponse for inspection
+   - Convergence score returned in OrchestrationResponse for inspection
    - calculate_convergence_score() and jaccard_similarity() helper methods
- - feat: Token Usage Tracking in Council Modes
+ - feat: Token Usage Tracking in Orchestration Modes
    - Parallel mode tracks and aggregates tokens from all concurrent agents
    - RoundRobin mode accumulates tokens across sequential turns
    - Token usage includes all LLM calls plus tool execution overhead
-   - CouncilResponse.total_tokens_used provides complete cost visibility
- - feat: Comprehensive Multi-Agent Tutorial (COUNCIL_TUTORIAL.md)
+   - OrchestrationResponse.total_tokens_used provides complete cost visibility
+ - feat: Comprehensive Multi-Agent Tutorial (ORCHESTRATION_TUTORIAL.md)
    - Cookbook-style tutorial with progressive complexity
-   - Five detailed recipes demonstrating each council mode
+   - Five detailed recipes demonstrating each orchestration mode
    - Real-world carbon capture strategy problem domain
    - Examples use multiple LLM providers (OpenAI, Claude, Gemini, Grok)
    - Up to 5 agents per example with distinct expertise and personalities
    - Tool integration example with MCPToolAdapter
-   - Best practices guide for agent design and council mode selection
+   - Best practices guide for agent design and orchestration mode selection
    - Troubleshooting section with common issues and solutions
    - Complete multi-stage pipeline example combining multiple modes
  - test: Added comprehensive test coverage
@@ -358,8 +368,8 @@
    - Fixed all compiler warnings
    - Switched from std::sync::Mutex to tokio::sync::Mutex for async compatibility
    - Removed unused imports and assignments
-   - Improved error handling in council execution paths
- - docs: Added inline documentation for council system and tool protocol
+   - Improved error handling in orchestration execution paths
+ - docs: Added inline documentation for orchestration system and tool protocol
    - Module-level documentation with architecture diagrams
    - Example code in doc comments
    - Detailed parameter and return value documentation

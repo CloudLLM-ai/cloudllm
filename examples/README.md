@@ -29,12 +29,12 @@ cargo run --example agent_panel_with_moderator_and_access_to_tools
 
 ---
 
-## Council & Multi-Agent Examples
+## Orchestration & Multi-Agent Examples
 
-### Council Demo
-**File**: `council_demo.rs`
+### Orchestration Demo
+**File**: `orchestration_demo.rs`
 
-Comprehensive showcase of all council collaboration modes.
+Comprehensive showcase of all orchestration collaboration modes.
 
 **Demonstrates**:
 - **Parallel mode**: Multiple agents respond simultaneously
@@ -47,7 +47,7 @@ Comprehensive showcase of all council collaboration modes.
 **Setup**:
 ```bash
 export OPENAI_API_KEY=sk-...
-cargo run --example council_demo
+cargo run --example orchestration_demo
 ```
 
 ---
@@ -55,10 +55,10 @@ cargo run --example council_demo
 ### Digimon vs Pokemon Debate
 **File**: `digimon_vs_pokemon_debate.rs`
 
-Fun debate example showcasing Moderated council mode with three agents.
+Fun debate example showcasing Moderated orchestration mode with three agents.
 
 **Demonstrates**:
-- Moderated council with explicit moderator selection
+- Moderated orchestration with explicit moderator selection
 - Multi-turn debate with narrative structure
 - Different LLM providers (OpenAI, Anthropic)
 - Topic-based agent personas
@@ -77,7 +77,7 @@ cargo run --example digimon_vs_pokemon_debate
 ### Venezuela Regime Change Debate
 **File**: `venezuela_regime_change_debate.rs`
 
-Complex geopolitical debate showcasing council negotiation patterns.
+Complex geopolitical debate showcasing orchestration negotiation patterns.
 
 **Demonstrates**:
 - Multi-round debate with convergence logic
@@ -86,21 +86,21 @@ Complex geopolitical debate showcasing council negotiation patterns.
 
 ---
 
-### Council with Memory
-**File**: `council_with_memory.rs`
+### Orchestration with Memory
+**File**: `orchestration_with_memory.rs`
 
-Multi-agent council coordinating through shared Memory tool.
+Multi-agent orchestration coordinating through shared Memory tool.
 
 **Demonstrates**:
 - Shared Memory as coordination layer between agents
-- Council discussion with persistent decision-making
+- Orchestration discussion with persistent decision-making
 - Reading and writing from shared state
 - Three-agent round-robin discussion
 
 **Setup**:
 ```bash
 export OPENAI_API_KEY=sk-...
-cargo run --example council_with_memory
+cargo run --example orchestration_with_memory
 ```
 
 ---
@@ -301,10 +301,10 @@ Combines REPL and streaming for live-updating multi-turn sessions.
 cargo run --example <name>
 
 # With environment variables
-OPENAI_API_KEY=sk-... cargo run --example council_demo
+OPENAI_API_KEY=sk-... cargo run --example orchestration_demo
 
 # With logging
-RUST_LOG=debug cargo run --example council_with_memory
+RUST_LOG=debug cargo run --example orchestration_with_memory
 
 # Build all examples
 cargo build --examples
@@ -314,7 +314,7 @@ cargo build --examples
 
 | Variable | Used By | Example |
 |----------|---------|---------|
-| `OPENAI_API_KEY` | OpenAI-based examples | council_demo, digimon_vs_pokemon_debate |
+| `OPENAI_API_KEY` | OpenAI-based examples | orchestration_demo, digimon_vs_pokemon_debate |
 | `GROK_API_KEY` | Grok-based examples | agent_panel_with_moderator_and_access_to_tools, interactive_session |
 | `ANTHROPIC_API_KEY` | Claude-based examples | digimon_vs_pokemon_debate |
 | `GEMINI_API_KEY` | Gemini-based examples | (if enabled) |
@@ -338,13 +338,13 @@ let agent = Agent::new("id", "name", client)
     .with_tools(Arc::new(registry));
 ```
 
-### Pattern 2: Multi-Agent Council
+### Pattern 2: Multi-Agent Orchestration
 ```rust
-let mut council = Council::new("id", "name")
-    .with_mode(CouncilMode::RoundRobin);
-council.add_agent(agent1)?;
-council.add_agent(agent2)?;
-let response = council.discuss("prompt", num_rounds).await?;
+let mut orchestration = Orchestration::new("id", "name")
+    .with_mode(OrchestrationMode::RoundRobin);
+orchestration.add_agent(agent1)?;
+orchestration.add_agent(agent2)?;
+let response = orchestration.discuss("prompt", num_rounds).await?;
 ```
 
 ### Pattern 3: Shared Memory Coordination
@@ -374,7 +374,7 @@ cargo clippy --example <name>  # Lint check
 - **Local tools** (Memory, Calculator, Bash): < 1ms
 - **MCP server tools**: 100-200ms (over HTTP)
 - **LLM API calls**: 1-10 seconds (depends on model and token count)
-- **Multi-agent councils**: Linear in number of agents × rounds
+- **Multi-agent orchestrations**: Linear in number of agents × rounds
 
 ---
 
