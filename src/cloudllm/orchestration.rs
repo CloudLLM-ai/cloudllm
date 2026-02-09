@@ -11,6 +11,7 @@
 //! - **Moderated**: Agents propose ideas, a moderator synthesizes the final answer
 //! - **Hierarchical**: Lead agent coordinates, specialists handle specific aspects
 //! - **Debate**: Agents discuss and challenge each other until convergence is reached
+//! - **Ralph**: Autonomous iterative loop that works through a PRD task list
 //!
 //! # Architecture
 //!
@@ -61,10 +62,36 @@
 use crate::client_wrapper::Role;
 use crate::cloudllm::agent::Agent;
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+
+/// A task in a RALPH PRD (Product Requirements Document).
+#[derive(Debug, Clone)]
+pub struct RalphTask {
+    /// Unique identifier used in `[TASK_COMPLETE:id]` markers.
+    pub id: String,
+    /// Human-readable title displayed in the PRD checklist shown to agents.
+    pub title: String,
+    /// Detailed description of what the task entails.
+    pub description: String,
+}
+
+impl RalphTask {
+    /// Create a new PRD task with the given identifier, title, and description.
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            description: description.into(),
+        }
+    }
+}
 
 /// Collaboration modes for orchestrations
 #[derive(Debug, Clone)]
@@ -81,6 +108,14 @@ pub enum OrchestrationMode {
     Debate {
         max_rounds: usize,
         convergence_threshold: Option<f32>,
+    },
+    /// RALPH: Autonomous iterative loop — agents work through a PRD task list
+    /// until all tasks are marked complete or max_iterations is reached.
+    Ralph {
+        /// The PRD checklist of tasks for agents to complete.
+        tasks: Vec<RalphTask>,
+        /// Maximum number of full iterations through all agents.
+        max_iterations: usize,
     },
 }
 
@@ -300,6 +335,10 @@ impl Orchestration {
                 self.execute_debate(prompt, max_rounds, convergence_threshold)
                     .await
             }
+            OrchestrationMode::Ralph {
+                tasks,
+                max_iterations,
+            } => self.execute_ralph(prompt, &tasks, max_iterations).await,
         }
     }
 
@@ -790,6 +829,153 @@ impl Orchestration {
         })
     }
 
+    /// Execute RALPH mode: autonomous iterative loop through a PRD task list
+    async fn execute_ralph(
+        &mut self,
+        prompt: &str,
+        tasks: &[RalphTask],
+        max_iterations: usize,
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        // Edge case: no tasks means immediate completion
+        if tasks.is_empty() {
+            return Ok(OrchestrationResponse {
+                messages: Vec::new(),
+                round: 0,
+                is_complete: true,
+                convergence_score: Some(1.0),
+                total_tokens_used: 0,
+            });
+        }
+
+        let mut completed_tasks: HashSet<String> = HashSet::new();
+        let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
+        let mut total_tokens: usize = 0;
+        let mut actual_iterations: usize = 0;
+
+        let task_ids: HashSet<String> = tasks.iter().map(|t| t.id.clone()).collect();
+
+        for iteration in 0..max_iterations {
+            actual_iterations = iteration + 1;
+
+            // Build task status checklist
+            let mut checklist = String::new();
+            for task in tasks {
+                if completed_tasks.contains(&task.id) {
+                    checklist.push_str(&format!(
+                        "- [x] {} — {}\n",
+                        task.title, task.description
+                    ));
+                } else {
+                    checklist.push_str(&format!(
+                        "- [ ] {} — {}\n",
+                        task.title, task.description
+                    ));
+                }
+            }
+
+            // Build iteration prompt
+            let iteration_prompt = format!(
+                "=== RALPH Iteration {}/{} ===\n\n\
+                 ## Original Request\n{}\n\n\
+                 ## PRD Task Status\n{}\n\
+                 ## Instructions\n\
+                 Work on the next incomplete task. When done, include [TASK_COMPLETE:task_id].\n\
+                 You may complete multiple tasks in a single response.",
+                actual_iterations, max_iterations, prompt, checklist
+            );
+
+            // Each agent responds sequentially (round-robin within iteration)
+            for agent_id in self.agent_order.clone() {
+                let agent = self.agents.get(&agent_id).unwrap();
+
+                let result = agent
+                    .generate_with_tokens(
+                        &self.system_context,
+                        &iteration_prompt,
+                        &self.conversation_history,
+                    )
+                    .await;
+
+                match result {
+                    Ok(agent_response) => {
+                        if let Some(usage) = agent_response.tokens_used {
+                            total_tokens += usage.total_tokens;
+                        }
+
+                        // Parse completions from response
+                        let newly_completed =
+                            Self::parse_ralph_completions(&agent_response.content);
+
+                        // Validate and insert
+                        let mut valid_completions = Vec::new();
+                        for id in &newly_completed {
+                            if task_ids.contains(id) {
+                                completed_tasks.insert(id.clone());
+                                valid_completions.push(id.clone());
+                            }
+                        }
+
+                        let mut msg = OrchestrationMessage::from_agent(
+                            agent.id.clone(),
+                            agent.name.clone(),
+                            agent_response.content,
+                        )
+                        .with_metadata("iteration", actual_iterations.to_string());
+
+                        if !valid_completions.is_empty() {
+                            msg = msg.with_metadata(
+                                "tasks_completed",
+                                valid_completions.join(","),
+                            );
+                        }
+
+                        all_messages.push(msg.clone());
+                        self.conversation_history.push(msg);
+                    }
+                    Err(e) => {
+                        eprintln!("Agent {} failed: {}", agent_id, e);
+                    }
+                }
+            }
+
+            // Check termination
+            if completed_tasks.len() == tasks.len() {
+                break;
+            }
+        }
+
+        let total = tasks.len() as f32;
+        let completed = completed_tasks.len() as f32;
+
+        Ok(OrchestrationResponse {
+            messages: all_messages,
+            round: actual_iterations,
+            is_complete: completed_tasks.len() == tasks.len(),
+            convergence_score: Some(completed / total),
+            total_tokens_used: total_tokens,
+        })
+    }
+
+    /// Scan a string for `[TASK_COMPLETE:xxx]` markers, returning the task IDs found.
+    fn parse_ralph_completions(text: &str) -> Vec<String> {
+        let mut results = Vec::new();
+        let marker = "[TASK_COMPLETE:";
+        let mut search_from = 0;
+        while let Some(start) = text[search_from..].find(marker) {
+            let abs_start = search_from + start + marker.len();
+            if let Some(end) = text[abs_start..].find(']') {
+                let id = text[abs_start..abs_start + end].trim().to_string();
+                if !id.is_empty() {
+                    results.push(id);
+                }
+                search_from = abs_start + end + 1;
+            } else {
+                break;
+            }
+        }
+        results
+    }
+
     /// Calculate convergence score between current and previous round messages
     /// Uses Jaccard similarity on word sets to detect when agents' positions converge
     fn calculate_convergence_score(
@@ -1186,5 +1372,146 @@ mod tests {
         assert!(response.convergence_score.is_some());
         let score = response.convergence_score.unwrap();
         assert!(score >= 0.6, "Convergence score {} should be >= 0.6", score);
+    }
+
+    #[tokio::test]
+    async fn test_ralph_mode_completion() {
+        use tokio::sync::Mutex as TokioMutex;
+
+        // Mock client that completes task1 on first call, task2 on second call
+        struct RalphCompletingClient {
+            call_count: Arc<TokioMutex<usize>>,
+        }
+
+        #[async_trait]
+        impl crate::client_wrapper::ClientWrapper for RalphCompletingClient {
+            async fn send_message(
+                &self,
+                _messages: &[Message],
+                _optional_grok_tools: Option<Vec<openai_rust2::chat::GrokTool>>,
+                _optional_openai_tools: Option<Vec<openai_rust2::chat::OpenAITool>>,
+            ) -> Result<Message, Box<dyn std::error::Error>> {
+                let mut count = self.call_count.lock().await;
+                *count += 1;
+
+                let response = match *count {
+                    1 => "I've implemented the HTML structure. [TASK_COMPLETE:task1]".to_string(),
+                    _ => "Game loop is done. [TASK_COMPLETE:task2]".to_string(),
+                };
+
+                Ok(Message {
+                    role: Role::Assistant,
+                    content: Arc::from(response.as_str()),
+                })
+            }
+
+            fn model_name(&self) -> &str {
+                "ralph-mock"
+            }
+
+            async fn get_last_usage(&self) -> Option<TokenUsage> {
+                None
+            }
+        }
+
+        let agent = Agent::new(
+            "builder",
+            "Builder Agent",
+            Arc::new(RalphCompletingClient {
+                call_count: Arc::new(TokioMutex::new(0)),
+            }),
+        );
+
+        let tasks = vec![
+            RalphTask::new("task1", "HTML Structure", "Create the HTML boilerplate"),
+            RalphTask::new("task2", "Game Loop", "Implement the game loop"),
+        ];
+
+        let mut orchestration = Orchestration::new("ralph-test", "Ralph Test").with_mode(
+            OrchestrationMode::Ralph {
+                tasks,
+                max_iterations: 5,
+            },
+        );
+
+        orchestration.add_agent(agent).unwrap();
+
+        let response = orchestration
+            .discuss("Build a breakout game", 1)
+            .await
+            .unwrap();
+
+        assert!(response.is_complete);
+        assert_eq!(response.convergence_score, Some(1.0));
+        assert!(response.round <= 5);
+    }
+
+    #[tokio::test]
+    async fn test_ralph_mode_max_iterations() {
+        // Mock client that never emits completion markers
+        let agent = Agent::new(
+            "lazy",
+            "Lazy Agent",
+            Arc::new(MockClient {
+                name: "lazy-mock".to_string(),
+                response: "I'm working on it but not done yet.".to_string(),
+            }),
+        );
+
+        let tasks = vec![
+            RalphTask::new("task1", "Task One", "Do something"),
+            RalphTask::new("task2", "Task Two", "Do something else"),
+        ];
+
+        let max_iterations = 3;
+
+        let mut orchestration = Orchestration::new("ralph-max-test", "Ralph Max Test").with_mode(
+            OrchestrationMode::Ralph {
+                tasks,
+                max_iterations,
+            },
+        );
+
+        orchestration.add_agent(agent).unwrap();
+
+        let response = orchestration
+            .discuss("Do the tasks", 1)
+            .await
+            .unwrap();
+
+        assert!(!response.is_complete);
+        assert_eq!(response.round, max_iterations);
+        assert_eq!(response.convergence_score.unwrap(), 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_ralph_mode_empty_tasks() {
+        let agent = Agent::new(
+            "agent1",
+            "Agent 1",
+            Arc::new(MockClient {
+                name: "mock".to_string(),
+                response: "test".to_string(),
+            }),
+        );
+
+        let mut orchestration = Orchestration::new("ralph-empty", "Ralph Empty").with_mode(
+            OrchestrationMode::Ralph {
+                tasks: vec![],
+                max_iterations: 5,
+            },
+        );
+
+        orchestration.add_agent(agent).unwrap();
+
+        let response = orchestration
+            .discuss("Do nothing", 1)
+            .await
+            .unwrap();
+
+        assert!(response.is_complete);
+        assert_eq!(response.convergence_score, Some(1.0));
+        assert_eq!(response.round, 0);
+        assert!(response.messages.is_empty());
     }
 }
