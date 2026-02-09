@@ -30,6 +30,9 @@ crate-level manual.
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+  - [LLMSession — stateful conversation (OpenAI)](#1-llmsession--stateful-conversation-openai)
+  - [Agent — identity + tools (Claude)](#2-agent--identity--tools-claude)
+  - [Streaming tokens in real time (Grok)](#3-streaming-tokens-in-real-time-grok)
 - [Multi-Agent Orchestration](#multi-agent-orchestration)
   - [Orchestration Modes](#orchestration-modes)
   - [Basic Example: RoundRobin](#basic-example-roundrobin)
@@ -64,51 +67,92 @@ The crate targets `tokio` 1.x and Rust 1.70+.
 
 ---
 
-## Quick start
+## Quick Start
 
-### 1. Initialising a session
+CloudLLM has two core abstractions for talking to LLMs:
+
+| Abstraction | What it is | When to use it |
+|-------------|-----------|----------------|
+| **LLMSession** | Stateful conversation wrapper around any `ClientWrapper`. Maintains rolling history with automatic context trimming and token accounting. | Simple chat bots, Q&A, any 1-on-1 conversation with an LLM. |
+| **Agent** | Extends LLMSession with an identity (name, expertise, personality) and optional tools. Can execute actions, not just converse. | Tool-using assistants, orchestrated multi-agent teams, autonomous workflows. |
+
+Think of it this way: **LLMSession is the foundation; Agent builds on top of it.**
+
+### 1. LLMSession — stateful conversation (OpenAI)
 
 ```rust,no_run
 use std::sync::Arc;
-
-use cloudllm::{init_logger, LLMSession, Role};
+use cloudllm::{LLMSession, Role};
 use cloudllm::clients::openai::{Model, OpenAIClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logger();
+    let client = Arc::new(OpenAIClient::new_with_model_enum(
+        &std::env::var("OPEN_AI_SECRET")?, Model::GPT41Mini,
+    ));
 
-    let api_key = std::env::var("OPEN_AI_SECRET")?;
-    let client = OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Nano);
-
-    let mut session = LLMSession::new(
-        Arc::new(client),
-        "You write product update haikus.".to_owned(),
-        8_192,
-    );
+    let mut session = LLMSession::new(client, "You are a concise tutor.".into(), 8_192);
 
     let reply = session
-        .send_message(Role::User, "Announce the logging feature.".to_owned(), None)
+        .send_message(Role::User, "What is ownership in Rust?".into(), None)
         .await?;
 
-    println!("Assistant: {}", reply.content);
-    println!("Usage (tokens): {:?}", session.token_usage());
+    println!("{}", reply.content);
+    println!("Tokens used: {:?}", session.token_usage());
     Ok(())
 }
 ```
 
-### 2. Streaming tokens in real time
+### 2. Agent — identity + tools (Claude)
+
+An Agent wraps a client just like LLMSession, but adds a name, expertise, personality, and
+(optionally) tools. Here the agent uses Anthropic Claude and can answer questions using its
+personality and expertise context:
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::Agent;
+use cloudllm::clients::claude::{ClaudeClient, Model};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let client = Arc::new(ClaudeClient::new_with_model_enum(
+        &std::env::var("ANTHROPIC_KEY")?, Model::ClaudeHaiku45,
+    ));
+
+    let agent = Agent::new("tutor", "Rust Tutor", client)
+        .with_expertise("Rust programming, ownership, lifetimes")
+        .with_personality("Patient teacher who uses short analogies");
+
+    // generate() sends a one-shot prompt through the agent's identity context
+    let answer = agent
+        .generate(
+            "You are a helpful programming tutor.",
+            "Explain borrowing vs cloning in two sentences.",
+            &[],  // no prior conversation history
+        )
+        .await?;
+
+    println!("{}", answer);
+    Ok(())
+}
+```
+
+### 3. Streaming tokens in real time (Grok)
+
+Any `ClientWrapper` supports streaming. Here we use xAI Grok:
 
 ```rust,no_run
 use cloudllm::{LLMSession, Role};
-use cloudllm::clients::openai::{Model, OpenAIClient};
+use cloudllm::clients::grok::{GrokClient, Model};
 use futures_util::StreamExt;
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("OPEN_AI_SECRET")?;
-    let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini));
+    let client = Arc::new(GrokClient::new_with_model_enum(
+        &std::env::var("XAI_KEY")?, Model::Grok3Mini,
+    ));
     let mut session = LLMSession::new(client, "You think out loud.".into(), 16_000);
 
     if let Some(mut stream) = session
