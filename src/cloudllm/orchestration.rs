@@ -1353,6 +1353,14 @@ impl Orchestration {
         for iteration in 0..max_iterations {
             actual_iterations = iteration + 1;
 
+            log::info!(
+                "RALPH iteration {}/{} — {}/{} tasks complete",
+                actual_iterations,
+                max_iterations,
+                completed_tasks.len(),
+                tasks.len()
+            );
+
             // Build task status checklist
             let mut checklist = String::new();
             for task in tasks {
@@ -1383,6 +1391,7 @@ impl Orchestration {
             // Each agent responds sequentially (round-robin within iteration)
             for agent_id in self.agent_order.clone() {
                 let agent = self.agents.get(&agent_id).unwrap();
+                log::info!("  Calling agent '{}' ({})...", agent.name, agent.id);
 
                 // Trim conversation history to fit within max_tokens budget.
                 // Reserve tokens for the system prompt, the iteration prompt,
@@ -1396,6 +1405,12 @@ impl Orchestration {
                 let history_budget = self.max_tokens.saturating_sub(overhead);
 
                 let trimmed_history = Self::trim_history(&self.conversation_history, history_budget);
+                log::debug!(
+                    "  History trimmed: {}/{} messages kept (budget: {} tokens)",
+                    trimmed_history.len(),
+                    self.conversation_history.len(),
+                    history_budget
+                );
 
                 let result = agent
                     .generate_with_tokens(
@@ -1407,9 +1422,21 @@ impl Orchestration {
 
                 match result {
                     Ok(agent_response) => {
+                        let tokens_this_call = agent_response
+                            .tokens_used
+                            .as_ref()
+                            .map(|u| u.total_tokens)
+                            .unwrap_or(0);
                         if let Some(usage) = agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
+
+                        log::info!(
+                            "  Agent '{}' responded ({} chars, {} tokens)",
+                            agent.name,
+                            agent_response.content.len(),
+                            tokens_this_call
+                        );
 
                         // Parse completions from response
                         let newly_completed =
@@ -1422,6 +1449,15 @@ impl Orchestration {
                                 completed_tasks.insert(id.clone());
                                 valid_completions.push(id.clone());
                             }
+                        }
+
+                        if !valid_completions.is_empty() {
+                            log::info!(
+                                "  Tasks completed: [{}] — progress: {}/{}",
+                                valid_completions.join(", "),
+                                completed_tasks.len(),
+                                tasks.len()
+                            );
                         }
 
                         let mut msg = OrchestrationMessage::from_agent(
@@ -1442,13 +1478,19 @@ impl Orchestration {
                         self.conversation_history.push(msg);
                     }
                     Err(e) => {
-                        eprintln!("Agent {} failed: {}", agent_id, e);
+                        log::error!("Agent {} failed: {}", agent_id, e);
                     }
                 }
             }
 
             // Check termination
             if completed_tasks.len() == tasks.len() {
+                log::info!(
+                    "All {}/{} tasks complete — stopping after iteration {}",
+                    completed_tasks.len(),
+                    tasks.len(),
+                    actual_iterations
+                );
                 break;
             }
         }

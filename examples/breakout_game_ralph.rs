@@ -44,6 +44,7 @@ use cloudllm::{
     Agent,
 };
 use std::sync::Arc;
+use std::time::Instant;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -204,9 +205,14 @@ and a multiball powerup. Everything must work in a modern browser with no extern
 
     println!("Starting RALPH orchestration with 4 agents and 10 PRD tasks...\n");
 
+    let start = Instant::now();
     let response = orchestration.discuss(prompt, 1).await?;
+    let elapsed = start.elapsed();
 
     // ── Results ─────────────────────────────────────────────────────────────
+
+    let minutes = elapsed.as_secs() / 60;
+    let seconds = elapsed.as_secs() % 60;
 
     println!("\n{}", "=".repeat(80));
     println!("  RALPH Results");
@@ -219,6 +225,7 @@ and a multiball powerup. Everything must work in a modern browser with no extern
     );
     println!("  Total tokens    : {}", response.total_tokens_used);
     println!("  Messages        : {}", response.messages.len());
+    println!("  Elapsed time    : {}m {}s", minutes, seconds);
     println!("{}\n", "=".repeat(80));
 
     // Print per-message summary
