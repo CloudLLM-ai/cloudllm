@@ -339,32 +339,106 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Agents: Building Intelligent Workers with Tools
 
-Agents extend LLMSession by adding identity, expertise, and optional tools. They're the primary way to build
-sophisticated LLM interactions where you need the agent to take actions beyond conversation:
+Agents extend LLMSession by adding identity, expertise, and optional tools. They're the primary
+way to build sophisticated LLM interactions where you need the agent to take actions beyond
+conversation.
+
+The example below creates a single agent with **four tools** attached: the built-in Calculator,
+a shared Memory store, image generation via OpenAI, and a custom Fibonacci tool — all on one
+`CustomToolProtocol`:
 
 ```rust,no_run
 use std::sync::Arc;
 use cloudllm::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
-use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult, ToolRegistry};
+use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
+use cloudllm::tools::{Calculator, Memory};
+use cloudllm::cloudllm::image_generation::register_image_generation_tool;
+use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Arc::new(OpenAIClient::new_with_model_enum(
-        &std::env::var("OPEN_AI_SECRET")?,
-        Model::GPT41Mini
-    ));
+    let api_key = std::env::var("OPEN_AI_SECRET")?;
 
-    // Create agent with custom identity and expertise
-    let agent = Agent::new("researcher", "Research Assistant", client)
-        .with_expertise("Literature search and analysis")
-        .with_personality("Thorough and methodical");
+    let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini));
 
-    // Agent is ready to execute actions!
-    println!("Agent ready: {}", agent.name);
+    // -- Tool protocol (all tools register here) ----------------------------
+    let protocol = Arc::new(CustomToolProtocol::new());
+
+    // 1. Calculator — wraps the built-in evaluator
+    let calc = Calculator::new();
+    protocol.register_async_tool(
+        ToolMetadata::new("calculator", "Evaluate a math expression")
+            .with_parameter(
+                ToolParameter::new("expr", ToolParameterType::String)
+                    .with_description("Math expression, e.g. sqrt(2) + mean([1,2,3])")
+                    .required(),
+            ),
+        Arc::new(move |params| {
+            let calc = calc.clone();
+            Box::pin(async move {
+                let expr = params["expr"].as_str().unwrap_or("0");
+                match calc.evaluate(expr).await {
+                    Ok(val) => Ok(ToolResult::success(serde_json::json!({ "result": val }))),
+                    Err(e)  => Ok(ToolResult::error(e)),
+                }
+            })
+        }),
+    ).await;
+
+    // 2. Image generation — one-liner helper registers the tool
+    let image_client = new_image_generation_client(ImageGenerationProvider::OpenAI, &api_key)?;
+    register_image_generation_tool(&protocol, image_client).await?;
+
+    // 3. Custom tool — Fibonacci sequence (sync closure, no boilerplate)
+    protocol.register_tool(
+        ToolMetadata::new("fibonacci", "Return the Nth Fibonacci number")
+            .with_parameter(
+                ToolParameter::new("n", ToolParameterType::Number)
+                    .with_description("Index (0-based)")
+                    .required(),
+            ),
+        Arc::new(|params| {
+            let n = params["n"].as_u64().unwrap_or(0) as usize;
+            let mut a: u64 = 0;
+            let mut b: u64 = 1;
+            for _ in 0..n {
+                let tmp = a + b;
+                a = b;
+                b = tmp;
+            }
+            Ok(ToolResult::success(serde_json::json!({ "fib": a })))
+        }),
+    ).await;
+
+    // -- Build the registry and the agent -----------------------------------
+    // Memory lives in its own protocol so multiple agents can share it
+    let memory = Arc::new(Memory::new());
+    let mut registry = ToolRegistry::empty();
+    registry.add_protocol("tools",  protocol).await?;
+    registry.add_protocol("memory", Arc::new(MemoryProtocol::new(memory))).await?;
+
+    let agent = Agent::new("assistant", "Research Assistant", client)
+        .with_expertise("Math, memory, image generation, and Fibonacci numbers")
+        .with_personality("Thorough and methodical")
+        .with_tools(Arc::new(registry));
+
+    println!("Agent '{}' ready with {} tools", agent.name, 4);
     Ok(())
 }
 ```
+
+**Key patterns shown above:**
+
+| Pattern | Used For |
+|---------|----------|
+| `register_image_generation_tool()` | One-line built-in tool registration |
+| `protocol.register_tool(metadata, closure)` | Sync custom tool (Fibonacci) |
+| `protocol.register_async_tool(metadata, closure)` | Async tool wrapping a built-in (Calculator) |
+| `MemoryProtocol::new(memory)` | Protocol wrapper for built-in Memory |
+| `ToolRegistry::empty()` + `add_protocol()` | Multi-protocol registry |
+| `agent.with_tools(registry)` | Attach tools to an agent |
 
 ---
 
