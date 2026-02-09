@@ -14,7 +14,7 @@
 //! * **Stateful Conversations**: [`LLMSession`] for maintaining rolling conversation history
 //!   with context trimming and token accounting
 //! * **Multi-Agent Orchestration**: [`orchestration`] module for coordinating discussions across
-//!   multiple agents with Parallel, RoundRobin, Moderated, Hierarchical, or Debate patterns
+//!   multiple agents with Parallel, RoundRobin, Moderated, Hierarchical, Debate, or Ralph patterns
 //! * **Provider Flexibility**: [`ClientWrapper`] trait implemented for OpenAI, Anthropic Claude,
 //!   Google Gemini, xAI Grok, and custom OpenAI-compatible endpoints
 //!
@@ -130,6 +130,7 @@
 //! - **Moderated**: Agents propose ideas, moderator synthesizes the answer
 //! - **Hierarchical**: Lead agent coordinates, specialists handle specific aspects
 //! - **Debate**: Agents discuss and challenge until convergence
+//! - **Ralph**: Autonomous iterative loop working through a PRD task list
 //!
 //! ### Deploying Tool Servers with MCPServerBuilder
 //!
