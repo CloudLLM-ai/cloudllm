@@ -9,6 +9,8 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 
 * **Agents with Tools**: Create agents that connect to LLMs and execute actions through a flexible,
   multi-protocol tool system (local, remote MCP, Memory, custom protocols),
+* **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/index.html) engine
+  supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, and Ralph collaboration patterns,
 * **Image Generation**: Unified image generation across OpenAI (DALL-E), Grok, and Google Gemini with the
   simplified `register_image_generation_tool()` helper,
 * **Server Deployment**: Easy standalone MCP server creation via [`MCPServerBuilder`](https://docs.rs/cloudllm/latest/cloudllm/mcp_server/struct.MCPServerBuilder.html)
@@ -16,13 +18,36 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 * **Flexible Tool Creation**: From simple Rust closures to advanced custom protocol implementations,
 * **Stateful Sessions**: A [`LLMSession`](https://docs.rs/cloudllm/latest/cloudllm/struct.LLMSession.html) for
   managing conversation history with context trimming and token accounting,
-* **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/index.html) engine
-  supporting Parallel, RoundRobin, Moderated, Hierarchical, and Debate collaboration patterns,
 * **Provider Flexibility**: Unified [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/index.html)
   trait for OpenAI, Claude, Gemini, Grok, and custom OpenAI-compatible endpoints.
 
 The entire public API is documented with _compilable_ examples—run `cargo doc --open` to browse the
 crate-level manual.
+
+---
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Multi-Agent Orchestration](#multi-agent-orchestration)
+  - [Orchestration Modes](#orchestration-modes)
+  - [Basic Example: RoundRobin](#basic-example-roundrobin)
+  - [Ralph: Autonomous PRD-Driven Loop](#ralph-autonomous-prd-driven-loop)
+- [Provider Wrappers](#provider-wrappers)
+- [LLMSession: Stateful Conversations](#llmsession-stateful-conversations-the-foundation)
+- [Agents: Building Intelligent Workers with Tools](#agents-building-intelligent-workers-with-tools)
+- [Tool Registry: Multi-Protocol Tool Access](#tool-registry-multi-protocol-tool-access)
+- [Deploying Tool Servers with MCPServerBuilder](#deploying-tool-servers-with-mcpserverbuilder)
+- [Creating Tools: Simple to Advanced](#creating-tools-simple-to-advanced)
+  - [Simple Tool Creation: Rust Closures](#simple-tool-creation-rust-closures)
+  - [Advanced Tool Creation: Custom Protocol Implementation](#advanced-tool-creation-custom-protocol-implementation)
+  - [Using Tools with Agents](#using-tools-with-agents)
+  - [Protocol Implementations](#protocol-implementations)
+  - [Built-in Tools](#built-in-tools)
+- [Image Generation](#image-generation)
+- [Examples](#examples)
+- [Support & Contributing](#support--contributing)
 
 ---
 
@@ -101,6 +126,143 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+---
+
+## Multi-Agent Orchestration
+
+The [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/index.html) module
+coordinates conversations between multiple LLM agents. Each agent can have its own provider,
+expertise, personality, and tool access. Choose from six collaboration patterns depending on your
+use case.
+
+### Orchestration Modes
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| **Parallel** | All agents respond simultaneously; results are aggregated | Fast fan-out queries, getting diverse perspectives |
+| **RoundRobin** | Agents take sequential turns, each building on previous responses | Iterative refinement, structured review |
+| **Moderated** | Agents propose ideas, a moderator synthesizes the final answer | Consensus building, curated outputs |
+| **Hierarchical** | Lead agent coordinates; specialists handle specific aspects | Complex tasks with delegation |
+| **Debate** | Agents discuss and challenge until convergence is reached | Critical analysis, stress-testing ideas |
+| **Ralph** | Autonomous iterative loop working through a PRD task list | Multi-step builds, code generation, structured project work |
+
+### Basic Example: RoundRobin
+
+```rust,no_run
+use std::sync::Arc;
+
+use cloudllm::orchestration::{Agent, Orchestration, OrchestrationMode};
+use cloudllm::clients::openai::{Model, OpenAIClient};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let key = std::env::var("OPEN_AI_SECRET")?;
+
+    let architect = Agent::new(
+        "architect",
+        "System Architect",
+        Arc::new(OpenAIClient::new_with_model_enum(&key, Model::GPT4o)),
+    )
+    .with_expertise("Distributed systems")
+    .with_personality("Pragmatic, direct");
+
+    let tester = Agent::new(
+        "qa",
+        "QA Lead",
+        Arc::new(OpenAIClient::new_with_model_enum(&key, Model::GPT41Mini)),
+    )
+    .with_expertise("Test automation")
+    .with_personality("Sceptical, detail-oriented");
+
+    let mut orchestration = Orchestration::new("design-review", "Deployment Review")
+        .with_mode(OrchestrationMode::RoundRobin)
+        .with_system_context("Collaboratively review the proposed architecture.");
+
+    orchestration.add_agent(architect)?;
+    orchestration.add_agent(tester)?;
+
+    let outcome = orchestration
+        .discuss("Evaluate whether the blue/green rollout plan is sufficient.", 2)
+        .await?;
+
+    for msg in outcome.messages {
+        if let Some(name) = msg.agent_name {
+            println!("{name}: {}", msg.content);
+        }
+    }
+
+    Ok(())
+}
+```
+
+### Ralph: Autonomous PRD-Driven Loop
+
+**Ralph** (named after Ralph Wiggum) is an autonomous iterative orchestration mode where agents
+work through a structured PRD (Product Requirements Document) task list. Each iteration presents
+agents with the current task checklist. Agents signal completion by including
+`[TASK_COMPLETE:task_id]` markers in their responses. The loop ends when all tasks are done or
+`max_iterations` is reached.
+
+Key features:
+- **PRD-driven**: Structured `RalphTask` items with id, title, and description
+- **Completion detection**: Agents include `[TASK_COMPLETE:task_id]` markers
+- **Progress tracking**: `convergence_score` reports task completion fraction (0.0 to 1.0)
+- **History trimming**: Conversation history is automatically trimmed to fit within `max_tokens`,
+  keeping the most recent messages
+- **Live progress**: `log::info!` output shows iteration progress, agent calls, and task completions
+
+```rust,no_run
+use std::sync::Arc;
+
+use cloudllm::orchestration::{Orchestration, OrchestrationMode, RalphTask};
+use cloudllm::clients::claude::{ClaudeClient, Model};
+use cloudllm::Agent;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let key = std::env::var("ANTHROPIC_KEY")?;
+    let make_client = || Arc::new(ClaudeClient::new_with_model_enum(&key, Model::ClaudeHaiku45));
+
+    let frontend = Agent::new("frontend", "Frontend Dev", make_client())
+        .with_expertise("HTML, CSS, Canvas");
+    let backend = Agent::new("backend", "Backend Dev", make_client())
+        .with_expertise("JavaScript, game logic");
+
+    let tasks = vec![
+        RalphTask::new("html",  "HTML Structure", "Create the HTML boilerplate and canvas"),
+        RalphTask::new("loop",  "Game Loop",      "Implement requestAnimationFrame game loop"),
+        RalphTask::new("input", "Controls",       "Add keyboard input for the paddle"),
+    ];
+
+    let mut orch = Orchestration::new("game-builder", "Game Builder")
+        .with_mode(OrchestrationMode::Ralph {
+            tasks,
+            max_iterations: 5,
+        })
+        .with_system_context("Build a game. Output full HTML. Mark done with [TASK_COMPLETE:id].")
+        .with_max_tokens(180_000);
+
+    orch.add_agent(frontend)?;
+    orch.add_agent(backend)?;
+
+    let result = orch.discuss("Build a Pong game in a single index.html", 1).await?;
+
+    println!("Iterations: {}",  result.round);
+    println!("Complete: {}",    result.is_complete);
+    println!("Progress: {:.0}%", result.convergence_score.unwrap_or(0.0) * 100.0);
+    println!("Tokens: {}",     result.total_tokens_used);
+
+    Ok(())
+}
+```
+
+See `examples/breakout_game_ralph.rs` for a full working example that orchestrates 4 agents
+through 10 PRD tasks to produce a complete Atari Breakout game with multi-hit bricks, powerups,
+chiptune music, and collision sound effects.
+
+For a deep dive into all collaboration modes, read
+[`ORCHESTRATION_TUTORIAL.md`](./ORCHESTRATION_TUTORIAL.md).
 
 ---
 
@@ -428,7 +590,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_expertise("Performs calculations")
     .with_tools(registry);
 
-    println!("✓ Agent ready with tools");
+    println!("Agent ready with tools");
     Ok(())
 }
 ```
@@ -528,10 +690,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 **More Examples:**
-- `sqrt(16)` → 4.0
-- `log(100)` → 2.0 (base 10)
-- `std([1, 2, 3, 4, 5])` → 1.581 (sample standard deviation)
-- `floor(3.7)` → 3.0
+- `sqrt(16)` -> 4.0
+- `log(100)` -> 2.0 (base 10)
+- `std([1, 2, 3, 4, 5])` -> 1.581 (sample standard deviation)
+- `floor(3.7)` -> 3.0
 
 For comprehensive documentation, see [`Calculator` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.Calculator.html).
 
@@ -634,41 +796,6 @@ The Memory tool uses a token-efficient protocol designed for LLM communication:
 | **Clear** | `C` | `C` | Wipe all memories |
 | **Spec** | `SPEC` | `SPEC` | Get protocol specification |
 
-**Use Case Examples:**
-
-1. **Single-Agent Progress Tracking:**
-   ```
-   Agent stores: "P document_checkpoint Page 247 TTL:86400"
-   Later: "G document_checkpoint" → retrieves current progress
-   ```
-
-2. **Multi-Agent Orchestration Coordination:**
-   ```
-   Agent A stores: "P decision_consensus Approved TTL:3600"
-   Agent B reads: "G decision_consensus"
-   Agent C confirms: "L" → sees what's been decided
-   ```
-
-3. **Session Recovery:**
-   ```
-   Before shutdown: "P session_state {full_context} TTL:604800" (1 week)
-   After restart: "G session_state" → resume from checkpoint
-   ```
-
-4. **Audit Trail:**
-   ```
-   Store each decision: "P milestone_v1 Completed TTL:2592000" (30 days)
-   Track progress: "L META" → see timestamp and TTL of each milestone
-   ```
-
-**Best Practices:**
-
-1. **Use TTL wisely**: Temporary data (hours), permanent decisions (None)
-2. **Clear old memories**: Call `C` or `D` to free space
-3. **Descriptive keys**: Use clear, hierarchical names like `decision_inference_v2`
-4. **Batch operations**: Use `L META` to understand stored state before updates
-5. **Monitor expiration**: Check metadata to prevent unexpected data loss
-
 **Multi-Agent Memory Sharing:**
 
 ```rust,no_run
@@ -755,479 +882,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-**Security Features:**
-
-- **Allowlist**: Restrict requests to trusted domains only
-- **Blocklist**: Explicitly block malicious domains
-- **Precedence**: Blocklist always takes precedence over allowlist
-- **No allowlist = All allowed**: Empty allowlist means any domain is allowed (unless in blocklist)
-
-**More Examples:**
-- Basic auth: `client.with_basic_auth("username", "password")`
-- Custom header: `client.with_header("X-API-Key", "secret123")`
-- Query params: `client.with_query_param("page", "1").with_query_param("limit", "50")`
-- Size limit: `client.with_max_response_size(50 * 1024 * 1024)` (50MB)
-- Short timeout: `client.with_timeout(Duration::from_secs(5))`
-
-For comprehensive documentation and more examples, see [`HttpClient` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.HttpClient.html) and run `cargo run --example http_client_example`.
-
-##### Using HTTP Client Tool with Agents
-
-The HTTP Client tool can be exposed to agents through the MCP protocol, allowing agents to make API calls autonomously. Here's how to set it up:
-
-**Step 1: Create an MCP HTTP Server (expose via HTTP)**
-
-Create an HTTP server that exposes the HTTP Client tool via MCP protocol. This server can be accessed by agents over the network:
-
-```rust,no_run
-use std::sync::Arc;
-use cloudllm::tools::HttpClient;
-use cloudllm::tool_protocols::CustomToolProtocol;
-use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult, ToolRegistry};
-use serde_json::json;
-use axum::{
-    extract::Json,
-    routing::post,
-    Router,
-};
-use std::net::SocketAddr;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create HTTP client with security settings
-    let mut http_client = HttpClient::new();
-
-    // Configure security: only allow specific domains
-    http_client.allow_domain("api.github.com");
-    http_client.allow_domain("api.example.com");
-    http_client.allow_domain("jsonplaceholder.typicode.com");
-
-    let http_client = Arc::new(http_client);
-
-    // Wrap it with CustomToolProtocol for tool management
-    let mut protocol = CustomToolProtocol::new();
-
-    // Register HTTP GET tool
-    let client = http_client.clone();
-    protocol.register_async_tool(
-        ToolMetadata::new("http_get", "Make an HTTP GET request to an API")
-            .with_parameter(
-                ToolParameter::new("url", ToolParameterType::String)
-                    .with_description("The URL to fetch (must be from allowed domains)")
-                    .required()
-            )
-            .with_parameter(
-                ToolParameter::new("headers", ToolParameterType::Object)
-                    .with_description("Optional custom headers as JSON object")
-            ),
-        Arc::new(move |params| {
-            let client = client.clone();
-            Box::pin(async move {
-                let url = params["url"].as_str().ok_or("url parameter required")?;
-
-                match client.get(url).await {
-                    Ok(response) => {
-                        if response.is_success() {
-                            // Try to parse as JSON
-                            match response.json() {
-                                Ok(json_data) => {
-                                    Ok(ToolResult::success(json!({
-                                        "status": response.status,
-                                        "data": json_data
-                                    })))
-                                }
-                                Err(_) => {
-                                    Ok(ToolResult::success(json!({
-                                        "status": response.status,
-                                        "body": response.body
-                                    })))
-                                }
-                            }
-                        } else {
-                            Ok(ToolResult::error(
-                                format!("HTTP {}: {}", response.status, response.body)
-                            ))
-                        }
-                    }
-                    Err(e) => Ok(ToolResult::error(e.to_string()))
-                }
-            })
-        })
-    ).await;
-
-    // Register HTTP POST tool
-    let client = http_client.clone();
-    protocol.register_async_tool(
-        ToolMetadata::new("http_post", "Post JSON data to an API")
-            .with_parameter(
-                ToolParameter::new("url", ToolParameterType::String)
-                    .with_description("The URL to POST to (must be from allowed domains)")
-                    .required()
-            )
-            .with_parameter(
-                ToolParameter::new("data", ToolParameterType::Object)
-                    .with_description("JSON data to send")
-                    .required()
-            ),
-        Arc::new(move |params| {
-            let client = client.clone();
-            Box::pin(async move {
-                let url = params["url"].as_str().ok_or("url parameter required")?;
-                let data = params["data"].clone();
-
-                match client.post(url, data).await {
-                    Ok(response) => {
-                        if response.is_success() {
-                            Ok(ToolResult::success(json!({
-                                "status": response.status,
-                                "message": "Data posted successfully"
-                            })))
-                        } else {
-                            Ok(ToolResult::error(
-                                format!("HTTP {}: {}", response.status, response.body)
-                            ))
-                        }
-                    }
-                    Err(e) => Ok(ToolResult::error(e.to_string()))
-                }
-            })
-        })
-    ).await;
-
-    // Create tool registry
-    let registry = Arc::new(ToolRegistry::new(Arc::new(protocol)));
-
-    // Create HTTP server endpoints
-    let registry_list = registry.clone();
-    let registry_exec = registry.clone();
-
-    let app = Router::new()
-        // MCP standard: list available tools
-        .route("/tools/list", post(move || {
-            let reg = registry_list.clone();
-            async move {
-                let tools = reg.list_tools().await.unwrap_or_default();
-                Json(json!({
-                    "tools": tools
-                }))
-            }
-        }))
-        // MCP standard: execute a tool
-        .route("/tools/execute", post(move |Json(payload): Json<serde_json::Value>| {
-            let reg = registry_exec.clone();
-            async move {
-                let tool_name = payload["tool"].as_str().unwrap_or("");
-                let params = payload["params"].clone();
-
-                match reg.execute_tool(tool_name, params).await {
-                    Ok(result) => Json(json!({"result": result})),
-                    Err(e) => Json(json!({"error": e.to_string()}))
-                }
-            }
-        }));
-
-    // Start server
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-    println!("🚀 MCP HTTP Server running on http://{}", addr);
-    println!("📋 List tools: POST http://{}/tools/list", addr);
-    println!("🔧 Execute tool: POST http://{}/tools/execute", addr);
-    println!("✓ Allowed domains: api.github.com, api.example.com, jsonplaceholder.typicode.com");
-
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await?;
-
-    Ok(())
-}
-```
-
-**Add to Cargo.toml:**
-```toml
-axum = "0.7"
-```
-
-**Usage:**
-
-Once running, other services/agents can call this MCP server:
-
-```bash
-# List available tools
-curl -X POST http://localhost:8080/tools/list
-
-# Use http_get tool
-curl -X POST http://localhost:8080/tools/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tool": "http_get",
-    "params": {
-      "url": "https://api.github.com/repos/CloudLLM-ai/cloudllm"
-    }
-  }'
-```
-
-This MCP server can now be referenced by agents using `McpClientProtocol::new("http://localhost:8080")`, allowing them to access HTTP capabilities securely and with domain restrictions.
-```
-
-**Step 2: Create an Agent that Uses HTTP Client Tools**
-
-```rust,no_run
-use std::sync::Arc;
-use cloudllm::orchestration::Agent;
-use cloudllm::clients::openai::{OpenAIClient, Model};
-use cloudllm::tool_protocol::ToolRegistry;
-use cloudllm::tool_protocols::CustomToolProtocol;
-use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
-use cloudllm::tools::HttpClient;
-use serde_json::json;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create HTTP client with security settings
-    let mut http_client = HttpClient::new();
-
-    // Configure security: only allow trusted domains
-    http_client.allow_domain("api.github.com");
-    http_client.allow_domain("api.example.com");
-
-    // Configure authentication
-    http_client.with_header("User-Agent", "CloudLLM-Agent/1.0");
-
-    let http_client = Arc::new(http_client);
-
-    // Wrap with CustomToolProtocol to expose to agents
-    let mut protocol = CustomToolProtocol::new();
-
-    // Register HTTP GET tool using the actual HttpClient
-    let client = http_client.clone();
-    protocol.register_async_tool(
-        ToolMetadata::new("get_json_api", "Fetch JSON data from an API endpoint")
-            .with_parameter(
-                ToolParameter::new("url", ToolParameterType::String)
-                    .with_description("The URL to fetch (must be from allowed domains)")
-                    .required()
-            )
-            .with_parameter(
-                ToolParameter::new("headers", ToolParameterType::Object)
-                    .with_description("Optional custom headers")
-            ),
-        Arc::new(move |params| {
-            let client = client.clone();
-            Box::pin(async move {
-                let url = params["url"]
-                    .as_str()
-                    .ok_or("url parameter is required")?;
-
-                // Use the actual HttpClient to make the request
-                match client.get(url).await {
-                    Ok(response) => {
-                        if response.is_success() {
-                            // Try to parse as JSON
-                            match response.json() {
-                                Ok(json_data) => {
-                                    Ok(ToolResult::success(json!({
-                                        "status": response.status,
-                                        "data": json_data
-                                    })))
-                                }
-                                Err(_) => {
-                                    // Not JSON, return raw body
-                                    Ok(ToolResult::success(json!({
-                                        "status": response.status,
-                                        "body": response.body
-                                    })))
-                                }
-                            }
-                        } else {
-                            Ok(ToolResult::error(format!(
-                                "HTTP {} error: {}",
-                                response.status, response.body
-                            )))
-                        }
-                    }
-                    Err(e) => Ok(ToolResult::error(format!(
-                        "Request failed: {}",
-                        e
-                    )))
-                }
-            })
-        })
-    ).await;
-
-    // Register HTTP POST tool for sending data
-    let client = http_client.clone();
-    protocol.register_async_tool(
-        ToolMetadata::new("post_json_api", "Post JSON data to an API endpoint")
-            .with_parameter(
-                ToolParameter::new("url", ToolParameterType::String)
-                    .with_description("The URL to POST to (must be from allowed domains)")
-                    .required()
-            )
-            .with_parameter(
-                ToolParameter::new("data", ToolParameterType::Object)
-                    .with_description("JSON data to send")
-                    .required()
-            ),
-        Arc::new(move |params| {
-            let client = client.clone();
-            Box::pin(async move {
-                let url = params["url"]
-                    .as_str()
-                    .ok_or("url parameter is required")?;
-
-                let data = params["data"].clone();
-
-                // Use the actual HttpClient to POST
-                match client.post(url, data).await {
-                    Ok(response) => {
-                        if response.is_success() {
-                            Ok(ToolResult::success(json!({
-                                "status": response.status,
-                                "message": "Data posted successfully"
-                            })))
-                        } else {
-                            Ok(ToolResult::error(format!(
-                                "HTTP {} error: {}",
-                                response.status, response.body
-                            )))
-                        }
-                    }
-                    Err(e) => Ok(ToolResult::error(format!(
-                        "Request failed: {}",
-                        e
-                    )))
-                }
-            })
-        })
-    ).await;
-
-    // Create tool registry
-    let registry = Arc::new(ToolRegistry::new(Arc::new(protocol)));
-
-    // Create agent with HTTP access
-    let mut agent = Agent::new(
-        "api-agent",
-        "API Integration Agent",
-        Arc::new(OpenAIClient::new_with_model_enum(
-            &std::env::var("OPEN_AI_SECRET")?,
-            Model::GPT41Mini
-        )),
-    )
-    .with_expertise("Makes HTTP requests to external APIs")
-    .with_tools(registry);
-
-    // Agent can now make authenticated, secure API calls!
-    println!("✓ Agent configured with HTTP tools");
-    println!("✓ Allowed domains: api.github.com, api.example.com");
-    println!("✓ Agent can now GET and POST to these APIs");
-    Ok(())
-}
-```
-
-**Step 3: Configure Agent System Prompt for HTTP Usage**
-
-Teach the agent about available HTTP tools via the system prompt:
-
-```
-You have access to HTTP tools for making API calls:
-
-1. get_json_api(url: string, headers?: object)
-   - Fetches JSON data from an API endpoint
-   - Returns: {status: number, body: string}
-   - Security: Only allowed domains are accessible
-   - Use this to fetch real-time data from external services
-
-2. post_json_api(url: string, data: object, headers?: object)
-   - Posts JSON data to an API endpoint
-   - Use this to submit data to external services
-
-Always check the response status before processing the body.
-When calling APIs, include appropriate headers like Content-Type.
-Never share authentication tokens in logs.
-```
-
-**Step 4: Multi-MCP Setup (Advanced)**
-
-Combine HTTP Client with other tools via multiple MCP servers:
-
-```rust,no_run
-use std::sync::Arc;
-use cloudllm::orchestration::Agent;
-use cloudllm::clients::openai::{OpenAIClient, Model};
-use cloudllm::tool_protocol::ToolRegistry;
-use cloudllm::tool_protocols::CustomToolProtocol;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create empty registry for multiple protocols
-    let mut registry = ToolRegistry::empty();
-
-    // Add HTTP tools locally
-    let http_protocol = Arc::new(CustomToolProtocol::new());
-    registry.add_protocol("http", http_protocol).await?;
-
-    // Add memory tools locally
-    let memory_protocol = Arc::new(CustomToolProtocol::new());
-    registry.add_protocol("memory", memory_protocol).await?;
-
-    // Connect to remote MCP servers
-    use cloudllm::tool_protocols::McpClientProtocol;
-
-    let github_mcp = Arc::new(McpClientProtocol::new(
-        "http://localhost:8081".to_string()
-    ));
-    registry.add_protocol("github", github_mcp).await?;
-
-    // Create agent with access to all tools
-    let mut agent = Agent::new(
-        "orchestrator",
-        "Multi-Tool Orchestrator",
-        Arc::new(OpenAIClient::new_with_model_enum(
-            &std::env::var("OPEN_AI_SECRET")?,
-            Model::GPT41Mini
-        )),
-    )
-    .with_tools(Arc::new(registry));
-
-    println!("Agent can now:");
-    println!("  - Make HTTP API calls (http_*)");
-    println!("  - Store/retrieve data in memory (memory_*)");
-    println!("  - Interact with GitHub (github_*)");
-
-    Ok(())
-}
-```
-
 **Security Best Practices:**
+- **Domain Allowlist**: `client.allow_domain("api.trusted-service.com")`
+- **Deny Malicious Domains**: `client.deny_domain("malicious.attacker.com")`
+- **Timeout Protection**: `client.with_timeout(Duration::from_secs(30))`
+- **Size Limits**: `client.with_max_response_size(10 * 1024 * 1024)` (10MB)
+- **Authentication**: `client.with_basic_auth("user", "pass")` or `client.with_header("Authorization", "Bearer token")`
 
-1. **Domain Allowlist**: Configure HTTP clients with domain allowlists to prevent unauthorized requests
-   ```rust
-   let mut client = HttpClient::new();
-   client.allow_domain("api.trusted-service.com");
-   client.allow_domain("public-api.example.com");
-   ```
-
-2. **Deny Malicious Domains**: Use blocklists as a second layer
-   ```rust
-   client.deny_domain("malicious.attacker.com");
-   ```
-
-3. **Timeout Protection**: Set reasonable timeouts to prevent hanging requests
-   ```rust
-   use std::time::Duration;
-   client.with_timeout(Duration::from_secs(30));
-   ```
-
-4. **Size Limits**: Limit response sizes to prevent memory exhaustion
-   ```rust
-   client.with_max_response_size(10 * 1024 * 1024); // 10MB
-   ```
-
-5. **Authentication**: Use appropriate auth methods when needed
-   ```rust
-   client.with_basic_auth("username", "password");
-   // or
-   client.with_header("Authorization", "Bearer your-token");
-   ```
+For comprehensive documentation, see [`HttpClient` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.HttpClient.html) and `examples/http_client_example.rs`.
 
 #### Bash Tool
 
@@ -1274,13 +936,62 @@ let metadata = fs.get_file_metadata("notes.txt").await?;
 println!("Size: {} bytes, Modified: {}", metadata.size, metadata.modified);
 ```
 
-**Security:**
-- All paths are normalized to prevent traversal attacks
-- Root path restriction ensures operations stay within designated directory
-- Extension filtering can prevent execution of dangerous file types
-- Works safely with untrusted input
+For comprehensive documentation, see the [`FileSystemTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.FileSystemTool.html) and `examples/filesystem_example.rs`.
 
-For comprehensive documentation and examples, see the [`FileSystemTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.FileSystemTool.html) and `examples/filesystem_example.rs`.
+### Creating Custom Protocol Adapters
+
+Implement the [`ToolProtocol`](https://docs.rs/cloudllm/latest/cloudllm/tool_protocol/trait.ToolProtocol.html) trait to support new protocols:
+
+```rust,no_run
+use async_trait::async_trait;
+use cloudllm::tool_protocol::{ToolMetadata, ToolProtocol, ToolResult};
+use std::error::Error;
+
+/// Example: Custom protocol adapter for a hypothetical service
+pub struct MyCustomAdapter {
+    // Your implementation
+}
+
+#[async_trait]
+impl ToolProtocol for MyCustomAdapter {
+    async fn execute(
+        &self,
+        tool_name: &str,
+        parameters: serde_json::Value,
+    ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+        // Implement tool execution logic
+        Ok(ToolResult::success(serde_json::json!({})))
+    }
+
+    async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
+        // Return available tools
+        Ok(vec![])
+    }
+
+    async fn get_tool_metadata(
+        &self,
+        tool_name: &str,
+    ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+        // Return specific tool metadata
+        Ok(ToolMetadata::new(tool_name, "Tool description"))
+    }
+
+    fn protocol_name(&self) -> &str {
+        "my-custom-protocol"
+    }
+}
+```
+
+### Best Practices for Tools
+
+1. **Clear Names & Descriptions**: Make tool purposes obvious to LLMs
+2. **Comprehensive Parameters**: Document all required and optional parameters
+3. **Error Handling**: Return meaningful error messages in ToolResult
+4. **Atomicity**: Each tool should do one thing well
+5. **Documentation**: Include examples in tool descriptions
+6. **Testing**: Test tool execution in isolation before integration
+
+For more examples, see the `examples/` directory and run `cargo doc --open` for complete API documentation.
 
 ---
 
@@ -1330,71 +1041,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_expertise("Creating visual content")
     .with_personality("Creative and detailed");
 
-    println!("✓ Agent created with image generation capability");
-    println!("✓ Agent can now generate images from text prompts");
+    println!("Agent created with image generation capability");
     Ok(())
 }
 ```
 
-### Image Generation Features
+### Supported Providers
 
-**Supported Providers:**
-- **OpenAI (DALL-E 3)**: High-quality realistic images, `gpt-image-1.5` model
-- **Grok (Grok Imagine)**: Fast image generation, `grok-2-image-1212` model
-- **Google Gemini**: Flexible aspect ratios, `gemini-2.5-flash-image` model
-
-**Tool Parameters:**
-- `prompt` (string, required): Detailed image description
-- `aspect_ratio` (string, optional): Aspect ratio like "16:9", "4:3", "1:1", etc.
-
-**Response Formats:**
-- URL: Direct link to generated image
-- Base64: Embedded image data for immediate processing
-
-### Advanced Usage: Custom Image Options
-
-```rust,no_run
-use cloudllm::cloudllm::image_generation::{
-    ImageGenerationClient, ImageGenerationOptions
-};
-use std::sync::Arc;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client: Arc<dyn ImageGenerationClient> = /* ... */;
-
-    // Generate landscape image
-    let response = client.generate_image(
-        "A serene Japanese garden at sunset",
-        ImageGenerationOptions {
-            aspect_ratio: Some("16:9".to_string()),  // Landscape
-            num_images: Some(1),
-            response_format: Some("url".to_string()),
-        },
-    ).await?;
-
-    // Process generated images
-    for image in response.images {
-        if let Some(url) = image.url {
-            println!("Image URL: {}", url);
-        } else if let Some(b64) = image.b64_json {
-            println!("Base64 image: {} bytes", b64.len());
-        }
-    }
-
-    Ok(())
-}
-```
-
-### Provider-Specific Aspect Ratios
-
-**Supported aspect ratios vary by provider:**
-
-| Provider | Supported Ratios |
-|----------|------------------|
-| OpenAI   | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3 |
-| Grok     | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3, and more |
-| Gemini   | 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 |
+| Provider | Model | Supported Ratios |
+|----------|-------|------------------|
+| OpenAI (DALL-E 3) | `gpt-image-1.5` | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3 |
+| Grok Imagine | `grok-2-image-1212` | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3, and more |
+| Google Gemini | `gemini-2.5-flash-image` | 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 |
 
 ### Using Different Providers
 
@@ -1447,192 +1105,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 **Supported provider strings (case-insensitive):**
-- `"openai"` → OpenAI (DALL-E 3)
-- `"grok"` → Grok Imagine
-- `"gemini"` → Google Gemini
-
-Alternatively, use the convenience function for string-based provider selection:
-
-```rust,no_run
-use cloudllm::cloudllm::new_image_generation_client_from_str;
-
-// Pass provider name as string directly
-let client = new_image_generation_client_from_str(
-    "grok",  // String provider name
-    &std::env::var("XAI_KEY")?,
-)?;
-```
-
-### Helper Function Benefits
-
-The `register_image_generation_tool()` helper eliminates boilerplate:
-
-**Before (60+ lines of closure code):**
-```
-Manual tool registration with ~80 lines of:
-- Parameter handling and marshalling
-- Error handling and formatting
-- Response parsing and validation
-```
-
-**After (1 line):**
-```rust
-register_image_generation_tool(&protocol, image_client).await?;
-```
-
-### Image Generation with Base64 Handling
-
-When working with base64-encoded images, use the provided utilities:
-
-```rust,no_run
-use cloudllm::cloudllm::image_generation::{
-    decode_base64, get_image_extension_from_base64
-};
-
-// Detect image format from base64 magic bytes
-let extension = get_image_extension_from_base64(&b64_data);
-// Returns: "png", "jpg", or "webp"
-
-// Decode base64 to bytes for file saving
-let bytes = decode_base64(&b64_data)?;
-std::fs::write(format!("image.{}", extension), bytes)?;
-```
+- `"openai"` -> OpenAI (DALL-E 3)
+- `"grok"` -> Grok Imagine
+- `"gemini"` -> Google Gemini
 
 For comprehensive documentation, see the [`image_generation` module docs](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/image_generation/index.html).
-
----
-
-### Creating Custom Protocol Adapters
-
-Implement the [`ToolProtocol`](https://docs.rs/cloudllm/latest/cloudllm/tool_protocol/trait.ToolProtocol.html) trait to support new protocols:
-
-```rust,no_run
-use async_trait::async_trait;
-use cloudllm::tool_protocol::{ToolMetadata, ToolProtocol, ToolResult};
-use std::error::Error;
-
-/// Example: Custom protocol adapter for a hypothetical service
-pub struct MyCustomAdapter {
-    // Your implementation
-}
-
-#[async_trait]
-impl ToolProtocol for MyCustomAdapter {
-    async fn execute(
-        &self,
-        tool_name: &str,
-        parameters: serde_json::Value,
-    ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
-        // Implement tool execution logic
-        Ok(ToolResult::success(serde_json::json!({})))
-    }
-
-    async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
-        // Return available tools
-        Ok(vec![])
-    }
-
-    async fn get_tool_metadata(
-        &self,
-        tool_name: &str,
-    ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
-        // Return specific tool metadata
-        Ok(ToolMetadata::new(tool_name, "Tool description"))
-    }
-
-    fn protocol_name(&self) -> &str {
-        "my-custom-protocol"
-    }
-}
-```
-
-### Using Tools in Agent System Prompts
-
-Teach agents about available tools via the system prompt:
-
-```
-You have access to the following tools:
-
-1. Calculator (add, subtract, multiply)
-   - Use for mathematical operations
-   - Respond with: {"tool_call": {"name": "add", "parameters": {"a": 5, "b": 3}}}
-
-2. Memory System
-   - Store important information
-   - Use command: P key value ttl
-   - Retrieve with: G key META
-
-Always use tools when they can help answer the user's question. After using a tool,
-incorporate the result into your response.
-```
-
-### Best Practices for Tools
-
-1. **Clear Names & Descriptions**: Make tool purposes obvious to LLMs
-2. **Comprehensive Parameters**: Document all required and optional parameters
-3. **Error Handling**: Return meaningful error messages in ToolResult
-4. **Atomicity**: Each tool should do one thing well
-5. **Documentation**: Include examples in tool descriptions
-6. **Testing**: Test tool execution in isolation before integration
-
-For more examples, see the `examples/` directory and run `cargo doc --open` for complete API documentation.
-
----
-
-## Orchestrations: multi-agent orchestration
-
-The `orchestration` module orchestrates conversations between agents built on any `ClientWrapper`.
-Choose from parallel, round-robin, moderated, hierarchical, or debate modes.
-
-```rust,no_run
-use std::sync::Arc;
-
-use cloudllm::orchestration::{Agent, Orchestration, OrchestrationMode};
-use cloudllm::clients::openai::{Model, OpenAIClient};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let key = std::env::var("OPEN_AI_SECRET")?;
-
-    let architect = Agent::new(
-        "architect",
-        "System Architect",
-        Arc::new(OpenAIClient::new_with_model_enum(&key, Model::GPT4o)),
-    )
-    .with_expertise("Distributed systems")
-    .with_personality("Pragmatic, direct");
-
-    let tester = Agent::new(
-        "qa",
-        "QA Lead",
-        Arc::new(OpenAIClient::new_with_model_enum(&key, Model::GPT41Mini)),
-    )
-    .with_expertise("Test automation")
-    .with_personality("Sceptical, detail-oriented");
-
-    let mut orchestration = Orchestration::new("design-review", "Deployment Review")
-        .with_mode(OrchestrationMode::RoundRobin)
-        .with_system_context("Collaboratively review the proposed architecture.");
-
-    orchestration.add_agent(architect)?;
-    orchestration.add_agent(tester)?;
-
-    let outcome = orchestration
-        .discuss("Evaluate whether the blue/green rollout plan is sufficient.", 2)
-        .await?;
-
-    for msg in outcome.messages {
-        if let Some(name) = msg.agent_name {
-            println!("{name}: {}", msg.content);
-        }
-    }
-
-    Ok(())
-}
-```
-
-For a deep dive, read [`ORCHESTRATION_TUTORIAL.md`](./ORCHESTRATION_TUTORIAL.md) which walks through each
-collaboration mode with progressively sophisticated examples.
 
 ---
 
@@ -1649,6 +1126,7 @@ export XAI_KEY=...
 cargo run --example interactive_session
 cargo run --example streaming_session
 cargo run --example orchestration_demo
+cargo run --example breakout_game_ralph
 ```
 
 Each example corresponds to a module in the documentation so you can cross-reference the code with
@@ -1665,4 +1143,4 @@ CloudLLM is released under the [MIT License](./LICENSE).
 
 ---
 
-Happy orchestration! 🤖🤝🤖
+Happy orchestration!
