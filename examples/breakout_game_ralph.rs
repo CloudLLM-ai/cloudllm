@@ -32,13 +32,13 @@
 //! ## Running
 //!
 //! ```bash
-//! export XAI_API_KEY=your_key       # or OPENAI_API_KEY, etc.
+//! export ANTHROPIC_KEY=your_key
 //! cargo run --example breakout_game_ralph
 //! ```
 //!
 //! The example writes the assembled game to `breakout_game.html` in the current directory.
 
-use cloudllm::clients::openai::OpenAIClient;
+use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
     Agent,
@@ -51,29 +51,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    // Try XAI_API_KEY first, then OPENAI_API_KEY
-    let (api_key, base_url, model) = if let Ok(key) = std::env::var("XAI_API_KEY") {
-        (key, "https://api.x.ai/v1", "grok-3-mini-fast")
-    } else if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-        (key, "https://api.openai.com/v1", "gpt-4o-mini")
-    } else {
-        eprintln!("Error: Set XAI_API_KEY or OPENAI_API_KEY environment variable.");
-        std::process::exit(1);
+    let api_key = match std::env::var("ANTHROPIC_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            eprintln!("Error: Set ANTHROPIC_KEY environment variable.");
+            std::process::exit(1);
+        }
     };
 
     println!("\n{}", "=".repeat(80));
     println!("  RALPH Orchestration Mode — Atari Breakout Game Builder");
-    println!("  Using model: {} at {}", model, base_url);
+    println!("  Using model: Claude Haiku 4.5");
     println!("{}\n", "=".repeat(80));
 
     // ── Agents ──────────────────────────────────────────────────────────────
 
     let make_client = || {
-        Arc::new(OpenAIClient::new_with_base_url(
-            &api_key,
-            model,
-            base_url,
-        ))
+        Arc::new(ClaudeClient::new_with_model_enum(&api_key, Model::ClaudeHaiku45))
     };
 
     let architect = Agent::new("game-architect", "Game Architect", make_client())
