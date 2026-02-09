@@ -1,4 +1,17 @@
 0.8.0 JAN/17/2026
+ - feat: RALPH Orchestration Mode (6th collaboration mode)
+   - Autonomous iterative loop where agents work through a PRD task list
+   - Agents iterate until all tasks are marked complete or max_iterations reached
+   - PRD-driven: structured RalphTask items with id, title, description
+   - Completion detection via [TASK_COMPLETE:task_id] markers in agent responses
+   - Progress tracking with task completion percentage as convergence_score
+   - New RalphTask struct for defining PRD items
+ - new: breakout_game_ralph.rs example
+   - Demonstrates RALPH mode building a complete Atari Breakout game
+   - 4 specialized agents collaborate through 10 PRD tasks
+   - Produces a single index.html with CSS, Canvas, Web Audio API
+   - Features: multi-hit bricks, powerups (paddle size, speed, projectiles, multiball)
+   - Atari 2600-style chiptune background music and collision sound effects
  - refactor: Rename "Council" to "Orchestration" across the entire codebase
    - Renamed council.rs → orchestration.rs
    - Renamed COUNCIL_TUTORIAL.md → ORCHESTRATION_TUTORIAL.md
