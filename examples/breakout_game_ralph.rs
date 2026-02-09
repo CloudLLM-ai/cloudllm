@@ -185,7 +185,7 @@ response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks
                 max_iterations: 5,
             })
             .with_system_context(system_context)
-            .with_max_tokens(32768);
+            .with_max_tokens(180_000);
 
     orchestration.add_agent(architect)?;
     orchestration.add_agent(programmer)?;

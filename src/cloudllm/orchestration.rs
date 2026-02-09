@@ -1384,11 +1384,24 @@ impl Orchestration {
             for agent_id in self.agent_order.clone() {
                 let agent = self.agents.get(&agent_id).unwrap();
 
+                // Trim conversation history to fit within max_tokens budget.
+                // Reserve tokens for the system prompt, the iteration prompt,
+                // and a generous output buffer.
+                let system_tokens =
+                    crate::cloudllm::llm_session::estimate_token_count(&self.system_context);
+                let prompt_tokens =
+                    crate::cloudllm::llm_session::estimate_token_count(&iteration_prompt);
+                let output_reserve = self.max_tokens / 4; // reserve ~25% for model output
+                let overhead = system_tokens + prompt_tokens + output_reserve;
+                let history_budget = self.max_tokens.saturating_sub(overhead);
+
+                let trimmed_history = Self::trim_history(&self.conversation_history, history_budget);
+
                 let result = agent
                     .generate_with_tokens(
                         &self.system_context,
                         &iteration_prompt,
-                        &self.conversation_history,
+                        &trimmed_history,
                     )
                     .await;
 
@@ -1480,6 +1493,27 @@ impl Orchestration {
             }
         }
         results
+    }
+
+    /// Trim conversation history from the front so that estimated tokens fit within `budget`.
+    ///
+    /// Keeps the most recent messages (they contain the latest accumulated work)
+    /// and drops the oldest ones first.
+    fn trim_history(history: &[OrchestrationMessage], budget: usize) -> Vec<OrchestrationMessage> {
+        let mut total: usize = 0;
+        let mut keep_from = history.len();
+
+        // Walk backwards, accumulating token estimates until we exceed the budget
+        for (i, msg) in history.iter().enumerate().rev() {
+            let msg_tokens = crate::cloudllm::llm_session::estimate_token_count(&msg.content);
+            if total + msg_tokens > budget {
+                break;
+            }
+            total += msg_tokens;
+            keep_from = i;
+        }
+
+        history[keep_from..].to_vec()
     }
 
     /// Calculate convergence score between the current and previous round of messages.
