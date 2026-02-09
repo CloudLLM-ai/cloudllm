@@ -227,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     orchestration.add_agent(tester)?;
 
     let outcome = orchestration
-        .discuss("Evaluate whether the blue/green rollout plan is sufficient.", 2)
+        .run("Evaluate whether the blue/green rollout plan is sufficient.", 2)
         .await?;
 
     for msg in outcome.messages {
@@ -290,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     orch.add_agent(frontend)?;
     orch.add_agent(backend)?;
 
-    let result = orch.discuss("Build a Pong game in a single index.html", 1).await?;
+    let result = orch.run("Build a Pong game in a single index.html", 1).await?;
 
     println!("Iterations: {}",  result.round);
     println!("Complete: {}",    result.is_complete);

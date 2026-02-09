@@ -207,9 +207,9 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     io::stdout().flush().unwrap();
 
     let response = orchestration
-        .discuss(question, 3)
+        .run(question, 3)
         .await
-        .map_err(|e| format!("Orchestration discussion failed: {}", e))?;
+        .map_err(|e| format!("Orchestration run failed: {}", e))?;
 
     println!("✅ Complete!\n");
 

@@ -75,7 +75,7 @@ async fn test_orchestration_parallel_mode() {
     orchestration.add_agent(agent1).unwrap();
     orchestration.add_agent(agent2).unwrap();
 
-    let response = orchestration.discuss("Test question", 1).await.unwrap();
+    let response = orchestration.run("Test question", 1).await.unwrap();
 
     assert_eq!(response.messages.len(), 2);
     assert!(response.is_complete);
@@ -107,7 +107,7 @@ async fn test_orchestration_round_robin_mode() {
     orchestration.add_agent(agent1).unwrap();
     orchestration.add_agent(agent2).unwrap();
 
-    let response = orchestration.discuss("Test question", 2).await.unwrap();
+    let response = orchestration.run("Test question", 2).await.unwrap();
 
     assert_eq!(response.messages.len(), 4); // 2 agents * 2 rounds
     assert!(response.is_complete);
@@ -302,7 +302,7 @@ async fn test_debate_mode_convergence() {
     orchestration.add_agent(agent2).unwrap();
 
     let response = orchestration
-        .discuss("What approach should we use?", 5)
+        .run("What approach should we use?", 5)
         .await
         .unwrap();
 
@@ -379,7 +379,7 @@ async fn test_ralph_mode_completion() {
     orchestration.add_agent(agent).unwrap();
 
     let response = orchestration
-        .discuss("Build a breakout game", 1)
+        .run("Build a breakout game", 1)
         .await
         .unwrap();
 
@@ -417,7 +417,7 @@ async fn test_ralph_mode_max_iterations() {
     orchestration.add_agent(agent).unwrap();
 
     let response = orchestration
-        .discuss("Do the tasks", 1)
+        .run("Do the tasks", 1)
         .await
         .unwrap();
 
@@ -447,7 +447,7 @@ async fn test_ralph_mode_empty_tasks() {
     orchestration.add_agent(agent).unwrap();
 
     let response = orchestration
-        .discuss("Do nothing", 1)
+        .run("Do nothing", 1)
         .await
         .unwrap();
 

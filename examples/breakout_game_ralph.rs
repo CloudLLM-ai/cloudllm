@@ -206,7 +206,7 @@ and a multiball powerup. Everything must work in a modern browser with no extern
     println!("Starting RALPH orchestration with 4 agents and 10 PRD tasks...\n");
 
     let start = Instant::now();
-    let response = orchestration.discuss(prompt, 1).await?;
+    let response = orchestration.run(prompt, 1).await?;
     let elapsed = start.elapsed();
 
     // ── Results ─────────────────────────────────────────────────────────────

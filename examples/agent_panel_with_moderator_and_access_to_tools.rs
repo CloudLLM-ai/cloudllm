@@ -199,7 +199,7 @@ ALL WORKERS: Use Memory tool to store findings with:
 Execute your task independently. Do NOT wait for others.
 "#;
 
-        let response = orchestration.discuss(prompt, 1).await?;
+        let response = orchestration.run(prompt, 1).await?;
 
         println!("✓ Round 1 complete. All workers completed in parallel:");
         for msg in &response.messages {
@@ -293,7 +293,7 @@ ALL: Use ISO-8601 timestamps, include sources and confidence scores.
 Execute in parallel. Store results using Memory tool with .v2 suffix.
 "#;
 
-        let response = orchestration.discuss(prompt, 1).await?;
+        let response = orchestration.run(prompt, 1).await?;
 
         println!("✓ Round 2 complete. All workers revised estimates in parallel:");
         for msg in &response.messages {

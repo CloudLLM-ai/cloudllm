@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     // Run debate for 5 rounds
     let response = orchestration
-        .discuss(opening_question, 5)
+        .run(opening_question, 5)
         .await
         .map_err(|e| format!("Debate failed: {}", e))?;
 

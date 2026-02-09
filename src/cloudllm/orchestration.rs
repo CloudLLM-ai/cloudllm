@@ -55,7 +55,7 @@
 //!
 //! orchestration.add_agent(agent).unwrap();
 //!
-//! let response = orchestration.discuss("How should we architect this system?", 1).await.unwrap();
+//! let response = orchestration.run("How should we architect this system?", 1).await.unwrap();
 //! # };
 //! ```
 
@@ -138,7 +138,7 @@ impl RalphTask {
     }
 }
 
-/// Collaboration modes that control how agents interact during [`Orchestration::discuss`].
+/// Collaboration modes that control how agents interact during [`Orchestration::run`].
 ///
 /// Each variant produces different communication patterns and termination semantics.
 /// Choose the mode that best fits your use-case:
@@ -180,7 +180,7 @@ pub enum OrchestrationMode {
     /// All agents respond in parallel to each prompt.
     ///
     /// Every registered agent receives the same prompt simultaneously via `tokio::spawn`.
-    /// The `rounds` parameter passed to [`Orchestration::discuss`] controls how many
+    /// The `rounds` parameter passed to [`Orchestration::run`] controls how many
     /// parallel sweeps are executed.
     Parallel,
 
@@ -380,7 +380,7 @@ impl OrchestrationMessage {
     }
 }
 
-/// The result of an [`Orchestration::discuss`] call.
+/// The result of an [`Orchestration::run`] call.
 ///
 /// Contains every message produced during the discussion together with summary
 /// metrics that let callers assess whether the orchestration reached its goal.
@@ -397,7 +397,7 @@ impl OrchestrationMessage {
 /// # let agent = Agent::new("a", "A", client);
 /// # let mut orch = Orchestration::new("id", "name").with_mode(OrchestrationMode::Parallel);
 /// # orch.add_agent(agent).unwrap();
-/// let response = orch.discuss("Hello", 1).await.unwrap();
+/// let response = orch.run("Hello", 1).await.unwrap();
 ///
 /// println!("Rounds: {}", response.round);
 /// println!("Complete: {}", response.is_complete);
@@ -448,7 +448,7 @@ pub struct OrchestrationResponse {
 /// Errors that can occur during orchestration configuration or execution.
 ///
 /// These are returned from [`Orchestration::add_agent`] and
-/// [`Orchestration::discuss`] (boxed as `Box<dyn Error + Send + Sync>`).
+/// [`Orchestration::run`] (boxed as `Box<dyn Error + Send + Sync>`).
 ///
 /// # Examples
 ///
@@ -472,7 +472,7 @@ pub enum OrchestrationError {
     /// `tokio::spawn` join error or a duplicate agent ID on insertion).
     ExecutionFailed(String),
 
-    /// [`Orchestration::discuss`] was called before any agents were added.
+    /// [`Orchestration::run`] was called before any agents were added.
     NoAgents,
 }
 
@@ -493,7 +493,7 @@ impl Error for OrchestrationError {}
 /// [`OrchestrationMode`].
 ///
 /// An `Orchestration` owns a set of agents, a collaboration mode, and a running
-/// conversation history. Call [`Orchestration::discuss`] to execute a multi-agent
+/// conversation history. Call [`Orchestration::run`] to execute a multi-agent
 /// conversation and receive an [`OrchestrationResponse`].
 ///
 /// # Examples
@@ -514,7 +514,7 @@ impl Error for OrchestrationError {}
 /// orch.add_agent(Agent::new("alice", "Alice", client())).unwrap();
 /// orch.add_agent(Agent::new("bob", "Bob", client())).unwrap();
 ///
-/// let result = orch.discuss("Design a REST API", 2).await.unwrap();
+/// let result = orch.run("Design a REST API", 2).await.unwrap();
 /// println!("{} messages over {} rounds", result.messages.len(), result.round);
 /// # };
 /// ```
@@ -578,7 +578,7 @@ impl Orchestration {
         }
     }
 
-    /// Select the collaboration mode used during [`Orchestration::discuss`] (builder pattern).
+    /// Select the collaboration mode used during [`Orchestration::run`] (builder pattern).
     ///
     /// # Examples
     ///
@@ -599,7 +599,7 @@ impl Orchestration {
     /// Override the default system context prompt shared across agents (builder pattern).
     ///
     /// This string is passed as the system prompt in every LLM call made during
-    /// [`Orchestration::discuss`].
+    /// [`Orchestration::run`].
     ///
     /// # Examples
     ///
@@ -764,12 +764,12 @@ impl Orchestration {
     /// # let c = Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o"));
     /// # let mut orch = Orchestration::new("id", "name");
     /// # orch.add_agent(Agent::new("a", "A", c)).unwrap();
-    /// let response = orch.discuss("Summarise this paper", 2).await?;
+    /// let response = orch.run("Summarise this paper", 2).await?;
     /// assert!(response.is_complete);
     /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     /// # };
     /// ```
-    pub async fn discuss(
+    pub async fn run(
         &mut self,
         prompt: &str,
         rounds: usize,
@@ -1653,7 +1653,7 @@ impl Orchestration {
     /// # let c = Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o"));
     /// # let mut orch = Orchestration::new("id", "name");
     /// # orch.add_agent(Agent::new("a", "A", c)).unwrap();
-    /// let _ = orch.discuss("Hello", 1).await?;
+    /// let _ = orch.run("Hello", 1).await?;
     ///
     /// let history = orch.get_conversation_history();
     /// println!("{} messages in history", history.len());
@@ -1679,11 +1679,11 @@ impl Orchestration {
     /// # let c = Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o"));
     /// # let mut orch = Orchestration::new("id", "name");
     /// # orch.add_agent(Agent::new("a", "A", c)).unwrap();
-    /// let _ = orch.discuss("First topic", 1).await?;
+    /// let _ = orch.run("First topic", 1).await?;
     /// orch.clear_history();
     ///
     /// // Start fresh — agents will not see "First topic" responses
-    /// let _ = orch.discuss("Second topic", 1).await?;
+    /// let _ = orch.run("Second topic", 1).await?;
     /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     /// # };
     /// ```

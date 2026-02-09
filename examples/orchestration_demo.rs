@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Question: {}\n", question);
 
-    match parallel_orchestration.discuss(question, 1).await {
+    match parallel_orchestration.run(question, 1).await {
         Ok(response) => {
             for msg in response.messages {
                 if let Some(name) = msg.agent_name {
@@ -177,7 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Task: {}\n", task);
 
-    match roundrobin_orchestration.discuss(task, 2).await {
+    match roundrobin_orchestration.run(task, 2).await {
         Ok(response) => {
             for (i, msg) in response.messages.iter().enumerate() {
                 if let Some(name) = &msg.agent_name {
@@ -241,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Problem: {}\n", problem);
 
-    match hierarchical_orchestration.discuss(problem, 1).await {
+    match hierarchical_orchestration.run(problem, 1).await {
         Ok(response) => {
             for msg in response.messages {
                 let layer = msg.metadata.get("layer").map(|s| s.as_str()).unwrap_or("0");
@@ -297,7 +297,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Debate Topic: {}\n", topic);
 
-    match debate_orchestration.discuss(topic, 1).await {
+    match debate_orchestration.run(topic, 1).await {
         Ok(response) => {
             for msg in response.messages {
                 let round = msg.metadata.get("round").map(|s| s.as_str()).unwrap_or("0");

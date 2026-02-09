@@ -344,7 +344,7 @@ let mut orchestration = Orchestration::new("id", "name")
     .with_mode(OrchestrationMode::RoundRobin);
 orchestration.add_agent(agent1)?;
 orchestration.add_agent(agent2)?;
-let response = orchestration.discuss("prompt", num_rounds).await?;
+let response = orchestration.run("prompt", num_rounds).await?;
 ```
 
 ### Pattern 3: Shared Memory Coordination

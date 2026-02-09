@@ -89,7 +89,7 @@ async fn parallel_carbon_capture_analysis() -> Result<(), Box<dyn std::error::Er
     orchestration.add_agent(agent_engineering)?;
 
     // Execute parallel analysis
-    let response = orchestration.discuss(
+    let response = orchestration.run(
         "Analyze the three main carbon capture technologies (DAC, Point Source, Ocean-based) \
          and identify the most promising approach for immediate deployment. Consider: \
          1) Technical maturity, 2) Cost per ton CO2, 3) Scalability, 4) Environmental impact.",
@@ -193,7 +193,7 @@ async fn round_robin_deployment_strategy() -> Result<(), Box<dyn std::error::Err
     orchestration.add_agent(agent_innovator)?;  // Challenges with innovation
 
     // Run 2 rounds - each agent speaks twice
-    let response = orchestration.discuss(
+    let response = orchestration.run(
         "Design a 10-year global deployment strategy for carbon capture to remove \
          5 gigatons CO2/year by 2035. Address: \
          1) Technology selection and phasing, \
@@ -324,7 +324,7 @@ async fn moderated_qa_session() -> Result<(), Box<dyn std::error::Error>> {
     orchestration.add_agent(agent_lifecycle)?;
 
     // Ask a complex question requiring expert knowledge
-    let response = orchestration.discuss(
+    let response = orchestration.run(
         "We're considering a 1 MT/year direct air capture facility powered by geothermal energy \
          in Iceland, storing CO2 in basalt formations. What are the key technical challenges and \
          is the net carbon balance truly negative when accounting for construction and operations?",
@@ -455,7 +455,7 @@ async fn hierarchical_technology_selection() -> Result<(), Box<dyn std::error::E
     orchestration.add_agent(supervisor_business)?;
     orchestration.add_agent(executive)?;
 
-    let response = orchestration.discuss(
+    let response = orchestration.run(
         "Evaluate carbon capture technology options for deployment in: \
          1) North America (abundant natural gas, existing industrial CO2 sources), \
          2) Europe (strong renewables, carbon pricing, limited storage), \
@@ -606,7 +606,7 @@ async fn debate_carbon_pricing() -> Result<(), Box<dyn std::error::Error>> {
     orchestration.add_agent(agent_industry_realist)?;
     orchestration.add_agent(agent_systems_thinker)?;
 
-    let response = orchestration.discuss(
+    let response = orchestration.run(
         "What carbon price ($/ton CO2) should be implemented globally to make carbon capture \
          and storage economically competitive while being politically and economically feasible? \
          \
@@ -738,7 +738,7 @@ async fn orchestration_with_tools() -> Result<(), Box<dyn std::error::Error>> {
 
     orchestration.add_agent(agent_analyst)?;
 
-    let response = orchestration.discuss(
+    let response = orchestration.run(
         "Calculate the total cost of deploying 5 MT/year carbon capture capacity \
          over 20 years at $100/ton. Use the calculate_ccs_cost tool.",
         1
@@ -801,7 +801,7 @@ Poor orchestration prompts:
 
 ```rust
 // Monitor token usage
-let response = orchestration.discuss(prompt, rounds).await?;
+let response = orchestration.run(prompt, rounds).await?;
 println!("Tokens used: {}", response.total_tokens_used);
 
 // For expensive debates, limit rounds
@@ -860,7 +860,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
     ).with_expertise("Point Source Capture"))?;
 
-    let stage1_result = stage1_orchestration.discuss(
+    let stage1_result = stage1_orchestration.run(
         "Evaluate your assigned carbon capture technology. Provide: \
          1) Readiness level (TRL 1-9), 2) Current cost, 3) Key challenges.",
         1
@@ -888,7 +888,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(GrokClient::new_with_model_str(&xai_key, "grok-beta"))
     ))?;
 
-    let stage2_result = stage2_orchestration.discuss(
+    let stage2_result = stage2_orchestration.run(
         "Based on the stage 1 assessment, argue for your preferred technology. \
          Consider cost, scalability, and timeline to 2035.",
         3
@@ -925,7 +925,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
     ))?;
 
-    let stage3_result = stage3_orchestration.discuss(
+    let stage3_result = stage3_orchestration.run(
         "Create a 5-year deployment roadmap for the selected technology \
          in US and EU markets. Executives synthesize into unified strategy.",
         1
