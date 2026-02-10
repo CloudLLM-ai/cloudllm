@@ -19,6 +19,7 @@ pub mod client_wrapper;
 pub mod clients;
 pub mod config;
 pub mod context_strategy;
+pub mod event;
 pub mod orchestration;
 pub mod image_generation;
 pub mod llm_session;
@@ -34,6 +35,7 @@ pub mod tools;
 
 // Core exports for easy access
 pub use agent::Agent;
+pub use event::{AgentEvent, EventHandler, OrchestrationEvent};
 pub use image_generation::{
     decode_base64, get_image_extension_from_base64, ImageData, ImageGenerationClient,
     ImageGenerationOptions, ImageGenerationResponse,

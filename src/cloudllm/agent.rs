@@ -40,6 +40,7 @@
 
 use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 use crate::cloudllm::context_strategy::{ContextStrategy, TrimStrategy};
+use crate::cloudllm::event::{AgentEvent, EventHandler};
 use crate::cloudllm::llm_session::LLMSession;
 use crate::cloudllm::thought_chain::{Thought, ThoughtChain, ThoughtType};
 use crate::cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
@@ -110,6 +111,7 @@ pub struct Agent {
 
     context_strategy: Box<dyn ContextStrategy>,
     thought_chain: Option<Arc<RwLock<ThoughtChain>>>,
+    event_handler: Option<Arc<dyn EventHandler>>,
 }
 
 impl Agent {
@@ -136,6 +138,7 @@ impl Agent {
             openai_tools: Vec::new(),
             context_strategy: Box::new(TrimStrategy::default()),
             thought_chain: None,
+            event_handler: None,
         }
     }
 
@@ -324,6 +327,34 @@ impl Agent {
         self
     }
 
+    /// Attach an event handler that will receive lifecycle events (builder pattern).
+    pub fn with_event_handler(mut self, handler: Arc<dyn EventHandler>) -> Self {
+        self.event_handler = Some(handler);
+        self
+    }
+
+    /// Set or replace the event handler at runtime.
+    pub fn set_event_handler(&mut self, handler: Arc<dyn EventHandler>) {
+        self.event_handler = Some(handler);
+    }
+
+    /// Emit an agent event (async context).
+    async fn emit(&self, event: AgentEvent) {
+        if let Some(handler) = &self.event_handler {
+            handler.on_agent_event(&event).await;
+        }
+    }
+
+    /// Emit an agent event from a non-async context.
+    fn emit_sync(&self, event: AgentEvent) {
+        if let Some(handler) = &self.event_handler {
+            let handler = Arc::clone(handler);
+            tokio::spawn(async move {
+                handler.on_agent_event(&event).await;
+            });
+        }
+    }
+
     // ---- Runtime tool mutation ----
 
     /// Add a new tool protocol at runtime.
@@ -357,7 +388,16 @@ impl Agent {
         protocol: Arc<dyn ToolProtocol>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut registry = self.tool_registry.write().await;
-        registry.add_protocol(name, protocol).await
+        let result = registry.add_protocol(name, protocol).await;
+        if result.is_ok() {
+            self.emit(AgentEvent::ProtocolAdded {
+                agent_id: self.id.clone(),
+                agent_name: self.name.clone(),
+                protocol_name: name.to_string(),
+            })
+            .await;
+        }
+        result
     }
 
     /// Remove a tool protocol at runtime.
@@ -379,6 +419,12 @@ impl Agent {
     pub async fn remove_protocol(&self, name: &str) {
         let mut registry = self.tool_registry.write().await;
         registry.remove_protocol(name);
+        self.emit(AgentEvent::ProtocolRemoved {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            protocol_name: name.to_string(),
+        })
+        .await;
     }
 
     /// List all tool names currently available to this agent.
@@ -448,8 +494,15 @@ impl Agent {
         content: impl Into<String>,
     ) -> io::Result<()> {
         if let Some(chain) = &self.thought_chain {
+            let thought_type = entry_type.clone();
             let mut chain = chain.write().await;
             chain.append(&self.id, entry_type, &content.into())?;
+            self.emit(AgentEvent::ThoughtCommitted {
+                agent_id: self.id.clone(),
+                agent_name: self.name.clone(),
+                thought_type,
+            })
+            .await;
         }
         Ok(())
     }
@@ -539,6 +592,7 @@ impl Agent {
             openai_tools: Vec::new(),
             context_strategy: Box::new(TrimStrategy::default()),
             thought_chain: Some(chain),
+            event_handler: None,
         })
     }
 
@@ -622,6 +676,10 @@ impl Agent {
     pub fn fork(&self) -> Self {
         let client = self.session.client().clone();
         let max_tokens = self.session.get_max_tokens();
+        self.emit_sync(AgentEvent::Forked {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+        });
         Self {
             id: self.id.clone(),
             name: self.name.clone(),
@@ -634,6 +692,7 @@ impl Agent {
             openai_tools: self.openai_tools.clone(),
             context_strategy: Box::new(TrimStrategy::default()),
             thought_chain: self.thought_chain.clone(),
+            event_handler: self.event_handler.clone(),
         }
     }
 
@@ -657,6 +716,10 @@ impl Agent {
             session.inject_message(msg.role.clone(), msg.content.to_string());
         }
 
+        self.emit_sync(AgentEvent::ForkedWithContext {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+        });
         Self {
             id: self.id.clone(),
             name: self.name.clone(),
@@ -669,6 +732,7 @@ impl Agent {
             openai_tools: self.openai_tools.clone(),
             context_strategy: Box::new(TrimStrategy::default()),
             thought_chain: self.thought_chain.clone(),
+            event_handler: self.event_handler.clone(),
         }
     }
 
@@ -681,6 +745,10 @@ impl Agent {
     pub fn set_system_prompt(&mut self, base_prompt: &str) {
         let augmented = self.augment_system_prompt(base_prompt);
         self.session.set_system_prompt(augmented);
+        self.emit_sync(AgentEvent::SystemPromptSet {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+        });
     }
 
     /// Inject a message into this agent's session history without sending to the LLM.
@@ -689,6 +757,10 @@ impl Agent {
     /// agents' responses) into this agent's context before calling [`send`](Agent::send).
     pub fn receive_message(&mut self, role: Role, content: String) {
         self.session.inject_message(role, content);
+        self.emit_sync(AgentEvent::MessageReceived {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+        });
     }
 
     /// Return the number of messages in this agent's session history.
@@ -712,6 +784,19 @@ impl Agent {
         &mut self,
         user_message: &str,
     ) -> Result<AgentResponse, Box<dyn Error + Send + Sync>> {
+        let preview_len = 120.min(user_message.len());
+        let preview_end = user_message
+            .char_indices()
+            .nth(preview_len)
+            .map(|(i, _)| i)
+            .unwrap_or(user_message.len());
+        self.emit(AgentEvent::SendStarted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            message_preview: user_message[..preview_end].to_string(),
+        })
+        .await;
+
         // Build tool description string to append to user message
         let mut message_with_tools = user_message.to_string();
         {
@@ -763,6 +848,13 @@ impl Agent {
         let mut total_tokens = 0;
 
         // First call uses the user message
+        self.emit(AgentEvent::LLMCallStarted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            iteration: 1,
+        })
+        .await;
+
         let response = self
             .session
             .send_message(
@@ -784,12 +876,30 @@ impl Agent {
             total_tokens += usage.total_tokens;
         }
 
+        self.emit(AgentEvent::LLMCallCompleted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            iteration: 1,
+            tokens_used: if total_tokens > 0 {
+                Some(TokenUsage { input_tokens: total_input_tokens, output_tokens: total_output_tokens, total_tokens })
+            } else {
+                None
+            },
+            response_length: response.content.len(),
+        })
+        .await;
+
         let mut current_response = response.content.to_string();
 
         loop {
             let tool_call = self.parse_tool_call(&current_response);
             if let Some(tool_call) = tool_call {
                 if tool_iteration >= max_tool_iterations {
+                    self.emit(AgentEvent::ToolMaxIterationsReached {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                    })
+                    .await;
                     current_response = format!(
                         "{}\n\n[Warning: Maximum tool iterations reached]",
                         current_response
@@ -797,6 +907,17 @@ impl Agent {
                     break;
                 }
                 tool_iteration += 1;
+
+                let tool_params_snapshot = tool_call.parameters.clone();
+
+                self.emit(AgentEvent::ToolCallDetected {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    tool_name: tool_call.name.clone(),
+                    parameters: tool_params_snapshot.clone(),
+                    iteration: tool_iteration,
+                })
+                .await;
 
                 // Execute the tool
                 let tool_result = {
@@ -806,27 +927,54 @@ impl Agent {
                         .await
                 };
 
-                let tool_result_message = match tool_result {
+                let (tool_result_message, tool_success, tool_error) = match &tool_result {
                     Ok(result) => {
                         if result.success {
-                            format!(
-                                "Tool '{}' executed successfully. Result: {}",
-                                tool_call.name,
-                                serde_json::to_string_pretty(&result.output)
-                                    .unwrap_or_else(|_| format!("{:?}", result.output))
+                            (
+                                format!(
+                                    "Tool '{}' executed successfully. Result: {}",
+                                    tool_call.name,
+                                    serde_json::to_string_pretty(&result.output)
+                                        .unwrap_or_else(|_| format!("{:?}", result.output))
+                                ),
+                                true,
+                                None,
                             )
                         } else {
-                            format!(
-                                "Tool '{}' failed. Error: {}",
-                                tool_call.name,
-                                result.error.unwrap_or_else(|| "Unknown error".to_string())
+                            let err = result.error.clone().unwrap_or_else(|| "Unknown error".to_string());
+                            (
+                                format!("Tool '{}' failed. Error: {}", tool_call.name, err),
+                                false,
+                                Some(err),
                             )
                         }
                     }
-                    Err(e) => format!("Tool execution error: {}", e),
+                    Err(e) => (
+                        format!("Tool execution error: {}", e),
+                        false,
+                        Some(e.to_string()),
+                    ),
                 };
 
+                self.emit(AgentEvent::ToolExecutionCompleted {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    tool_name: tool_call.name.clone(),
+                    parameters: tool_params_snapshot,
+                    success: tool_success,
+                    error: tool_error,
+                    iteration: tool_iteration,
+                })
+                .await;
+
                 // Send tool result back through session
+                self.emit(AgentEvent::LLMCallStarted {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    iteration: tool_iteration + 1,
+                })
+                .await;
+
                 let follow_up = self
                     .session
                     .send_message(
@@ -848,6 +996,19 @@ impl Agent {
                     total_tokens += usage.total_tokens;
                 }
 
+                self.emit(AgentEvent::LLMCallCompleted {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    iteration: tool_iteration + 1,
+                    tokens_used: if total_tokens > 0 {
+                        Some(TokenUsage { input_tokens: total_input_tokens, output_tokens: total_output_tokens, total_tokens })
+                    } else {
+                        None
+                    },
+                    response_length: follow_up.content.len(),
+                })
+                .await;
+
                 current_response = follow_up.content.to_string();
             } else {
                 break;
@@ -863,6 +1024,15 @@ impl Agent {
         } else {
             None
         };
+
+        self.emit(AgentEvent::SendCompleted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            tokens_used: tokens_used.clone(),
+            tool_calls_made: tool_iteration,
+            response_length: current_response.len(),
+        })
+        .await;
 
         Ok(AgentResponse {
             content: current_response,
@@ -929,6 +1099,19 @@ impl Agent {
         user_message: &str,
         conversation_history: &[crate::orchestration::OrchestrationMessage],
     ) -> Result<AgentResponse, Box<dyn Error + Send + Sync>> {
+        let gwt_preview_len = 120.min(user_message.len());
+        let gwt_preview_end = user_message
+            .char_indices()
+            .nth(gwt_preview_len)
+            .map(|(i, _)| i)
+            .unwrap_or(user_message.len());
+        self.emit(AgentEvent::SendStarted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            message_preview: user_message[..gwt_preview_end].to_string(),
+        })
+        .await;
+
         let augmented_system = self.augment_system_prompt(system_prompt);
 
         // Build message array
@@ -995,7 +1178,11 @@ impl Agent {
         let mut total_output_tokens = 0;
         let mut total_tokens = 0;
 
+        let mut gwt_llm_iteration: usize = 0;
+
         loop {
+            gwt_llm_iteration += 1;
+
             // Send to LLM
             let grok_tools = if self.grok_tools.is_empty() {
                 None
@@ -1007,6 +1194,14 @@ impl Agent {
             } else {
                 Some(self.openai_tools.clone())
             };
+
+            self.emit(AgentEvent::LLMCallStarted {
+                agent_id: self.id.clone(),
+                agent_name: self.name.clone(),
+                iteration: gwt_llm_iteration,
+            })
+            .await;
+
             let response = self
                 .session
                 .client()
@@ -1027,10 +1222,28 @@ impl Agent {
 
             let current_response = response.content.to_string();
 
+            self.emit(AgentEvent::LLMCallCompleted {
+                agent_id: self.id.clone(),
+                agent_name: self.name.clone(),
+                iteration: gwt_llm_iteration,
+                tokens_used: if total_tokens > 0 {
+                    Some(TokenUsage { input_tokens: total_input_tokens, output_tokens: total_output_tokens, total_tokens })
+                } else {
+                    None
+                },
+                response_length: current_response.len(),
+            })
+            .await;
+
             // Check if we have tools and if the response contains a tool call
             let tool_call = self.parse_tool_call(&current_response);
             if let Some(tool_call) = tool_call {
                 if tool_iteration >= max_tool_iterations {
+                    self.emit(AgentEvent::ToolMaxIterationsReached {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                    })
+                    .await;
                     // Max iterations reached, return with warning
                     final_response = format!(
                         "{}\n\n[Warning: Maximum tool iterations reached]",
@@ -1040,6 +1253,17 @@ impl Agent {
                 }
 
                 tool_iteration += 1;
+
+                let gwt_params_snapshot = tool_call.parameters.clone();
+
+                self.emit(AgentEvent::ToolCallDetected {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    tool_name: tool_call.name.clone(),
+                    parameters: gwt_params_snapshot.clone(),
+                    iteration: tool_iteration,
+                })
+                .await;
 
                 // Execute the tool via the registry
                 let tool_result = {
@@ -1056,25 +1280,45 @@ impl Agent {
                 });
 
                 // Add tool result to messages
-                let tool_result_message = match tool_result {
+                let (tool_result_message, gwt_tool_success, gwt_tool_error) = match &tool_result {
                     Ok(result) => {
                         if result.success {
-                            format!(
-                                "Tool '{}' executed successfully. Result: {}",
-                                tool_call.name,
-                                serde_json::to_string_pretty(&result.output)
-                                    .unwrap_or_else(|_| format!("{:?}", result.output))
+                            (
+                                format!(
+                                    "Tool '{}' executed successfully. Result: {}",
+                                    tool_call.name,
+                                    serde_json::to_string_pretty(&result.output)
+                                        .unwrap_or_else(|_| format!("{:?}", result.output))
+                                ),
+                                true,
+                                None,
                             )
                         } else {
-                            format!(
-                                "Tool '{}' failed. Error: {}",
-                                tool_call.name,
-                                result.error.unwrap_or_else(|| "Unknown error".to_string())
+                            let err = result.error.clone().unwrap_or_else(|| "Unknown error".to_string());
+                            (
+                                format!("Tool '{}' failed. Error: {}", tool_call.name, err),
+                                false,
+                                Some(err),
                             )
                         }
                     }
-                    Err(e) => format!("Tool execution error: {}", e),
+                    Err(e) => (
+                        format!("Tool execution error: {}", e),
+                        false,
+                        Some(e.to_string()),
+                    ),
                 };
+
+                self.emit(AgentEvent::ToolExecutionCompleted {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    tool_name: tool_call.name.clone(),
+                    parameters: gwt_params_snapshot,
+                    success: gwt_tool_success,
+                    error: gwt_tool_error,
+                    iteration: tool_iteration,
+                })
+                .await;
 
                 messages.push(Message {
                     role: Role::User,
@@ -1099,6 +1343,15 @@ impl Agent {
         } else {
             None
         };
+
+        self.emit(AgentEvent::SendCompleted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            tokens_used: tokens_used.clone(),
+            tool_calls_made: tool_iteration,
+            response_length: final_response.len(),
+        })
+        .await;
 
         Ok(AgentResponse {
             content: final_response,

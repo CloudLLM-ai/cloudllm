@@ -9,6 +9,12 @@
 //! complete with `[TASK_COMPLETE:task_id]` markers. The loop ends when all tasks are
 //! done or `max_iterations` is reached.
 //!
+//! ## Features
+//!
+//! - **BreakoutEventHandler**: Real-time pretty-printed event output
+//! - **Shared Memory**: All agents share a Memory tool for coordination
+//! - **write_game_file**: Custom tool that writes game files to disk
+//!
 //! ## Agents
 //!
 //! - **game-architect**: Designs HTML structure, CSS, Canvas setup
@@ -38,13 +44,239 @@
 //!
 //! The example writes the assembled game to `breakout_game.html` in the current directory.
 
+use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
+use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
+use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
+use cloudllm::tools::Memory;
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
     Agent,
 };
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::RwLock;
+
+// ── Event Handler ──────────────────────────────────────────────────────────
+
+/// Pretty-prints agent and orchestration events in real-time.
+struct BreakoutEventHandler {
+    start: Instant,
+}
+
+impl BreakoutEventHandler {
+    fn new() -> Self {
+        Self {
+            start: Instant::now(),
+        }
+    }
+
+    fn elapsed_str(&self) -> String {
+        let secs = self.start.elapsed().as_secs();
+        format!("{:02}:{:02}", secs / 60, secs % 60)
+    }
+}
+
+#[async_trait]
+impl EventHandler for BreakoutEventHandler {
+    async fn on_agent_event(&self, event: &AgentEvent) {
+        match event {
+            AgentEvent::SendStarted {
+                agent_name,
+                message_preview,
+                ..
+            } => {
+                let preview_len = 80.min(message_preview.len());
+                let preview_end = message_preview
+                    .char_indices()
+                    .nth(preview_len)
+                    .map(|(i, _)| i)
+                    .unwrap_or(message_preview.len());
+                println!(
+                    "  [{}] >> {} thinking... ({}...)",
+                    self.elapsed_str(),
+                    agent_name,
+                    &message_preview[..preview_end]
+                );
+            }
+            AgentEvent::SendCompleted {
+                agent_name,
+                tokens_used,
+                response_length,
+                tool_calls_made,
+                ..
+            } => {
+                let tokens = tokens_used
+                    .as_ref()
+                    .map(|u| u.total_tokens)
+                    .unwrap_or(0);
+                println!(
+                    "  [{}] << {} responded ({} chars, {} tokens, {} tool calls)",
+                    self.elapsed_str(),
+                    agent_name,
+                    response_length,
+                    tokens,
+                    tool_calls_made
+                );
+            }
+            AgentEvent::ToolCallDetected {
+                agent_name,
+                tool_name,
+                parameters,
+                iteration,
+                ..
+            } => {
+                let params_str = serde_json::to_string(parameters).unwrap_or_default();
+                println!(
+                    "  [{}]    {} calling tool '{}' (iter {}) params={}",
+                    self.elapsed_str(),
+                    agent_name,
+                    tool_name,
+                    iteration,
+                    params_str
+                );
+            }
+            AgentEvent::ToolExecutionCompleted {
+                agent_name,
+                tool_name,
+                parameters,
+                success,
+                error,
+                ..
+            } => {
+                if *success {
+                    println!(
+                        "  [{}]    {} tool '{}' succeeded",
+                        self.elapsed_str(),
+                        agent_name,
+                        tool_name
+                    );
+                } else {
+                    let params_str = serde_json::to_string(parameters).unwrap_or_default();
+                    println!(
+                        "  [{}]    {} tool '{}' FAILED: {} | params={}",
+                        self.elapsed_str(),
+                        agent_name,
+                        tool_name,
+                        error.as_deref().unwrap_or("unknown"),
+                        params_str
+                    );
+                }
+            }
+            AgentEvent::LLMCallStarted {
+                agent_name,
+                iteration,
+                ..
+            } => {
+                println!(
+                    "  [{}]    {} sending to LLM (round {})...",
+                    self.elapsed_str(),
+                    agent_name,
+                    iteration
+                );
+            }
+            AgentEvent::LLMCallCompleted {
+                agent_name,
+                iteration,
+                tokens_used,
+                response_length,
+                ..
+            } => {
+                let tokens = tokens_used
+                    .as_ref()
+                    .map(|u| format!("{} tokens", u.total_tokens))
+                    .unwrap_or_else(|| "no token info".to_string());
+                println!(
+                    "  [{}]    {} LLM round {} complete ({} chars, {})",
+                    self.elapsed_str(),
+                    agent_name,
+                    iteration,
+                    response_length,
+                    tokens
+                );
+            }
+            _ => {}
+        }
+    }
+
+    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
+        match event {
+            OrchestrationEvent::RunStarted {
+                orchestration_name,
+                mode,
+                agent_count,
+                ..
+            } => {
+                println!();
+                println!("{}", "=".repeat(80));
+                println!(
+                    "  {} — mode={}, agents={}",
+                    orchestration_name, mode, agent_count
+                );
+                println!("{}", "=".repeat(80));
+            }
+            OrchestrationEvent::RalphIterationStarted {
+                iteration,
+                max_iterations,
+                tasks_completed,
+                tasks_total,
+                ..
+            } => {
+                println!();
+                println!("{}", "-".repeat(80));
+                println!(
+                    "  RALPH Iteration {}/{} — {}/{} tasks complete",
+                    iteration, max_iterations, tasks_completed, tasks_total
+                );
+                println!("{}", "-".repeat(80));
+            }
+            OrchestrationEvent::RalphTaskCompleted {
+                agent_name,
+                task_ids,
+                tasks_completed_total,
+                tasks_total,
+                ..
+            } => {
+                println!(
+                    "  [{}] *** {} completed tasks: [{}] — progress: {}/{}",
+                    self.elapsed_str(),
+                    agent_name,
+                    task_ids.join(", "),
+                    tasks_completed_total,
+                    tasks_total
+                );
+            }
+            OrchestrationEvent::AgentFailed {
+                agent_name, error, ..
+            } => {
+                println!(
+                    "  [{}] !!! {} FAILED: {}",
+                    self.elapsed_str(),
+                    agent_name,
+                    error
+                );
+            }
+            OrchestrationEvent::RunCompleted {
+                rounds,
+                total_tokens,
+                is_complete,
+                ..
+            } => {
+                println!();
+                println!("{}", "=".repeat(80));
+                println!(
+                    "  Run complete — {} rounds, {} tokens, complete={}",
+                    rounds, total_tokens, is_complete
+                );
+                println!("{}", "=".repeat(80));
+            }
+            _ => {}
+        }
+    }
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -65,35 +297,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Using model: Claude Haiku 4.5");
     println!("{}\n", "=".repeat(80));
 
+    // ── Shared Memory + Custom Tools ──────────────────────────────────────
+
+    let memory = Arc::new(Memory::new());
+    let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
+
+    let custom_protocol = Arc::new(CustomToolProtocol::new());
+    custom_protocol
+        .register_tool(
+            ToolMetadata::new("write_game_file", "Write content to a file on disk")
+                .with_parameter(
+                    ToolParameter::new("filename", ToolParameterType::String)
+                        .with_description("The filename to write (e.g. 'breakout_game.html')"),
+                )
+                .with_parameter(
+                    ToolParameter::new("content", ToolParameterType::String)
+                        .with_description("The file content to write"),
+                ),
+            Arc::new(|params| {
+                let filename = params["filename"]
+                    .as_str()
+                    .unwrap_or("output.html")
+                    .to_string();
+                let content = params["content"].as_str().unwrap_or("").to_string();
+                std::fs::write(&filename, &content)?;
+                Ok(cloudllm::tool_protocol::ToolResult::success(
+                    serde_json::json!({"written": filename, "bytes": content.len()}),
+                ))
+            }),
+        )
+        .await;
+
+    let mut shared_registry = ToolRegistry::empty();
+    shared_registry
+        .add_protocol("memory", memory_protocol)
+        .await?;
+    shared_registry
+        .add_protocol("custom", custom_protocol)
+        .await?;
+    let shared_registry = Arc::new(RwLock::new(shared_registry));
+
     // ── Agents ──────────────────────────────────────────────────────────────
 
     let make_client = || {
-        Arc::new(ClaudeClient::new_with_model_enum(&api_key, Model::ClaudeHaiku45))
+        Arc::new(ClaudeClient::new_with_model_enum(
+            &api_key,
+            Model::ClaudeHaiku45,
+        ))
     };
 
     let architect = Agent::new("game-architect", "Game Architect", make_client())
         .with_expertise("HTML5 structure, CSS layout, Canvas setup")
         .with_personality(
             "Meticulous front-end architect who produces clean, well-structured HTML/CSS.",
-        );
+        )
+        .with_shared_tools(shared_registry.clone());
 
     let programmer = Agent::new("game-programmer", "Game Programmer", make_client())
         .with_expertise("JavaScript game mechanics, physics, collision detection, rendering")
         .with_personality(
             "Seasoned game developer who writes tight, performant JavaScript game loops.",
-        );
+        )
+        .with_shared_tools(shared_registry.clone());
 
     let sound_designer = Agent::new("sound-designer", "Sound Designer", make_client())
         .with_expertise("Web Audio API, chiptune synthesis, oscillator-based sound effects")
         .with_personality(
             "Retro audio enthusiast who crafts authentic Atari 2600-era sounds with Web Audio API oscillators.",
-        );
+        )
+        .with_shared_tools(shared_registry.clone());
 
     let powerup_engineer = Agent::new("powerup-engineer", "Powerup Engineer", make_client())
         .with_expertise("Game powerup systems, spawn logic, timed effects")
         .with_personality(
             "Creative gameplay engineer who designs fun and balanced powerup mechanics.",
-        );
+        )
+        .with_shared_tools(shared_registry.clone());
 
     // ── PRD Tasks ───────────────────────────────────────────────────────────
 
@@ -177,7 +456,12 @@ for sound. \n\n\
 When you work on a task, output the COMPLETE updated index.html incorporating ALL previous work \
 plus your additions. Never output partial snippets — always output the full file. \n\n\
 When a task is fully implemented, include the marker [TASK_COMPLETE:task_id] at the end of your \
-response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks at once.";
+response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks at once.\n\n\
+You have access to shared Memory and a write_game_file tool:\n\
+- Memory: Use PUT/GET/LIST commands to coordinate with other agents (e.g., store design decisions)\n\
+- write_game_file: Write the game HTML to a file (filename + content parameters)";
+
+    let event_handler = Arc::new(BreakoutEventHandler::new());
 
     let mut orchestration =
         Orchestration::new("breakout-builder", "Breakout Game RALPH Orchestration")
@@ -186,7 +470,8 @@ response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks
                 max_iterations: 5,
             })
             .with_system_context(system_context)
-            .with_max_tokens(180_000);
+            .with_max_tokens(180_000)
+            .with_event_handler(event_handler);
 
     orchestration.add_agent(architect)?;
     orchestration.add_agent(programmer)?;
@@ -231,8 +516,16 @@ and a multiball powerup. Everything must work in a modern browser with no extern
     // Print per-message summary
     for (i, msg) in response.messages.iter().enumerate() {
         let agent = msg.agent_name.as_deref().unwrap_or("unknown");
-        let iteration = msg.metadata.get("iteration").map(|s| s.as_str()).unwrap_or("?");
-        let completed = msg.metadata.get("tasks_completed").map(|s| s.as_str()).unwrap_or("-");
+        let iteration = msg
+            .metadata
+            .get("iteration")
+            .map(|s| s.as_str())
+            .unwrap_or("?");
+        let completed = msg
+            .metadata
+            .get("tasks_completed")
+            .map(|s| s.as_str())
+            .unwrap_or("-");
         let preview_len = 120.min(msg.content.len());
         let preview_end = msg
             .content
@@ -250,13 +543,38 @@ and a multiball powerup. Everything must work in a modern browser with no extern
         );
     }
 
+    // ── Memory Dump ────────────────────────────────────────────────────────
+
+    let keys = memory.list_keys();
+    if !keys.is_empty() {
+        println!("\n{}", "-".repeat(80));
+        println!("  Shared Memory ({} entries)", keys.len());
+        println!("{}", "-".repeat(80));
+        for key in &keys {
+            if let Some((value, _)) = memory.get(key, false) {
+                let preview_len = 120.min(value.len());
+                let preview_end = value
+                    .char_indices()
+                    .nth(preview_len)
+                    .map(|(i, _)| i)
+                    .unwrap_or(value.len());
+                println!("  {}: {}...", key, &value[..preview_end]);
+            }
+        }
+    }
+
+    // ── Extract HTML ───────────────────────────────────────────────────────
+
     // Extract the last message's content as the final HTML (the last agent output
     // should contain the most complete version of the file).
     if let Some(last_msg) = response.messages.last() {
         // Try to extract just the HTML from the response
         let html = extract_html(&last_msg.content);
         std::fs::write("breakout_game.html", &html)?;
-        println!("\nGame written to breakout_game.html ({} bytes)", html.len());
+        println!(
+            "\nGame written to breakout_game.html ({} bytes)",
+            html.len()
+        );
         println!("Open it in a browser to play!");
     } else {
         println!("\nNo messages were generated. Check your API key and try again.");

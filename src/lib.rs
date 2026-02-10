@@ -315,3 +315,5 @@ pub use cloudllm::mcp_server;
 pub use cloudllm::tool_protocol;
 pub use cloudllm::tool_protocols;
 pub use cloudllm::tools;
+pub use cloudllm::event;
+pub use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};

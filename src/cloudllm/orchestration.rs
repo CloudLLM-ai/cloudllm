@@ -61,6 +61,7 @@
 
 use crate::client_wrapper::Role;
 use crate::cloudllm::agent::Agent;
+use crate::cloudllm::event::{EventHandler, OrchestrationEvent};
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -550,6 +551,9 @@ pub struct Orchestration {
     /// Per-agent cursor tracking the last message index each agent has seen.
     /// Used by hub-routing to avoid re-injecting messages agents already have.
     agent_message_cursors: HashMap<String, usize>,
+
+    /// Optional event handler for orchestration lifecycle events.
+    event_handler: Option<Arc<dyn EventHandler>>,
 }
 
 impl Orchestration {
@@ -580,6 +584,7 @@ impl Orchestration {
             ),
             max_tokens: 8192,
             agent_message_cursors: HashMap::new(),
+            event_handler: None,
         }
     }
 
@@ -637,6 +642,34 @@ impl Orchestration {
         self
     }
 
+    /// Attach an event handler for orchestration lifecycle events (builder pattern).
+    ///
+    /// The handler is also propagated to agents when they are added via
+    /// [`add_agent`](Orchestration::add_agent).
+    pub fn with_event_handler(mut self, handler: Arc<dyn EventHandler>) -> Self {
+        self.event_handler = Some(handler);
+        self
+    }
+
+    /// Emit an orchestration event to the registered handler.
+    async fn emit(&self, event: OrchestrationEvent) {
+        if let Some(handler) = &self.event_handler {
+            handler.on_orchestration_event(&event).await;
+        }
+    }
+
+    /// Return a human-readable name for the current orchestration mode.
+    fn mode_name(&self) -> &'static str {
+        match &self.mode {
+            OrchestrationMode::Parallel => "Parallel",
+            OrchestrationMode::RoundRobin => "RoundRobin",
+            OrchestrationMode::Moderated { .. } => "Moderated",
+            OrchestrationMode::Hierarchical { .. } => "Hierarchical",
+            OrchestrationMode::Debate { .. } => "Debate",
+            OrchestrationMode::Ralph { .. } => "Ralph",
+        }
+    }
+
     /// Register a new agent with the orchestration.
     ///
     /// Returns an error if an agent with the same [`Agent::id`] is already
@@ -659,13 +692,16 @@ impl Orchestration {
     /// # let client2 = Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o"));
     /// assert!(orch.add_agent(Agent::new("analyst", "Analyst 2", client2)).is_err());
     /// ```
-    pub fn add_agent(&mut self, agent: Agent) -> Result<(), OrchestrationError> {
+    pub fn add_agent(&mut self, mut agent: Agent) -> Result<(), OrchestrationError> {
         let id = agent.id.clone();
         if self.agents.contains_key(&id) {
             return Err(OrchestrationError::ExecutionFailed(format!(
                 "Agent with id '{}' already exists",
                 id
             )));
+        }
+        if let Some(handler) = &self.event_handler {
+            agent.set_event_handler(Arc::clone(handler));
         }
         self.agent_order.push(id.clone());
         self.agents.insert(id, agent);
@@ -783,6 +819,14 @@ impl Orchestration {
             return Err(Box::new(OrchestrationError::NoAgents));
         }
 
+        self.emit(OrchestrationEvent::RunStarted {
+            orchestration_id: self.id.clone(),
+            orchestration_name: self.name.clone(),
+            mode: self.mode_name().to_string(),
+            agent_count: self.agents.len(),
+        })
+        .await;
+
         // Add user message to history
         self.conversation_history
             .push(OrchestrationMessage::new(Role::User, prompt));
@@ -790,7 +834,7 @@ impl Orchestration {
         // Clone mode to avoid borrow issues
         let mode = self.mode.clone();
 
-        match mode {
+        let result = match mode {
             OrchestrationMode::Parallel => self.execute_parallel(prompt, rounds).await,
             OrchestrationMode::RoundRobin => self.execute_round_robin(prompt, rounds).await,
             OrchestrationMode::Moderated { moderator_id } => {
@@ -810,7 +854,20 @@ impl Orchestration {
                 tasks,
                 max_iterations,
             } => self.execute_ralph(prompt, &tasks, max_iterations).await,
+        };
+
+        if let Ok(ref response) = result {
+            self.emit(OrchestrationEvent::RunCompleted {
+                orchestration_id: self.id.clone(),
+                orchestration_name: self.name.clone(),
+                rounds: response.round,
+                total_tokens: response.total_tokens_used,
+                is_complete: response.is_complete,
+            })
+            .await;
         }
+
+        result
     }
 
     /// Initialize all agents' system prompts using the orchestration's system context.
@@ -837,7 +894,13 @@ impl Orchestration {
         let mut all_messages = Vec::new();
         let mut total_tokens = 0;
 
-        for _round in 0..rounds {
+        for round_num in 0..rounds {
+            self.emit(OrchestrationEvent::RoundStarted {
+                orchestration_id: self.id.clone(),
+                round: round_num + 1,
+            })
+            .await;
+
             let mut round_messages = Vec::new();
 
             // Spawn all agent tasks in parallel
@@ -868,9 +931,18 @@ impl Orchestration {
 
                 match result {
                     Ok(agent_response) => {
-                        if let Some(usage) = agent_response.tokens_used {
+                        if let Some(usage) = &agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
+
+                        self.emit(OrchestrationEvent::AgentResponded {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            tokens_used: agent_response.tokens_used.clone(),
+                            response_length: agent_response.content.len(),
+                        })
+                        .await;
 
                         let msg = OrchestrationMessage::from_agent(
                             agent_id,
@@ -881,10 +953,22 @@ impl Orchestration {
                         self.conversation_history.push(msg);
                     }
                     Err(e) => {
-                        eprintln!("Agent {} failed: {}", agent_id, e);
+                        self.emit(OrchestrationEvent::AgentFailed {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            error: e.to_string(),
+                        })
+                        .await;
                     }
                 }
             }
+
+            self.emit(OrchestrationEvent::RoundCompleted {
+                orchestration_id: self.id.clone(),
+                round: round_num + 1,
+            })
+            .await;
 
             all_messages.extend(round_messages);
         }
@@ -912,7 +996,13 @@ impl Orchestration {
         let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
         let mut total_tokens = 0;
 
-        for _round in 0..rounds {
+        for round_num in 0..rounds {
+            self.emit(OrchestrationEvent::RoundStarted {
+                orchestration_id: self.id.clone(),
+                round: round_num + 1,
+            })
+            .await;
+
             for agent_id in self.agent_order.clone() {
                 let mut agent = self.agents.remove(&agent_id).unwrap();
 
@@ -928,6 +1018,14 @@ impl Orchestration {
                 }
                 self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
 
+                self.emit(OrchestrationEvent::AgentSelected {
+                    orchestration_id: self.id.clone(),
+                    agent_id: agent_id.clone(),
+                    agent_name: agent.name.clone(),
+                    reason: "RoundRobin turn".to_string(),
+                })
+                .await;
+
                 let result = agent.send(prompt).await;
 
                 // Re-insert agent before handling result
@@ -936,9 +1034,18 @@ impl Orchestration {
 
                 match result {
                     Ok(agent_response) => {
-                        if let Some(usage) = agent_response.tokens_used {
+                        if let Some(usage) = &agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
+
+                        self.emit(OrchestrationEvent::AgentResponded {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            tokens_used: agent_response.tokens_used.clone(),
+                            response_length: agent_response.content.len(),
+                        })
+                        .await;
 
                         let msg = OrchestrationMessage::from_agent(
                             &agent_id,
@@ -949,10 +1056,22 @@ impl Orchestration {
                         self.conversation_history.push(msg);
                     }
                     Err(e) => {
-                        eprintln!("Agent {} failed: {}", agent_id, e);
+                        self.emit(OrchestrationEvent::AgentFailed {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            error: e.to_string(),
+                        })
+                        .await;
                     }
                 }
             }
+
+            self.emit(OrchestrationEvent::RoundCompleted {
+                orchestration_id: self.id.clone(),
+                round: round_num + 1,
+            })
+            .await;
         }
 
         Ok(OrchestrationResponse {
@@ -1116,6 +1235,12 @@ impl Orchestration {
         let system_context = self.system_context.clone();
 
         for (layer_idx, layer_agent_ids) in layers.iter().enumerate() {
+            self.emit(OrchestrationEvent::RoundStarted {
+                orchestration_id: self.id.clone(),
+                round: layer_idx + 1,
+            })
+            .await;
+
             let mut layer_messages = Vec::new();
 
             // All agents in this layer work in parallel
@@ -1126,6 +1251,14 @@ impl Orchestration {
                     .agents
                     .get(agent_id)
                     .ok_or_else(|| OrchestrationError::AgentNotFound(agent_id.clone()))?;
+
+                self.emit(OrchestrationEvent::AgentSelected {
+                    orchestration_id: self.id.clone(),
+                    agent_id: agent_id.clone(),
+                    agent_name: agent.name.clone(),
+                    reason: format!("Hierarchical layer {}", layer_idx),
+                })
+                .await;
 
                 let mut temp_agent = agent.fork();
                 temp_agent.set_system_prompt(&system_context);
@@ -1148,9 +1281,18 @@ impl Orchestration {
 
                 match result {
                     Ok(agent_response) => {
-                        if let Some(usage) = agent_response.tokens_used {
+                        if let Some(usage) = &agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
+
+                        self.emit(OrchestrationEvent::AgentResponded {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            tokens_used: agent_response.tokens_used.clone(),
+                            response_length: agent_response.content.len(),
+                        })
+                        .await;
 
                         let msg = OrchestrationMessage::from_agent(
                             agent_id,
@@ -1162,10 +1304,22 @@ impl Orchestration {
                         self.conversation_history.push(msg);
                     }
                     Err(e) => {
-                        eprintln!("Agent {} failed: {}", agent_id, e);
+                        self.emit(OrchestrationEvent::AgentFailed {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            error: e.to_string(),
+                        })
+                        .await;
                     }
                 }
             }
+
+            self.emit(OrchestrationEvent::RoundCompleted {
+                orchestration_id: self.id.clone(),
+                round: layer_idx + 1,
+            })
+            .await;
 
             // Synthesize layer results for next layer
             if layer_idx < layers.len() - 1 {
@@ -1213,6 +1367,13 @@ impl Orchestration {
 
         for round in 0..max_rounds {
             actual_rounds = round + 1;
+
+            self.emit(OrchestrationEvent::RoundStarted {
+                orchestration_id: self.id.clone(),
+                round: actual_rounds,
+            })
+            .await;
+
             let mut round_messages = Vec::new();
 
             for agent_id in self.agent_order.clone() {
@@ -1238,15 +1399,32 @@ impl Orchestration {
                     prompt
                 );
 
+                self.emit(OrchestrationEvent::AgentSelected {
+                    orchestration_id: self.id.clone(),
+                    agent_id: agent_id.clone(),
+                    agent_name: agent.name.clone(),
+                    reason: format!("Debate round {}", actual_rounds),
+                })
+                .await;
+
                 let result = agent.send(&debate_prompt).await;
                 let agent_name = agent.name.clone();
                 self.agents.insert(agent_id.clone(), agent);
 
                 match result {
                     Ok(agent_response) => {
-                        if let Some(usage) = agent_response.tokens_used {
+                        if let Some(usage) = &agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
+
+                        self.emit(OrchestrationEvent::AgentResponded {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            tokens_used: agent_response.tokens_used.clone(),
+                            response_length: agent_response.content.len(),
+                        })
+                        .await;
 
                         let msg = OrchestrationMessage::from_agent(
                             &agent_id,
@@ -1258,7 +1436,13 @@ impl Orchestration {
                         self.conversation_history.push(msg);
                     }
                     Err(e) => {
-                        eprintln!("Agent {} failed: {}", agent_id, e);
+                        self.emit(OrchestrationEvent::AgentFailed {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name.clone(),
+                            error: e.to_string(),
+                        })
+                        .await;
                     }
                 }
             }
@@ -1269,12 +1453,33 @@ impl Orchestration {
                     self.calculate_convergence_score(&all_messages, &round_messages);
                 final_convergence_score = Some(convergence_score);
 
-                if convergence_score >= threshold {
+                let did_converge = convergence_score >= threshold;
+                self.emit(OrchestrationEvent::ConvergenceChecked {
+                    orchestration_id: self.id.clone(),
+                    round: actual_rounds,
+                    score: convergence_score,
+                    threshold,
+                    converged: did_converge,
+                })
+                .await;
+
+                if did_converge {
                     converged = true;
                     all_messages.extend(round_messages);
+                    self.emit(OrchestrationEvent::RoundCompleted {
+                        orchestration_id: self.id.clone(),
+                        round: actual_rounds,
+                    })
+                    .await;
                     break;
                 }
             }
+
+            self.emit(OrchestrationEvent::RoundCompleted {
+                orchestration_id: self.id.clone(),
+                round: actual_rounds,
+            })
+            .await;
 
             all_messages.extend(round_messages);
         }
@@ -1322,6 +1527,21 @@ impl Orchestration {
 
         for iteration in 0..max_iterations {
             actual_iterations = iteration + 1;
+
+            self.emit(OrchestrationEvent::RalphIterationStarted {
+                orchestration_id: self.id.clone(),
+                iteration: actual_iterations,
+                max_iterations,
+                tasks_completed: completed_tasks.len(),
+                tasks_total: tasks.len(),
+            })
+            .await;
+
+            self.emit(OrchestrationEvent::RoundStarted {
+                orchestration_id: self.id.clone(),
+                round: actual_iterations,
+            })
+            .await;
 
             log::info!(
                 "RALPH iteration {}/{} — {}/{} tasks complete",
@@ -1387,9 +1607,18 @@ impl Orchestration {
                             .as_ref()
                             .map(|u| u.total_tokens)
                             .unwrap_or(0);
-                        if let Some(usage) = agent_response.tokens_used {
+                        if let Some(usage) = &agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
+
+                        self.emit(OrchestrationEvent::AgentResponded {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name_clone.clone(),
+                            tokens_used: agent_response.tokens_used.clone(),
+                            response_length: agent_response.content.len(),
+                        })
+                        .await;
 
                         log::info!(
                             "  Agent '{}' responded ({} chars, {} tokens)",
@@ -1412,6 +1641,16 @@ impl Orchestration {
                         }
 
                         if !valid_completions.is_empty() {
+                            self.emit(OrchestrationEvent::RalphTaskCompleted {
+                                orchestration_id: self.id.clone(),
+                                agent_id: agent_id.clone(),
+                                agent_name: agent_name_clone.clone(),
+                                task_ids: valid_completions.clone(),
+                                tasks_completed_total: completed_tasks.len(),
+                                tasks_total: tasks.len(),
+                            })
+                            .await;
+
                             log::info!(
                                 "  Tasks completed: [{}] — progress: {}/{}",
                                 valid_completions.join(", "),
@@ -1438,10 +1677,22 @@ impl Orchestration {
                         self.conversation_history.push(msg);
                     }
                     Err(e) => {
-                        log::error!("Agent {} failed: {}", agent_id, e);
+                        self.emit(OrchestrationEvent::AgentFailed {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name_clone.clone(),
+                            error: e.to_string(),
+                        })
+                        .await;
                     }
                 }
             }
+
+            self.emit(OrchestrationEvent::RoundCompleted {
+                orchestration_id: self.id.clone(),
+                round: actual_iterations,
+            })
+            .await;
 
             // Check termination
             if completed_tasks.len() == tasks.len() {

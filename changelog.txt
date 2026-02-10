@@ -1,3 +1,24 @@
+0.10.0 FEB/10/2026
+ - feat: Agent & Orchestration event system
+   - New EventHandler trait with on_agent_event() and on_orchestration_event()
+   - AgentEvent enum: SendStarted/Completed, LLMCallStarted/Completed,
+     ToolCallDetected, ToolExecutionCompleted, ToolMaxIterationsReached,
+     ThoughtCommitted, ProtocolAdded/Removed, SystemPromptSet,
+     MessageReceived, Forked, ForkedWithContext
+   - OrchestrationEvent enum: RunStarted/Completed, RoundStarted/Completed,
+     AgentSelected, AgentResponded, AgentFailed, ConvergenceChecked,
+     RalphIterationStarted, RalphTaskCompleted
+   - Agent::with_event_handler() / set_event_handler() for registration
+   - Orchestration::with_event_handler() auto-propagates to agents via add_agent()
+   - New src/cloudllm/event.rs module with full re-exports in lib.rs
+   - Replaces bare eprintln!() in orchestration error paths with AgentFailed events
+ - enhance: breakout_game_ralph example with BreakoutEventHandler,
+   shared Memory tool, and write_game_file custom tool
+   - BreakoutEventHandler: real-time pretty-printed event output with elapsed time
+   - Shared MemoryProtocol across all 4 agents for coordination
+   - CustomToolProtocol with write_game_file tool for writing game files to disk
+   - Memory dump section after orchestration run
+
 0.9.0 FEB/10/2026
  - refactor: Per-agent sessions with hub-routed communication
    - Orchestration no longer broadcasts full conversation_history to all agents
