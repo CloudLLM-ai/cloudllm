@@ -8,9 +8,13 @@ CloudLLM is a batteries-included Rust toolkit for building intelligent agents wi
 multi-protocol tool support, and multi-agent orchestration. It provides:
 
 * **Agents with Tools**: Create agents that connect to LLMs and execute actions through a flexible,
-  multi-protocol tool system (local, remote MCP, Memory, custom protocols),
+  multi-protocol tool system (local, remote MCP, Memory, custom protocols) with runtime hot-swapping,
 * **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/index.html) engine
   supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, and Ralph collaboration patterns,
+* **ThoughtChain**: Persistent, SHA-256 hash-chained agent memory with back-references for graph-based
+  context resolution and tamper-evident integrity verification,
+* **Context Strategies**: Pluggable strategies for handling context window exhaustion — Trim,
+  SelfCompression (LLM writes its own save file), and NoveltyAware (entropy-based trigger),
 * **Image Generation**: Unified image generation across OpenAI (DALL-E), Grok, and Google Gemini with the
   simplified `register_image_generation_tool()` helper,
 * **Server Deployment**: Easy standalone MCP server creation via [`MCPServerBuilder`](https://docs.rs/cloudllm/latest/cloudllm/mcp_server/struct.MCPServerBuilder.html)
@@ -40,6 +44,10 @@ crate-level manual.
 - [Provider Wrappers](#provider-wrappers)
 - [LLMSession: Stateful Conversations](#llmsession-stateful-conversations-the-foundation)
 - [Agents: Building Intelligent Workers with Tools](#agents-building-intelligent-workers-with-tools)
+- [ThoughtChain: Persistent Agent Memory](#thoughtchain-persistent-agent-memory)
+- [Context Strategies: Managing Context Window Exhaustion](#context-strategies-managing-context-window-exhaustion)
+- [Agent::fork() — Lightweight Copies for Parallel Execution](#agentfork--lightweight-copies-for-parallel-execution)
+- [Runtime Tool Hot-Swapping](#runtime-tool-hot-swapping)
 - [Tool Registry: Multi-Protocol Tool Access](#tool-registry-multi-protocol-tool-access)
 - [Deploying Tool Servers with MCPServerBuilder](#deploying-tool-servers-with-mcpserverbuilder)
 - [Creating Tools: Simple to Advanced](#creating-tools-simple-to-advanced)
@@ -74,7 +82,7 @@ CloudLLM has two core abstractions for talking to LLMs:
 | Abstraction | What it is | When to use it |
 |-------------|-----------|----------------|
 | **LLMSession** | Stateful conversation wrapper around any `ClientWrapper`. Maintains rolling history with automatic context trimming and token accounting. | Simple chat bots, Q&A, any 1-on-1 conversation with an LLM. |
-| **Agent** | Extends LLMSession with an identity (name, expertise, personality) and optional tools. Can execute actions, not just converse. | Tool-using assistants, orchestrated multi-agent teams, autonomous workflows. |
+| **Agent** | Wraps LLMSession with an identity (name, expertise, personality), optional tools, persistent ThoughtChain memory, and pluggable context strategies. Can execute actions, not just converse. | Tool-using assistants, orchestrated multi-agent teams, autonomous workflows. |
 
 Think of it this way: **LLMSession is the foundation; Agent builds on top of it.**
 
@@ -94,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = LLMSession::new(client, "You are a concise tutor.".into(), 8_192);
 
     let reply = session
-        .send_message(Role::User, "What is ownership in Rust?".into(), None)
+        .send_message(Role::User, "What is ownership in Rust?".into(), None, None)
         .await?;
 
     println!("{}", reply.content);
@@ -156,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = LLMSession::new(client, "You think out loud.".into(), 16_000);
 
     if let Some(mut stream) = session
-        .send_message_stream(Role::User, "Explain type erasure.".into(), None)
+        .send_message_stream(Role::User, "Explain type erasure.".into(), None, None)
         .await? {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -338,6 +346,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send_message(
             &[Message { role: Role::User, content: "Summarise rice fermentation.".into() }],
             None,
+            None,
         )
         .await?;
 
@@ -370,7 +379,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
 
     let reply = session
-        .send_message(Role::User, "Tell me about Rust.".into(), None)
+        .send_message(Role::User, "Tell me about Rust.".into(), None, None)
         .await?;
 
     println!("Assistant: {}", reply.content);
@@ -466,7 +475,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent = Agent::new("assistant", "Research Assistant", client)
         .with_expertise("Math, memory, image generation, and Fibonacci numbers")
         .with_personality("Thorough and methodical")
-        .with_tools(Arc::new(registry));
+        .with_tools(registry);
 
     println!("Agent '{}' ready with {} tools", agent.name, 4);
     Ok(())
@@ -483,6 +492,201 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `MemoryProtocol::new(memory)` | Protocol wrapper for built-in Memory |
 | `ToolRegistry::empty()` + `add_protocol()` | Multi-protocol registry |
 | `agent.with_tools(registry)` | Attach tools to an agent |
+
+---
+
+## ThoughtChain: Persistent Agent Memory
+
+[`ThoughtChain`](https://docs.rs/cloudllm/latest/cloudllm/thought_chain/struct.ThoughtChain.html) is an
+append-only, SHA-256 hash-chained, disk-persisted log of agent thoughts. Each thought can carry
+back-references to ancestor thoughts, forming a DAG that enables graph-based context resolution.
+
+```text
+ThoughtChain (.jsonl on disk)
+  ├─ Thought #0  Finding      hash=abc1...   refs=[]
+  ├─ Thought #1  Decision     hash=def2...   refs=[]      prev_hash=abc1...
+  ├─ Thought #2  Finding      hash=789a...   refs=[]      prev_hash=def2...
+  └─ Thought #3  Compression  hash=bcd3...   refs=[0, 2]  prev_hash=789a...
+                                                ↑
+                             resolve_context(3) walks refs → returns [#0, #2, #3]
+```
+
+```rust,no_run
+use cloudllm::Agent;
+use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
+use cloudllm::clients::openai::OpenAIClient;
+use std::sync::Arc;
+use std::path::PathBuf;
+use tokio::sync::RwLock;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let chain = Arc::new(RwLock::new(
+        ThoughtChain::open(&PathBuf::from("chains"), "analyst", "Analyst", Some("ML"), None)?
+    ));
+
+    let agent = Agent::new(
+        "analyst", "Analyst",
+        Arc::new(OpenAIClient::new_with_model_string(
+            &std::env::var("OPEN_AI_SECRET")?, "gpt-4o",
+        )),
+    )
+    .with_thought_chain(chain);
+
+    // Record findings and decisions as the agent works
+    agent.commit(ThoughtType::Finding, "Latency increased 3x after deploy").await?;
+    agent.commit(ThoughtType::Decision, "Roll back to v2.3").await?;
+
+    // Verify the hash chain is intact
+    let entries = agent.thought_entries().await.unwrap();
+    assert_eq!(entries.len(), 2);
+
+    Ok(())
+}
+```
+
+ThoughtChain files are newline-delimited JSON (`.jsonl`), one thought per line.
+Use `ThoughtChain::verify_integrity()` to detect tampering, and
+`ThoughtChain::resolve_context(index)` to reconstruct the minimal context
+graph for any thought.
+
+Resume a previously running agent from its chain:
+
+```rust,no_run
+use cloudllm::Agent;
+use cloudllm::thought_chain::ThoughtChain;
+use cloudllm::clients::openai::OpenAIClient;
+use std::sync::Arc;
+use std::path::PathBuf;
+use tokio::sync::RwLock;
+
+# fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+let chain = Arc::new(RwLock::new(
+    ThoughtChain::open(&PathBuf::from("chains"), "analyst", "Analyst", Some("ML"), None)?
+));
+
+// Resume from the latest thought — context graph is injected into a fresh session
+let agent = Agent::resume_from_latest(
+    "analyst", "Analyst",
+    Arc::new(OpenAIClient::new_with_model_string(
+        &std::env::var("OPEN_AI_SECRET")?, "gpt-4o",
+    )),
+    128_000,
+    chain,
+)?;
+# Ok(())
+# }
+```
+
+---
+
+## Context Strategies: Managing Context Window Exhaustion
+
+The [`ContextStrategy`](https://docs.rs/cloudllm/latest/cloudllm/context_strategy/trait.ContextStrategy.html)
+trait lets you plug in different policies for what happens when an agent's conversation history
+approaches its token budget.
+
+| Strategy | Trigger | Action |
+|----------|---------|--------|
+| **TrimStrategy** (default) | Token ratio > 0.85 | No-op — LLMSession's built-in trimming handles it |
+| **SelfCompressionStrategy** | Token ratio > 0.80 | LLM writes a structured save file; persisted to ThoughtChain |
+| **NoveltyAwareStrategy** | High pressure always; moderate pressure + low novelty | Delegates to inner strategy (typically SelfCompression) |
+
+```rust,no_run
+use cloudllm::Agent;
+use cloudllm::context_strategy::{NoveltyAwareStrategy, SelfCompressionStrategy};
+use cloudllm::clients::openai::OpenAIClient;
+use std::sync::Arc;
+
+let agent = Agent::new(
+    "analyst", "Analyst",
+    Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+)
+.context_collapse_strategy(Box::new(
+    NoveltyAwareStrategy::new(Box::new(SelfCompressionStrategy::default()))
+        .with_thresholds(0.85, 0.65, 0.25),
+));
+```
+
+The strategy can also be swapped at runtime via `agent.set_context_collapse_strategy(...)`.
+
+---
+
+## Agent::fork() — Lightweight Copies for Parallel Execution
+
+`Agent` is intentionally not `Clone` (its `LLMSession` contains a bumpalo arena).  Instead, use
+`fork()` to create a lightweight copy that shares the same tool registry and thought chain (via
+`Arc`) but has a **fresh, empty** session:
+
+```rust,no_run
+use cloudllm::Agent;
+use cloudllm::clients::openai::OpenAIClient;
+use std::sync::Arc;
+
+let agent = Agent::new(
+    "analyst", "Analyst",
+    Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+).with_expertise("Cloud Architecture");
+
+// Fork for parallel execution
+let forked = agent.fork();
+assert_eq!(forked.id, agent.id);
+assert_eq!(forked.expertise, agent.expertise);
+// forked has an empty session but shares tools and thought chain
+```
+
+Orchestration modes (Parallel, Hierarchical) use `fork()` internally when they need
+temporary per-task agents.
+
+---
+
+## Runtime Tool Hot-Swapping
+
+The tool registry is wrapped in `Arc<RwLock<ToolRegistry>>`, allowing protocols to be added
+or removed while an agent is running:
+
+```rust,no_run
+use cloudllm::Agent;
+use cloudllm::tool_protocols::CustomToolProtocol;
+use cloudllm::clients::openai::OpenAIClient;
+use std::sync::Arc;
+
+# async {
+let agent = Agent::new(
+    "a1", "Agent",
+    Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+);
+
+// Add a protocol at runtime
+agent.add_protocol("custom", Arc::new(CustomToolProtocol::new())).await.unwrap();
+
+// List available tools
+let tools = agent.list_tools().await;
+println!("Tools: {:?}", tools);
+
+// Remove it later
+agent.remove_protocol("custom").await;
+# };
+```
+
+For sharing a mutable registry across agents, use `with_shared_tools()`:
+
+```rust,no_run
+use cloudllm::Agent;
+use cloudllm::tool_protocol::ToolRegistry;
+use cloudllm::clients::openai::OpenAIClient;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+let shared = Arc::new(RwLock::new(ToolRegistry::empty()));
+let client = Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o"));
+
+let agent_a = Agent::new("a", "Agent A", client.clone())
+    .with_shared_tools(shared.clone());
+let agent_b = Agent::new("b", "Agent B", client)
+    .with_shared_tools(shared.clone());
+// Adding a protocol via agent_a is visible to agent_b
+```
 
 ---
 
@@ -694,7 +898,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     ).await;
 
-    let registry = Arc::new(ToolRegistry::new(protocol));
+    let registry = ToolRegistry::new(protocol);
 
     // Create agent with tool access
     let agent = Agent::new(
@@ -755,7 +959,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create shared memory for persistence
     let memory = Arc::new(Memory::new());
     let protocol = Arc::new(MemoryProtocol::new(memory));
-    let registry = Arc::new(ToolRegistry::new(protocol));
+    let registry = ToolRegistry::new(protocol);
 
     // Execute memory operations
     let result = registry.execute_tool(
@@ -869,7 +1073,7 @@ use std::sync::Arc;
 use cloudllm::tools::Memory;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tool_protocol::ToolRegistry;
-use cloudllm::orchestration::Agent;
+use cloudllm::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
 
 #[tokio::main]
@@ -879,10 +1083,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Wrap with protocol for agent usage
     let protocol = Arc::new(MemoryProtocol::new(memory.clone()));
-    let registry = Arc::new(ToolRegistry::new(protocol));
+    let registry = ToolRegistry::new(protocol);
 
     // Create agent with memory access
-    let mut agent = Agent::new(
+    let agent = Agent::new(
         "researcher",
         "Research Agent",
         Arc::new(OpenAIClient::new_with_model_enum(
@@ -921,7 +1125,8 @@ use std::sync::Arc;
 use cloudllm::tools::Memory;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tool_protocol::ToolRegistry;
-use cloudllm::orchestration::{Agent, Orchestration, OrchestrationMode};
+use cloudllm::{Agent, orchestration::{Orchestration, OrchestrationMode}};
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -929,14 +1134,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shared_memory = Arc::new(Memory::new());
 
     let protocol = Arc::new(MemoryProtocol::new(shared_memory));
-    let registry = Arc::new(ToolRegistry::new(protocol));
+    let shared_registry = Arc::new(RwLock::new(ToolRegistry::new(protocol)));
 
-    // Create orchestration of agents
+    // Create orchestration of agents — shared registry is visible to both
     let agent1 = Agent::new(...)
-        .with_tools(registry.clone());
+        .with_shared_tools(shared_registry.clone());
 
     let agent2 = Agent::new(...)
-        .with_tools(registry.clone());
+        .with_shared_tools(shared_registry.clone());
 
     // Both agents access same memory
     let mut orchestration = Orchestration::new("research", "Collaborative Research");
@@ -1148,7 +1353,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(register_image_generation_tool(&protocol, image_client.clone()))?;
 
     // Create agent with image generation capability
-    let registry = Arc::new(ToolRegistry::new(protocol));
+    let registry = ToolRegistry::new(protocol);
 
     let agent = Agent::new(
         "designer",
