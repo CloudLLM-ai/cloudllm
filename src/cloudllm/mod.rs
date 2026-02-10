@@ -17,10 +17,13 @@
 pub mod agent;
 pub mod client_wrapper;
 pub mod clients;
+pub mod config;
+pub mod context_strategy;
 pub mod orchestration;
 pub mod image_generation;
 pub mod llm_session;
 pub mod mcp_http_adapter;
+pub mod thought_chain;
 pub mod mcp_server;
 pub mod mcp_server_builder;
 pub mod mcp_server_builder_utils;

@@ -11,7 +11,10 @@
 //! # Core Components
 //!
 //! - **Agent**: Represents an LLM agent with identity and capabilities
+//! - **LLMSession**: Each agent wraps its own session with rolling history and token tracking
 //! - **Tool Access**: Agents can be granted access to local or remote tools via ToolRegistry
+//! - **ThoughtChain**: Optional persistent, hash-chained memory for findings/decisions
+//! - **ContextStrategy**: Pluggable strategy for handling context window exhaustion
 //! - **Expertise & Personality**: Optional attributes for behavior customization
 //! - **Metadata**: Arbitrary key-value pairs for domain-specific extensions
 //!
@@ -36,11 +39,16 @@
 //! ```
 
 use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
-use crate::cloudllm::tool_protocol::ToolRegistry;
+use crate::cloudllm::context_strategy::{ContextStrategy, TrimStrategy};
+use crate::cloudllm::llm_session::LLMSession;
+use crate::cloudllm::thought_chain::{Thought, ThoughtChain, ThoughtType};
+use crate::cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
 use openai_rust2::chat::{GrokTool, OpenAITool};
 use std::collections::HashMap;
 use std::error::Error;
+use std::io;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Parsed representation of a tool call emitted by an agent.
 #[derive(Debug, Clone)]
@@ -52,6 +60,11 @@ struct ToolCall {
 }
 
 /// Response body returned after asking an agent to generate content.
+///
+/// Wraps both the final text output and optional token-usage accounting.
+/// When the agent makes multiple tool calls during a single generation
+/// cycle, the `tokens_used` field aggregates usage across all LLM
+/// round-trips.
 #[derive(Debug, Clone)]
 pub struct AgentResponse {
     /// Final message content produced across tool iterations.
@@ -65,53 +78,64 @@ pub struct AgentResponse {
 /// Agents are LLM-powered entities that can:
 /// - Generate responses based on system prompts and user messages
 /// - Access tools through a ToolRegistry (single or multi-protocol)
-/// - Maintain state through expertise and personality attributes
+/// - Maintain per-agent conversation memory via LLMSession
+/// - Persist findings and decisions via ThoughtChain
+/// - Handle context window exhaustion via pluggable ContextStrategy
 /// - Be orchestrated by orchestrations or used independently
-#[derive(Clone)]
 pub struct Agent {
+    // ---- Identity (public, unchanged) ----
+
     /// Stable identifier referenced inside orchestration coordination.
     pub id: String,
     /// Human-readable display name for logging and UI surfaces.
     pub name: String,
-    /// Underlying client used to communicate with the model backing this agent.
-    pub client: Arc<dyn ClientWrapper>,
     /// Free-form description of the agent's strengths that will be embedded into prompts.
     pub expertise: Option<String>,
     /// Persona hints that help diversify the tone of generated responses.
     pub personality: Option<String>,
     /// Arbitrary metadata associated with the agent (e.g. department, region).
     pub metadata: HashMap<String, String>,
-    /// Optional registry of tools the agent may invoke during generation.
-    ///
-    /// The registry supports both single-protocol (for backward compatibility)
-    /// and multi-protocol (multiple MCP servers) modes. Tools are transparently
-    /// routed to the appropriate protocol based on tool ownership.
-    pub tool_registry: Option<Arc<ToolRegistry>>,
-    /// Optional xAI server-side tools (web_search, x_search, code_execution, etc.)
-    /// to forward to compatible providers (Grok).
-    pub grok_tools: Option<Vec<GrokTool>>,
-    /// Optional OpenAI server-side tools (web_search, file_search, code_interpreter)
-    /// to forward to compatible providers (OpenAI).
-    pub openai_tools: Option<Vec<OpenAITool>>,
+
+    // ---- Session (replaces raw Arc<dyn ClientWrapper>) ----
+
+    session: LLMSession,
+
+    // ---- Tools (now behind Arc<RwLock<_>> for runtime mutation) ----
+
+    tool_registry: Arc<RwLock<ToolRegistry>>,
+    grok_tools: Vec<GrokTool>,
+    openai_tools: Vec<OpenAITool>,
+
+    // ---- Context management (new) ----
+
+    context_strategy: Box<dyn ContextStrategy>,
+    thought_chain: Option<Arc<RwLock<ThoughtChain>>>,
 }
 
 impl Agent {
     /// Create a new agent with the mandatory identity information.
+    ///
+    /// Internally creates an [`LLMSession`] with the provided client, an empty
+    /// system prompt, and a 128k token budget. Tools default to an empty
+    /// [`ToolRegistry`] and the context strategy defaults to [`TrimStrategy`].
     pub fn new(
         id: impl Into<String>,
         name: impl Into<String>,
         client: Arc<dyn ClientWrapper>,
     ) -> Self {
+        let session = LLMSession::new(client, String::new(), 128_000);
         Self {
             id: id.into(),
             name: name.into(),
-            client,
             expertise: None,
             personality: None,
             metadata: HashMap::new(),
-            tool_registry: None,
-            grok_tools: None,
-            openai_tools: None,
+            session,
+            tool_registry: Arc::new(RwLock::new(ToolRegistry::empty())),
+            grok_tools: Vec::new(),
+            openai_tools: Vec::new(),
+            context_strategy: Box::new(TrimStrategy::default()),
+            thought_chain: None,
         }
     }
 
@@ -133,18 +157,40 @@ impl Agent {
         self
     }
 
+    /// Override the default token budget (builder pattern).
+    ///
+    /// Recreates the internal [`LLMSession`] with the new budget while keeping
+    /// the same client.  History is reset (the session starts empty).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let agent = Agent::new(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    /// )
+    /// .with_max_tokens(32_000); // 32k instead of the default 128k
+    /// ```
+    pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
+        let client = self.session.client().clone();
+        self.session = LLMSession::new(client, String::new(), max_tokens);
+        self
+    }
+
     /// Grant the agent access to a registry of tools.
     ///
-    /// The registry can contain tools from a single protocol or from multiple
-    /// protocols (local, MCP servers, etc.). Tools are transparently routed to
-    /// the appropriate protocol when executed.
+    /// Takes ownership of the registry and wraps it in `Arc<RwLock<_>>`.
     ///
     /// # Example: Single Protocol
     ///
     /// ```ignore
-    /// let registry = Arc::new(ToolRegistry::new(
+    /// let registry = ToolRegistry::new(
     ///     Arc::new(CustomToolProtocol::new())
-    /// ));
+    /// );
     /// agent.with_tools(registry);
     /// ```
     ///
@@ -154,25 +200,472 @@ impl Agent {
     /// let mut registry = ToolRegistry::empty();
     /// registry.add_protocol("local", Arc::new(local_protocol)).await?;
     /// registry.add_protocol("youtube", Arc::new(youtube_mcp)).await?;
-    /// agent.with_tools(Arc::new(registry));
+    /// agent.with_tools(registry);
     /// ```
-    pub fn with_tools(mut self, registry: Arc<ToolRegistry>) -> Self {
-        self.tool_registry = Some(registry);
+    pub fn with_tools(mut self, registry: ToolRegistry) -> Self {
+        self.tool_registry = Arc::new(RwLock::new(registry));
+        self
+    }
+
+    /// Share a mutable tool registry across multiple agents.
+    ///
+    /// This allows runtime mutations (add/remove protocols) to be visible
+    /// to all agents sharing the same registry.  Use this when agents in an
+    /// orchestration need to see the same tool set and react to hot-swaps.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::tool_protocol::ToolRegistry;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    /// use tokio::sync::RwLock;
+    ///
+    /// let shared = Arc::new(RwLock::new(ToolRegistry::empty()));
+    ///
+    /// let client = Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o"));
+    /// let agent_a = Agent::new("a", "Agent A", client.clone())
+    ///     .with_shared_tools(shared.clone());
+    /// let agent_b = Agent::new("b", "Agent B", client)
+    ///     .with_shared_tools(shared.clone());
+    ///
+    /// // Adding a protocol via agent_a is visible to agent_b
+    /// ```
+    pub fn with_shared_tools(mut self, registry: Arc<RwLock<ToolRegistry>>) -> Self {
+        self.tool_registry = registry;
         self
     }
 
     /// Forward xAI server-side tools (web_search, x_search, etc.) to the underlying client.
     /// Only supported by Grok clients.
     pub fn with_grok_tools(mut self, grok_tools: Vec<GrokTool>) -> Self {
-        self.grok_tools = Some(grok_tools);
+        self.grok_tools = grok_tools;
         self
     }
 
     /// Forward OpenAI server-side tools (web_search, file_search, code_interpreter) to the underlying client.
     /// Only supported by OpenAI clients.
     pub fn with_openai_tools(mut self, openai_tools: Vec<OpenAITool>) -> Self {
-        self.openai_tools = Some(openai_tools);
+        self.openai_tools = openai_tools;
         self
+    }
+
+    /// Set the context collapse strategy (builder pattern).
+    ///
+    /// The strategy determines when and how the agent compacts its conversation
+    /// history.  See the [`context_strategy`](crate::context_strategy) module
+    /// for available implementations.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::context_strategy::{NoveltyAwareStrategy, SelfCompressionStrategy};
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let agent = Agent::new(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    /// )
+    /// .context_collapse_strategy(Box::new(
+    ///     NoveltyAwareStrategy::new(Box::new(SelfCompressionStrategy::default()))
+    /// ));
+    /// ```
+    pub fn context_collapse_strategy(mut self, strategy: Box<dyn ContextStrategy>) -> Self {
+        self.context_strategy = strategy;
+        self
+    }
+
+    /// Replace the context collapse strategy at runtime.
+    ///
+    /// Unlike [`context_collapse_strategy`](Agent::context_collapse_strategy)
+    /// (which consumes `self`), this takes `&mut self` so the strategy can be
+    /// swapped on a live agent.
+    pub fn set_context_collapse_strategy(&mut self, strategy: Box<dyn ContextStrategy>) {
+        self.context_strategy = strategy;
+    }
+
+    /// Attach a [`ThoughtChain`] for persistent memory (builder pattern).
+    ///
+    /// Once attached, the agent can record findings and decisions via
+    /// [`commit`](Agent::commit), and context strategies like
+    /// [`SelfCompressionStrategy`](crate::context_strategy::SelfCompressionStrategy)
+    /// will persist compression summaries to the chain automatically.
+    ///
+    /// The chain is wrapped in `Arc<RwLock<_>>` so it can be shared across
+    /// forked agents or accessed concurrently.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::thought_chain::ThoughtChain;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    /// use tokio::sync::RwLock;
+    ///
+    /// let chain = Arc::new(RwLock::new(
+    ///     ThoughtChain::open(
+    ///         &PathBuf::from("chains"), "a1", "Agent", Some("ML"), None,
+    ///     ).unwrap()
+    /// ));
+    ///
+    /// let agent = Agent::new(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    /// )
+    /// .with_thought_chain(chain);
+    /// ```
+    pub fn with_thought_chain(mut self, chain: Arc<RwLock<ThoughtChain>>) -> Self {
+        self.thought_chain = Some(chain);
+        self
+    }
+
+    // ---- Runtime tool mutation ----
+
+    /// Add a new tool protocol at runtime.
+    ///
+    /// The protocol is discovered (its tools are listed) and then registered
+    /// under `name`.  If the agent's tool registry is shared via
+    /// [`with_shared_tools`](Agent::with_shared_tools), the new protocol is
+    /// immediately visible to all agents sharing the same registry.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::tool_protocols::CustomToolProtocol;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// # async {
+    /// let agent = Agent::new(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    /// );
+    ///
+    /// agent.add_protocol("custom", Arc::new(CustomToolProtocol::new())).await.unwrap();
+    /// assert!(!agent.list_tools().await.is_empty());
+    /// # };
+    /// ```
+    pub async fn add_protocol(
+        &self,
+        name: &str,
+        protocol: Arc<dyn ToolProtocol>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut registry = self.tool_registry.write().await;
+        registry.add_protocol(name, protocol).await
+    }
+
+    /// Remove a tool protocol at runtime.
+    ///
+    /// All tools registered under `name` are removed. If the protocol name
+    /// does not exist, this is a no-op.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use cloudllm::Agent;
+    /// # use cloudllm::clients::openai::OpenAIClient;
+    /// # use std::sync::Arc;
+    /// # async {
+    /// # let agent = Agent::new("a1", "Agent", Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")));
+    /// agent.remove_protocol("custom").await;
+    /// # };
+    /// ```
+    pub async fn remove_protocol(&self, name: &str) {
+        let mut registry = self.tool_registry.write().await;
+        registry.remove_protocol(name);
+    }
+
+    /// List all tool names currently available to this agent.
+    ///
+    /// Returns the name of every tool across all registered protocols.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use cloudllm::Agent;
+    /// # use cloudllm::clients::openai::OpenAIClient;
+    /// # use std::sync::Arc;
+    /// # async {
+    /// # let agent = Agent::new("a1", "Agent", Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")));
+    /// let tools = agent.list_tools().await;
+    /// for name in &tools {
+    ///     println!("Available: {}", name);
+    /// }
+    /// # };
+    /// ```
+    pub async fn list_tools(&self) -> Vec<String> {
+        let registry = self.tool_registry.read().await;
+        registry
+            .list_tools()
+            .iter()
+            .map(|m| m.name.clone())
+            .collect()
+    }
+
+    // ---- ThoughtChain convenience methods ----
+
+    /// Append a thought to this agent's [`ThoughtChain`].
+    ///
+    /// This is a convenience wrapper that acquires a write lock on the chain
+    /// and calls [`ThoughtChain::append`].  If no chain is attached, the call
+    /// is a silent no-op.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    /// use tokio::sync::RwLock;
+    ///
+    /// # async {
+    /// let chain = Arc::new(RwLock::new(
+    ///     ThoughtChain::open(&PathBuf::from("/tmp/ch"), "a1", "Agent", None, None).unwrap()
+    /// ));
+    /// let agent = Agent::new(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    /// ).with_thought_chain(chain);
+    ///
+    /// agent.commit(ThoughtType::Finding, "Latency increased 3x").await.unwrap();
+    /// agent.commit(ThoughtType::Decision, "Enable caching").await.unwrap();
+    ///
+    /// let entries = agent.thought_entries().await.unwrap();
+    /// assert_eq!(entries.len(), 2);
+    /// # };
+    /// ```
+    pub async fn commit(
+        &self,
+        entry_type: ThoughtType,
+        content: impl Into<String>,
+    ) -> io::Result<()> {
+        if let Some(chain) = &self.thought_chain {
+            let mut chain = chain.write().await;
+            chain.append(&self.id, entry_type, &content.into())?;
+        }
+        Ok(())
+    }
+
+    /// Return a snapshot of all thoughts in this agent's chain.
+    ///
+    /// Returns `None` if no [`ThoughtChain`] is attached, or `Some(vec)` with
+    /// cloned thoughts otherwise.
+    pub async fn thought_entries(&self) -> Option<Vec<Thought>> {
+        if let Some(chain) = &self.thought_chain {
+            let chain = chain.read().await;
+            Some(chain.thoughts().to_vec())
+        } else {
+            None
+        }
+    }
+
+    // ---- Resume constructors ----
+
+    /// Resume an agent from a specific thought in an existing chain.
+    ///
+    /// Resolves the context graph at `thought_index` via
+    /// [`ThoughtChain::resolve_context`] and injects the resulting bootstrap
+    /// prompt into a fresh [`LLMSession`].  The agent starts with the
+    /// critical reasoning context already in its history, ready to continue
+    /// where it left off.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    /// use tokio::sync::RwLock;
+    ///
+    /// // Assume a chain was previously populated
+    /// let chain = Arc::new(RwLock::new(
+    ///     ThoughtChain::open(
+    ///         &PathBuf::from("chains"), "a1", "Agent", Some("ML"), None,
+    ///     ).unwrap()
+    /// ));
+    ///
+    /// let agent = Agent::resume_from_chain(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    ///     128_000,
+    ///     chain,
+    ///     5, // resume from thought #5
+    /// ).unwrap();
+    /// ```
+    pub fn resume_from_chain(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        client: Arc<dyn ClientWrapper>,
+        max_tokens: usize,
+        chain: Arc<RwLock<ThoughtChain>>,
+        thought_index: u64,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let id = id.into();
+        let name = name.into();
+        let mut session = LLMSession::new(client, String::new(), max_tokens);
+
+        // We need to block briefly to read the chain — this runs during construction
+        let chain_guard = chain.try_read().map_err(|_| {
+            Box::new(io::Error::other(
+                "ThoughtChain is locked",
+            )) as Box<dyn Error + Send + Sync>
+        })?;
+        let bootstrap = chain_guard.to_bootstrap_prompt(thought_index);
+        drop(chain_guard);
+
+        if !bootstrap.is_empty() {
+            session.inject_message(Role::System, bootstrap);
+        }
+
+        Ok(Self {
+            id,
+            name,
+            expertise: None,
+            personality: None,
+            metadata: HashMap::new(),
+            session,
+            tool_registry: Arc::new(RwLock::new(ToolRegistry::empty())),
+            grok_tools: Vec::new(),
+            openai_tools: Vec::new(),
+            context_strategy: Box::new(TrimStrategy::default()),
+            thought_chain: Some(chain),
+        })
+    }
+
+    /// Resume an agent from the latest thought in an existing chain.
+    ///
+    /// Convenience wrapper around [`resume_from_chain`](Agent::resume_from_chain)
+    /// that automatically targets the last thought in the chain.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::thought_chain::ThoughtChain;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    /// use std::path::PathBuf;
+    /// use tokio::sync::RwLock;
+    ///
+    /// let chain = Arc::new(RwLock::new(
+    ///     ThoughtChain::open(
+    ///         &PathBuf::from("chains"), "a1", "Agent", None, None,
+    ///     ).unwrap()
+    /// ));
+    ///
+    /// let agent = Agent::resume_from_latest(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    ///     128_000,
+    ///     chain,
+    /// ).unwrap();
+    /// ```
+    pub fn resume_from_latest(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        client: Arc<dyn ClientWrapper>,
+        max_tokens: usize,
+        chain: Arc<RwLock<ThoughtChain>>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let last_index = {
+            let guard = chain.try_read().map_err(|_| {
+                Box::new(io::Error::other(
+                    "ThoughtChain is locked",
+                )) as Box<dyn Error + Send + Sync>
+            })?;
+            guard.thoughts().last().map(|t| t.index).unwrap_or(0)
+        };
+        Self::resume_from_chain(id, name, client, max_tokens, chain, last_index)
+    }
+
+    // ---- fork() — replaces Clone for parallel execution ----
+
+    /// Create a lightweight copy for parallel execution.
+    ///
+    /// The fork shares the same tool registry and thought chain (via `Arc`)
+    /// but has a **fresh, empty** [`LLMSession`] backed by the same client.
+    /// Identity fields (`id`, `name`, `expertise`, `personality`, `metadata`)
+    /// are cloned.  The context strategy is reset to [`TrimStrategy`] since
+    /// forked agents are typically short-lived.
+    ///
+    /// This replaces `Clone` — `Agent` is intentionally not `Clone` because
+    /// cloning a full `LLMSession` (with its bumpalo arena) would be expensive
+    /// and semantically misleading.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let agent = Agent::new(
+    ///     "analyst", "Analyst",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    /// ).with_expertise("Cloud Architecture");
+    ///
+    /// // Fork for parallel execution — identity is preserved
+    /// let forked = agent.fork();
+    /// assert_eq!(forked.id, agent.id);
+    /// assert_eq!(forked.expertise, agent.expertise);
+    /// ```
+    pub fn fork(&self) -> Self {
+        let client = self.session.client().clone();
+        let max_tokens = self.session.get_max_tokens();
+        Self {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            expertise: self.expertise.clone(),
+            personality: self.personality.clone(),
+            metadata: self.metadata.clone(),
+            session: LLMSession::new(client, String::new(), max_tokens),
+            tool_registry: Arc::clone(&self.tool_registry),
+            grok_tools: self.grok_tools.clone(),
+            openai_tools: self.openai_tools.clone(),
+            context_strategy: Box::new(TrimStrategy::default()),
+            thought_chain: self.thought_chain.clone(),
+        }
+    }
+
+    // ---- Accessor for client ----
+
+    /// Borrow the underlying [`ClientWrapper`] from the session.
+    ///
+    /// Useful for creating new sessions or agents that share the same LLM
+    /// provider connection.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::LLMSession;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let agent = Agent::new(
+    ///     "a1", "Agent",
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    /// );
+    ///
+    /// // Create a standalone session sharing the same provider
+    /// let session = LLMSession::new(
+    ///     agent.client().clone(),
+    ///     "system prompt".into(),
+    ///     8_192,
+    /// );
+    /// ```
+    pub fn client(&self) -> &Arc<dyn ClientWrapper> {
+        self.session.client()
     }
 
     /// Generate the system prompt augmented with the agent's expertise and personality.
@@ -210,8 +703,8 @@ impl Agent {
 
         // System message with tool information if available
         let mut system_with_tools = augmented_system.clone();
-        if let Some(registry) = &self.tool_registry {
-            // Get tools from the registry (works for both single and multi-protocol)
+        {
+            let registry = self.tool_registry.read().await;
             let tools = registry.list_tools();
             if !tools.is_empty() {
                 system_with_tools.push_str("\n\nYou have access to the following tools:\n");
@@ -271,19 +764,29 @@ impl Agent {
 
         loop {
             // Send to LLM
-            let grok_tools = self.grok_tools.clone();
-            let openai_tools = self.openai_tools.clone();
+            let grok_tools = if self.grok_tools.is_empty() {
+                None
+            } else {
+                Some(self.grok_tools.clone())
+            };
+            let openai_tools = if self.openai_tools.is_empty() {
+                None
+            } else {
+                Some(self.openai_tools.clone())
+            };
             let response = self
-                .client
+                .session
+                .client()
                 .send_message(&messages, grok_tools, openai_tools)
                 .await
                 .map_err(|e| {
-                    Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(e.to_string()))
-                        as Box<dyn Error + Send + Sync>
+                    Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
+                        e.to_string(),
+                    )) as Box<dyn Error + Send + Sync>
                 })?;
 
             // Track token usage from this call
-            if let Some(usage) = self.client.get_last_usage().await {
+            if let Some(usage) = self.session.client().get_last_usage().await {
                 total_input_tokens += usage.input_tokens;
                 total_output_tokens += usage.output_tokens;
                 total_tokens += usage.total_tokens;
@@ -292,65 +795,63 @@ impl Agent {
             let current_response = response.content.to_string();
 
             // Check if we have tools and if the response contains a tool call
-            if let Some(registry) = &self.tool_registry {
-                if let Some(tool_call) = self.parse_tool_call(&current_response) {
-                    if tool_iteration >= max_tool_iterations {
-                        // Max iterations reached, return with warning
-                        final_response = format!(
-                            "{}\n\n[Warning: Maximum tool iterations reached]",
-                            current_response
-                        );
-                        break;
-                    }
-
-                    tool_iteration += 1;
-
-                    // Execute the tool via the registry
-                    let tool_result = registry
-                        .execute_tool(&tool_call.name, tool_call.parameters)
-                        .await;
-
-                    // Add assistant's tool call to messages
-                    messages.push(Message {
-                        role: Role::Assistant,
-                        content: response.content.clone(),
-                    });
-
-                    // Add tool result to messages
-                    let tool_result_message = match tool_result {
-                        Ok(result) => {
-                            if result.success {
-                                format!(
-                                    "Tool '{}' executed successfully. Result: {}",
-                                    tool_call.name,
-                                    serde_json::to_string_pretty(&result.output)
-                                        .unwrap_or_else(|_| format!("{:?}", result.output))
-                                )
-                            } else {
-                                format!(
-                                    "Tool '{}' failed. Error: {}",
-                                    tool_call.name,
-                                    result.error.unwrap_or_else(|| "Unknown error".to_string())
-                                )
-                            }
-                        }
-                        Err(e) => format!("Tool execution error: {}", e),
-                    };
-
-                    messages.push(Message {
-                        role: Role::User,
-                        content: Arc::from(tool_result_message.as_str()),
-                    });
-
-                    // Continue loop to get next response
-                    continue;
-                } else {
-                    // No tool call found, return the response
-                    final_response = current_response;
+            let tool_call = self.parse_tool_call(&current_response);
+            if let Some(tool_call) = tool_call {
+                if tool_iteration >= max_tool_iterations {
+                    // Max iterations reached, return with warning
+                    final_response = format!(
+                        "{}\n\n[Warning: Maximum tool iterations reached]",
+                        current_response
+                    );
                     break;
                 }
+
+                tool_iteration += 1;
+
+                // Execute the tool via the registry
+                let tool_result = {
+                    let registry = self.tool_registry.read().await;
+                    registry
+                        .execute_tool(&tool_call.name, tool_call.parameters)
+                        .await
+                };
+
+                // Add assistant's tool call to messages
+                messages.push(Message {
+                    role: Role::Assistant,
+                    content: response.content.clone(),
+                });
+
+                // Add tool result to messages
+                let tool_result_message = match tool_result {
+                    Ok(result) => {
+                        if result.success {
+                            format!(
+                                "Tool '{}' executed successfully. Result: {}",
+                                tool_call.name,
+                                serde_json::to_string_pretty(&result.output)
+                                    .unwrap_or_else(|_| format!("{:?}", result.output))
+                            )
+                        } else {
+                            format!(
+                                "Tool '{}' failed. Error: {}",
+                                tool_call.name,
+                                result.error.unwrap_or_else(|| "Unknown error".to_string())
+                            )
+                        }
+                    }
+                    Err(e) => format!("Tool execution error: {}", e),
+                };
+
+                messages.push(Message {
+                    role: Role::User,
+                    content: Arc::from(tool_result_message.as_str()),
+                });
+
+                // Continue loop to get next response
+                continue;
             } else {
-                // No tools available, return the response
+                // No tool call found, return the response
                 final_response = current_response;
                 break;
             }
@@ -432,6 +933,15 @@ impl Agent {
     }
 }
 
+// SAFETY: Agent is Send + Sync because:
+// - All public methods that access mutable state use proper synchronization (Arc<RwLock>)
+// - LLMSession's arena (bumpalo::Bump) makes it !Sync, but generate_with_tokens only
+//   accesses session.client() (which is Arc<dyn ClientWrapper>) — never mutating the arena
+// - Box<dyn ContextStrategy> is bounded by Send + Sync
+// - The Bump allocator is never accessed across thread boundaries through &self methods
+unsafe impl Send for Agent {}
+unsafe impl Sync for Agent {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,7 +960,6 @@ mod tests {
         assert_eq!(agent.name, "Test Agent");
         assert!(agent.expertise.is_none());
         assert!(agent.personality.is_none());
-        assert!(agent.tool_registry.is_none());
     }
 
     #[test]

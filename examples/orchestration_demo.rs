@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await;
 
-    let tool_registry = Arc::new(ToolRegistry::new(Arc::new(tool_adapter)));
+    let tool_registry = ToolRegistry::new(Arc::new(tool_adapter));
 
     // Get API key from environment
     let openai_key = std::env::var("OPENAI_KEY").unwrap_or_else(|_| {
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_expertise("Performance optimization, caching strategies, database tuning")
     .with_personality("Data-driven, focuses on metrics and benchmarks")
-    .with_tools(tool_registry.clone());
+    .with_tools(tool_registry);
 
     let mut parallel_orchestration = Orchestration::new("expert-panel", "Technical Expert Panel")
         .with_mode(OrchestrationMode::Parallel)

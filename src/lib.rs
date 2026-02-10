@@ -300,7 +300,14 @@ pub use cloudllm::client_wrapper::{
     ClientWrapper, Message, MessageChunk, MessageChunkStream, MessageStreamFuture, Role,
 };
 pub use cloudllm::clients;
+pub use cloudllm::config::CloudLLMConfig;
+pub use cloudllm::context_strategy::{
+    ContextStrategy, NoveltyAwareStrategy, SelfCompressionStrategy, TrimStrategy,
+};
 pub use cloudllm::llm_session::LLMSession;
+pub use cloudllm::thought_chain::{ThoughtChain, Thought, ThoughtType};
+pub use cloudllm::thought_chain;
+pub use cloudllm::context_strategy;
 
 // Re-export tool protocol and orchestration functionality
 pub use cloudllm::orchestration;

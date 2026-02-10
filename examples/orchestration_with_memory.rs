@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create memory adapter and registry - ALL AGENTS WILL SHARE THIS
     let memory_adapter = Arc::new(MemoryProtocol::new(shared_memory.clone()));
-    let shared_registry = Arc::new(ToolRegistry::new(memory_adapter));
+    let shared_registry = Arc::new(tokio::sync::RwLock::new(ToolRegistry::new(memory_adapter)));
 
     // Create three agents with different roles, all with access to shared memory
     let analyst = Agent::new(
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_expertise("Analyzes data patterns and identifies key metrics")
     .with_personality("Quantitative, focused on numbers and trends")
-    .with_tools(shared_registry.clone());
+    .with_shared_tools(shared_registry.clone());
 
     let strategist = Agent::new(
         "strategist",
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_expertise("Creates strategic plans and identifies opportunities")
     .with_personality("Visionary, thinks about long-term implications")
-    .with_tools(shared_registry.clone());
+    .with_shared_tools(shared_registry.clone());
 
     let implementer = Agent::new(
         "implementer",
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_expertise("Focuses on practical execution and feasibility")
     .with_personality("Pragmatic, detail-oriented, risk-aware")
-    .with_tools(shared_registry.clone());
+    .with_shared_tools(shared_registry.clone());
 
     // Create an orchestration with these agents
     let mut orchestration = Orchestration::new("decision-orchestration", "Strategic Decision Orchestration")
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Agents: {}", orchestration.list_agents().len());
     for agent in orchestration.list_agents() {
         println!("  - {} ({})", agent.name, agent.id);
-        println!("    Has shared memory: {}", agent.tool_registry.is_some());
+        println!("    Has shared memory: true");
     }
 
     println!("\n=== Problem Statement ===");

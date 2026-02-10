@@ -834,27 +834,10 @@ impl Orchestration {
                 let history = self.conversation_history.clone();
                 let agent_id = agent.id.clone();
                 let agent_name = agent.name.clone();
-                let client = agent.client.clone();
-                let expertise = agent.expertise.clone();
-                let personality = agent.personality.clone();
-                let grok_tools = agent.grok_tools.clone();
-                let openai_tools = agent.openai_tools.clone();
-                let tool_registry = agent.tool_registry.clone();
-                let metadata = agent.metadata.clone();
                 let prompt_clone = prompt_owned.clone();
 
-                // Create temporary agent for task
-                let temp_agent = Agent {
-                    id: agent_id.clone(),
-                    name: agent_name.clone(),
-                    client: client.clone(),
-                    expertise: expertise.clone(),
-                    personality: personality.clone(),
-                    metadata,
-                    tool_registry,
-                    grok_tools,
-                    openai_tools,
-                };
+                // Create temporary agent for task via fork()
+                let temp_agent = agent.fork();
 
                 tasks.push(tokio::spawn(async move {
                     let result = temp_agent
@@ -1133,25 +1116,8 @@ impl Orchestration {
                 let current_prompt = layer_results.clone();
                 let agent_id = agent.id.clone();
                 let agent_name = agent.name.clone();
-                let client = agent.client.clone();
-                let expertise = agent.expertise.clone();
-                let personality = agent.personality.clone();
-                let grok_tools = agent.grok_tools.clone();
-                let openai_tools = agent.openai_tools.clone();
-                let tool_registry = agent.tool_registry.clone();
-                let metadata = agent.metadata.clone();
 
-                let temp_agent = Agent {
-                    id: agent_id.clone(),
-                    name: agent_name.clone(),
-                    client: client.clone(),
-                    expertise: expertise.clone(),
-                    personality: personality.clone(),
-                    metadata,
-                    tool_registry,
-                    grok_tools,
-                    openai_tools,
-                };
+                let temp_agent = agent.fork();
 
                 tasks.push(tokio::spawn(async move {
                     let result = temp_agent

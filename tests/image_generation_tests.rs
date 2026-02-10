@@ -1606,7 +1606,7 @@ fn test_agent_with_image_generation_tool() {
             }
 
             // Create an agent with image generation tool
-            let registry = Arc::new(ToolRegistry::new(protocol.clone()));
+            let registry = ToolRegistry::new(protocol.clone());
 
             let agent = Agent::new(
                 "designer",
@@ -1799,7 +1799,7 @@ fn test_grok_agent_with_image_generation_tool() {
             }
 
             // Create an agent with image generation tool
-            let registry = Arc::new(ToolRegistry::new(protocol.clone()));
+            let registry = ToolRegistry::new(protocol.clone());
 
             let agent = Agent::new(
                 "grok_designer",

@@ -139,7 +139,6 @@ async fn test_agent_with_tool_execution() {
     let mut registry = ToolRegistry::new(Arc::new(adapter));
     // Discover tools from the adapter
     registry.discover_tools_from_primary().await.unwrap();
-    let registry = Arc::new(registry);
 
     // Create a mock client that will respond with a tool call
     struct ToolCallingMockClient {

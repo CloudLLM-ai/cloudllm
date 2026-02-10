@@ -91,7 +91,7 @@ impl PanelWorkflow {
             .await;
 
         // Worker A: Data Collector (uses Memory)
-        let registry_a = Arc::new(ToolRegistry::new(memory_protocol.clone()));
+        let registry_a = ToolRegistry::new(memory_protocol.clone());
         let worker_a = Agent::new(
             "worker_a",
             "Data Collector",
@@ -104,7 +104,7 @@ impl PanelWorkflow {
         .with_tools(registry_a);
 
         // Worker B: Energy Analyst (uses Calculator + Memory)
-        let registry_b = Arc::new(ToolRegistry::new(custom_protocol.clone()));
+        let registry_b = ToolRegistry::new(custom_protocol.clone());
         let worker_b = Agent::new(
             "worker_b",
             "Energy Analyst",
@@ -117,7 +117,7 @@ impl PanelWorkflow {
         .with_tools(registry_b);
 
         // Worker C: Emissions Analyst (uses Memory + Calculator)
-        let registry_c = Arc::new(ToolRegistry::new(memory_protocol.clone()));
+        let registry_c = ToolRegistry::new(memory_protocol.clone());
         let worker_c = Agent::new(
             "worker_c",
             "Emissions Analyst",
@@ -130,7 +130,7 @@ impl PanelWorkflow {
         .with_tools(registry_c);
 
         // Moderator: Verifier & Integrator (uses Memory)
-        let moderator_registry = Arc::new(ToolRegistry::new(memory_protocol.clone()));
+        let moderator_registry = ToolRegistry::new(memory_protocol.clone());
         let moderator = Agent::new(
             "moderator",
             "Verifier & Integrator",
@@ -168,9 +168,9 @@ impl PanelWorkflow {
             .with_mode(OrchestrationMode::Parallel)
             .with_max_tokens(4096);
 
-        orchestration.add_agent(self.worker_a.clone())?;
-        orchestration.add_agent(self.worker_b.clone())?;
-        orchestration.add_agent(self.worker_c.clone())?;
+        orchestration.add_agent(self.worker_a.fork())?;
+        orchestration.add_agent(self.worker_b.fork())?;
+        orchestration.add_agent(self.worker_c.fork())?;
 
         let prompt = r#"You are part of a three-agent research team analyzing Bitcoin mining CO₂ emissions.
 
@@ -269,9 +269,9 @@ Allow Round-2: Workers may now read r1/source.* and r1/energy.* for validation.
             .with_mode(OrchestrationMode::Parallel)
             .with_max_tokens(4096);
 
-        orchestration.add_agent(self.worker_a.clone())?;
-        orchestration.add_agent(self.worker_b.clone())?;
-        orchestration.add_agent(self.worker_c.clone())?;
+        orchestration.add_agent(self.worker_a.fork())?;
+        orchestration.add_agent(self.worker_b.fork())?;
+        orchestration.add_agent(self.worker_c.fork())?;
 
         let prompt = r#"
 Round 2: Refine your Round 1 estimates with uncertainty bounds.

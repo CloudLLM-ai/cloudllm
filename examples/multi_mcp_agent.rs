@@ -132,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _agent = Agent::new("research-agent", "Research Agent", client)
         .with_expertise("Finding information using multiple sources")
         .with_personality("Curious and methodical")
-        .with_tools(Arc::new(registry));
+        .with_tools(registry);
 
     // Step 7: Example agent interaction
     println!("\n=== Agent Capabilities ===\n");

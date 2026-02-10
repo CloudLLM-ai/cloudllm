@@ -28,8 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the memory tool adapter with the succinct protocol
     let memory_adapter = Arc::new(MemoryProtocol::new(memory.clone()));
 
-    // Create a tool registry with the memory tool
-    let registry = Arc::new(ToolRegistry::new(memory_adapter));
+    // Create a tool registry with the memory tool, shared so we can use it directly too
+    let shared_registry = Arc::new(tokio::sync::RwLock::new(ToolRegistry::new(memory_adapter)));
 
     // Create an OpenAI client
     let client = Arc::new(OpenAIClient::new_with_model_enum(
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Skilled at creating concise summaries of documents while preserving key information",
         )
         .with_personality("Methodical and detail-oriented, saves progress and creates checkpoints")
-        .with_tools(registry);
+        .with_shared_tools(shared_registry.clone());
 
     println!("=== Agent Configuration ===");
     println!("Agent ID: {}", agent.id);
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Expertise: {}",
         agent.expertise.as_ref().unwrap_or(&"None".to_string())
     );
-    println!("Has memory tool: {}", agent.tool_registry.is_some());
+    println!("Has memory tool: {}", !agent.list_tools().await.is_empty());
 
     // System prompt that teaches the agent about memory
     let system_prompt = format!(
@@ -101,7 +101,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Direct Memory Operations Demo ===");
 
     // Demonstrate memory operations
-    if let Some(tool_registry) = &agent.tool_registry {
+    {
+        let tool_registry = shared_registry.read().await;
         // Store initial task information
         println!("\nStoring document metadata...");
         match tool_registry

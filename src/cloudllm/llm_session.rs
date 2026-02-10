@@ -345,6 +345,136 @@ impl LLMSession {
     pub fn get_system_prompt(&self) -> &Message {
         &self.system_prompt
     }
+
+    /// Borrow the underlying client.
+    ///
+    /// Useful for creating new sessions that share the same provider (e.g.
+    /// [`Agent::fork`](crate::Agent::fork)).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::LLMSession;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let session = LLMSession::new(
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    ///     "system".into(),
+    ///     8_192,
+    /// );
+    ///
+    /// // Clone the client to create a sibling session
+    /// let sibling = LLMSession::new(
+    ///     session.client().clone(),
+    ///     "different system prompt".into(),
+    ///     4_096,
+    /// );
+    /// ```
+    pub fn client(&self) -> &Arc<dyn ClientWrapper> {
+        &self.client
+    }
+
+    /// Wipe conversation history and cached token counts.
+    ///
+    /// The system prompt is preserved. Cumulative token counters are **not**
+    /// reset so lifetime accounting remains accurate.
+    ///
+    /// This is typically called by context strategies after persisting a
+    /// compression summary, right before injecting the bootstrap prompt
+    /// via [`inject_message`](LLMSession::inject_message).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::LLMSession;
+    /// use cloudllm::client_wrapper::Role;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let mut session = LLMSession::new(
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    ///     "system".into(),
+    ///     8_192,
+    /// );
+    ///
+    /// // After many messages, clear and start fresh
+    /// session.clear_history();
+    /// assert_eq!(session.get_conversation_history().len(), 0);
+    /// assert_eq!(session.estimated_history_tokens(), 0);
+    /// ```
+    pub fn clear_history(&mut self) {
+        self.conversation_history.clear();
+        self.cached_token_counts.clear();
+    }
+
+    /// Add a message to history without sending it to the LLM.
+    ///
+    /// The content is allocated in the session's arena and its token count
+    /// is cached, just like messages added via
+    /// [`send_message`](LLMSession::send_message).  Use this to inject
+    /// [`ThoughtChain`](crate::ThoughtChain) context into a fresh or cleared
+    /// session.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::LLMSession;
+    /// use cloudllm::client_wrapper::Role;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let mut session = LLMSession::new(
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    ///     "system".into(),
+    ///     8_192,
+    /// );
+    ///
+    /// session.inject_message(
+    ///     Role::System,
+    ///     "=== RESTORED CONTEXT ===\nPrevious findings...".into(),
+    /// );
+    /// assert_eq!(session.get_conversation_history().len(), 1);
+    /// ```
+    pub fn inject_message(&mut self, role: Role, content: String) {
+        let content_str = self.arena.alloc_str(&content);
+        let content_arc: Arc<str> = Arc::from(content_str);
+        let message = Message {
+            role,
+            content: content_arc,
+        };
+        let token_count = estimate_message_token_count(&message);
+        self.conversation_history.push(message);
+        self.cached_token_counts.push(token_count);
+    }
+
+    /// Sum of estimated tokens across all messages currently in history.
+    ///
+    /// This is the value that [`ContextStrategy`](crate::context_strategy::ContextStrategy)
+    /// implementations compare against [`get_max_tokens`](LLMSession::get_max_tokens)
+    /// to decide when to compact.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::LLMSession;
+    /// use cloudllm::client_wrapper::Role;
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use std::sync::Arc;
+    ///
+    /// let mut session = LLMSession::new(
+    ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
+    ///     "system".into(),
+    ///     8_192,
+    /// );
+    ///
+    /// assert_eq!(session.estimated_history_tokens(), 0);
+    /// session.inject_message(Role::User, "Hello world".into());
+    /// assert!(session.estimated_history_tokens() > 0);
+    /// ```
+    pub fn estimated_history_tokens(&self) -> usize {
+        self.cached_token_counts.iter().sum()
+    }
 }
 
 /// Estimates the number of tokens in a string.
