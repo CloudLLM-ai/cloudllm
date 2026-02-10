@@ -307,6 +307,11 @@ impl LLMSession {
         };
     }
 
+    /// Return the system prompt content as a string slice.
+    pub fn system_prompt_text(&self) -> &str {
+        &self.system_prompt.content
+    }
+
     /// Return the cumulative token usage statistics tracked for this session.
     pub fn token_usage(&self) -> client_wrapper::TokenUsage {
         client_wrapper::TokenUsage {

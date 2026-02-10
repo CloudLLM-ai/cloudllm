@@ -546,6 +546,10 @@ pub struct Orchestration {
     /// Soft token budget forwarded to agents for context trimming.
     /// Override with [`Orchestration::with_max_tokens`].
     max_tokens: usize,
+
+    /// Per-agent cursor tracking the last message index each agent has seen.
+    /// Used by hub-routing to avoid re-injecting messages agents already have.
+    agent_message_cursors: HashMap<String, usize>,
 }
 
 impl Orchestration {
@@ -575,6 +579,7 @@ impl Orchestration {
                 "You are participating in a collaborative discussion with other AI agents.",
             ),
             max_tokens: 8192,
+            agent_message_cursors: HashMap::new(),
         }
     }
 
@@ -808,16 +813,27 @@ impl Orchestration {
         }
     }
 
+    /// Initialize all agents' system prompts using the orchestration's system context.
+    ///
+    /// Called at the start of each execution mode so every agent has its
+    /// augmented system prompt configured before any messages are routed.
+    fn setup_agent_prompts(&mut self) {
+        for agent in self.agents.values_mut() {
+            agent.set_system_prompt(&self.system_context);
+        }
+    }
+
     /// Execute parallel mode: all agents respond simultaneously.
     ///
-    /// For each round, every agent is spawned as a separate `tokio` task with
-    /// a clone of the current conversation history. Results are collected and
-    /// appended to the history before the next round begins.
+    /// For each round, every agent is forked into a separate `tokio` task.
+    /// Each fork receives only the system prompt and the user prompt via
+    /// hub-routing — no full history broadcast.
     async fn execute_parallel(
         &mut self,
         prompt: &str,
         rounds: usize,
     ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        self.setup_agent_prompts();
         let mut all_messages = Vec::new();
         let mut total_tokens = 0;
 
@@ -826,24 +842,18 @@ impl Orchestration {
 
             // Spawn all agent tasks in parallel
             let mut tasks = Vec::new();
-            let prompt_owned = prompt.to_string(); // Convert to owned string
+            let prompt_owned = prompt.to_string();
+            let system_context = self.system_context.clone();
 
             for agent_id in &self.agent_order {
                 let agent = self.agents.get(agent_id).unwrap();
-                let system_prompt = self.system_context.clone();
-                let history = self.conversation_history.clone();
-                let agent_id = agent.id.clone();
-                let agent_name = agent.name.clone();
+                let mut temp_agent = agent.fork();
+                temp_agent.set_system_prompt(&system_context);
                 let prompt_clone = prompt_owned.clone();
 
-                // Create temporary agent for task via fork()
-                let temp_agent = agent.fork();
-
                 tasks.push(tokio::spawn(async move {
-                    let result = temp_agent
-                        .generate_with_tokens(&system_prompt, &prompt_clone, &history)
-                        .await;
-                    (agent_id, agent_name, result)
+                    let result = temp_agent.send(&prompt_clone).await;
+                    (temp_agent.id.clone(), temp_agent.name.clone(), result)
                 }));
             }
 
@@ -858,7 +868,6 @@ impl Orchestration {
 
                 match result {
                     Ok(agent_response) => {
-                        // Track tokens
                         if let Some(usage) = agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
@@ -891,50 +900,49 @@ impl Orchestration {
 
     /// Execute round-robin mode: agents take turns sequentially.
     ///
-    /// Within each round, agents respond one at a time in insertion order.
-    /// Each agent's prompt is augmented with all prior responses so it can
-    /// build on what was said before.
+    /// Each agent has its own session. The hub routes only prior agents'
+    /// responses into the current agent's session before it generates.
+    /// No prompt augmentation duplication — each message is injected once.
     async fn execute_round_robin(
         &mut self,
         prompt: &str,
         rounds: usize,
     ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        self.setup_agent_prompts();
         let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
         let mut total_tokens = 0;
 
-        for round in 0..rounds {
+        for _round in 0..rounds {
             for agent_id in self.agent_order.clone() {
-                let agent = self.agents.get(&agent_id).unwrap();
+                let mut agent = self.agents.remove(&agent_id).unwrap();
 
-                // Build context including what others have said
-                let mut round_prompt = prompt.to_string();
-                if round > 0 || !all_messages.is_empty() {
-                    round_prompt.push_str("\n\nPrevious responses from other agents:\n");
-                    for msg in &all_messages {
-                        if let Some(name) = &msg.agent_name {
-                            round_prompt.push_str(&format!("{}: {}\n\n", name, msg.content));
-                        }
+                // Route only NEW messages this agent hasn't seen yet
+                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                for msg in &all_messages[cursor..] {
+                    if let Some(name) = &msg.agent_name {
+                        agent.receive_message(
+                            Role::Assistant,
+                            format!("[{}]: {}", name, msg.content),
+                        );
                     }
                 }
+                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
 
-                let result = agent
-                    .generate_with_tokens(
-                        &self.system_context,
-                        &round_prompt,
-                        &self.conversation_history,
-                    )
-                    .await;
+                let result = agent.send(prompt).await;
+
+                // Re-insert agent before handling result
+                let agent_name = agent.name.clone();
+                self.agents.insert(agent_id.clone(), agent);
 
                 match result {
                     Ok(agent_response) => {
-                        // Track tokens
                         if let Some(usage) = agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
 
                         let msg = OrchestrationMessage::from_agent(
-                            agent.id.clone(),
-                            agent.name.clone(),
+                            &agent_id,
+                            &agent_name,
                             agent_response.content,
                         );
                         all_messages.push(msg.clone());
@@ -958,114 +966,120 @@ impl Orchestration {
 
     /// Execute moderated mode: a moderator agent picks which expert speaks each round.
     ///
-    /// Each round the moderator is asked to select from the available non-moderator
-    /// agents. The chosen agent then responds in context. The moderator's selection
-    /// prompt includes the accumulated discussion to maintain continuity.
+    /// The moderator and each expert use their own sessions. The hub routes
+    /// discussion messages selectively — the moderator sees everything, while
+    /// the chosen expert receives only the messages it hasn't seen yet.
     async fn execute_moderated(
         &mut self,
         prompt: &str,
         rounds: usize,
         moderator_id: &str,
     ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
-        let moderator = self
-            .agents
-            .get(moderator_id)
-            .ok_or_else(|| OrchestrationError::AgentNotFound(moderator_id.to_string()))?;
+        if !self.agents.contains_key(moderator_id) {
+            return Err(Box::new(OrchestrationError::AgentNotFound(moderator_id.to_string())));
+        }
+
+        self.setup_agent_prompts();
+
+        // Set up moderator with its own system prompt
+        {
+            let moderator = self.agents.get_mut(moderator_id).unwrap();
+            moderator.set_system_prompt(
+                "You are a moderator. Your job is to select the most appropriate expert to answer each question. \
+                 Ensure both sides get fair representation by alternating between different experts.",
+            );
+        }
 
         let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
         let mut total_tokens = 0;
 
+        let expert_names: String = self
+            .agents
+            .values()
+            .filter(|a| a.id != moderator_id)
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
         for round_num in 0..rounds {
-            // Build context for moderator including conversation so far
-            let mut moderator_prompt = String::new();
-
-            if round_num == 0 {
-                // First round: use original prompt
-                moderator_prompt.push_str(prompt);
-            } else {
-                // Subsequent rounds: include what's been said so far
-                moderator_prompt.push_str(&format!("Original topic: {}\n\n", prompt));
-                moderator_prompt.push_str("Discussion so far:\n");
-                for msg in &all_messages {
-                    if let Some(name) = &msg.agent_name {
-                        moderator_prompt.push_str(&format!("{}: {}\n\n", name, msg.content));
-                    }
-                }
-                moderator_prompt.push_str(
-                    "Based on the discussion so far, who should speak next to continue the debate?",
-                );
-            }
-
-            moderator_prompt.push_str(&format!(
-                "\n\nAvailable experts: {}\n\nWhich expert should address this question? \
-                 Respond with ONLY the expert name.",
-                self.list_agents()
-                    .iter()
-                    .filter(|a| a.id != moderator_id)
-                    .map(|a| a.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-
-            let moderator_result = moderator
-                .generate_with_tokens(
-                    "You are a moderator. Your job is to select the most appropriate expert to answer each question. \
-                     Ensure both sides get fair representation by alternating between different experts.",
-                    &moderator_prompt,
-                    &self.conversation_history,
+            // Build moderator prompt
+            let moderator_prompt = if round_num == 0 {
+                format!(
+                    "{}\n\nAvailable experts: {}\n\nWhich expert should address this question? \
+                     Respond with ONLY the expert name.",
+                    prompt, expert_names
                 )
-                .await?;
+            } else {
+                format!(
+                    "Based on the discussion so far, who should speak next to continue the debate?\
+                     \n\nAvailable experts: {}\n\nWhich expert should address this question? \
+                     Respond with ONLY the expert name.",
+                    expert_names
+                )
+            };
 
-            // Extract content before consuming tokens_used
+            // Remove moderator, route new messages, call send, re-insert
+            let mut moderator = self.agents.remove(moderator_id).unwrap();
+            let mod_cursor = self.agent_message_cursors.get(moderator_id).copied().unwrap_or(0);
+            for msg in &all_messages[mod_cursor..] {
+                if let Some(name) = &msg.agent_name {
+                    moderator.receive_message(
+                        Role::Assistant,
+                        format!("[{}]: {}", name, msg.content),
+                    );
+                }
+            }
+            self.agent_message_cursors.insert(moderator_id.to_string(), all_messages.len());
+
+            let moderator_result = moderator.send(&moderator_prompt).await?;
             let selection = moderator_result.content.clone();
-
-            // Track moderator tokens
             if let Some(usage) = moderator_result.tokens_used {
                 total_tokens += usage.total_tokens;
             }
+            self.agents.insert(moderator_id.to_string(), moderator);
 
             // Find the selected agent (fuzzy match on name)
-            let selected_agent = self
+            let selected_id = self
                 .agents
-                .values()
-                .find(|a| {
-                    a.id != moderator_id
+                .iter()
+                .find(|(id, a)| {
+                    id.as_str() != moderator_id
                         && selection.to_lowercase().contains(&a.name.to_lowercase())
                 })
-                .or_else(|| self.agents.values().find(|a| a.id != moderator_id));
+                .map(|(id, _)| id.clone())
+                .or_else(|| {
+                    self.agents
+                        .keys()
+                        .find(|id| id.as_str() != moderator_id)
+                        .cloned()
+                });
 
-            if let Some(agent) = selected_agent {
-                // Build context for the speaking agent
-                let mut agent_prompt = String::new();
-                if all_messages.is_empty() {
-                    agent_prompt = prompt.to_string();
-                } else {
-                    agent_prompt.push_str(&format!("Topic: {}\n\n", prompt));
-                    agent_prompt.push_str("Discussion so far:\n");
-                    for msg in &all_messages {
-                        if let Some(name) = &msg.agent_name {
-                            agent_prompt.push_str(&format!("{}: {}\n\n", name, msg.content));
-                        }
+            if let Some(agent_id) = selected_id {
+                let mut agent = self.agents.remove(&agent_id).unwrap();
+
+                // Route new messages to this expert
+                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                for msg in &all_messages[cursor..] {
+                    if let Some(name) = &msg.agent_name {
+                        agent.receive_message(
+                            Role::Assistant,
+                            format!("[{}]: {}", name, msg.content),
+                        );
                     }
-                    agent_prompt.push_str("Now it's your turn to respond.");
                 }
+                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
 
-                let agent_result = agent
-                    .generate_with_tokens(
-                        &self.system_context,
-                        &agent_prompt,
-                        &self.conversation_history,
-                    )
-                    .await?;
+                let agent_result = agent.send(prompt).await?;
+                let agent_name = agent.name.clone();
+                self.agents.insert(agent_id.clone(), agent);
 
-                // Track agent tokens
                 if let Some(usage) = agent_result.tokens_used {
                     total_tokens += usage.total_tokens;
                 }
 
                 let msg = OrchestrationMessage::from_agent(
-                    agent.id.clone(),
-                    agent.name.clone(),
+                    &agent_id,
+                    &agent_name,
                     agent_result.content,
                 )
                 .with_metadata("moderator", moderator_id.to_string())
@@ -1087,17 +1101,19 @@ impl Orchestration {
 
     /// Execute hierarchical mode: agents are arranged in ordered layers.
     ///
-    /// All agents within a single layer run in parallel (like Parallel mode).
-    /// The combined output of one layer is synthesised into a prompt for the
-    /// next layer, creating a pipeline such as "research -> analyse -> summarise".
+    /// All agents within a single layer run in parallel via `fork()` + `send()`.
+    /// Layer N agents receive only the synthesised output from layer N-1 —
+    /// no full history broadcast.
     async fn execute_hierarchical(
         &mut self,
         prompt: &str,
         layers: &[Vec<String>],
     ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        self.setup_agent_prompts();
         let mut all_messages = Vec::new();
-        let mut layer_results = prompt.to_string();
+        let mut layer_input = prompt.to_string();
         let mut total_tokens = 0;
+        let system_context = self.system_context.clone();
 
         for (layer_idx, layer_agent_ids) in layers.iter().enumerate() {
             let mut layer_messages = Vec::new();
@@ -1111,19 +1127,13 @@ impl Orchestration {
                     .get(agent_id)
                     .ok_or_else(|| OrchestrationError::AgentNotFound(agent_id.clone()))?;
 
-                let system_prompt = self.system_context.clone();
-                let history = self.conversation_history.clone();
-                let current_prompt = layer_results.clone();
-                let agent_id = agent.id.clone();
-                let agent_name = agent.name.clone();
-
-                let temp_agent = agent.fork();
+                let mut temp_agent = agent.fork();
+                temp_agent.set_system_prompt(&system_context);
+                let current_prompt = layer_input.clone();
 
                 tasks.push(tokio::spawn(async move {
-                    let result = temp_agent
-                        .generate_with_tokens(&system_prompt, &current_prompt, &history)
-                        .await;
-                    (agent_id, agent_name, result)
+                    let result = temp_agent.send(&current_prompt).await;
+                    (temp_agent.id.clone(), temp_agent.name.clone(), result)
                 }));
             }
 
@@ -1138,7 +1148,6 @@ impl Orchestration {
 
                 match result {
                     Ok(agent_response) => {
-                        // Track tokens
                         if let Some(usage) = agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
@@ -1160,7 +1169,7 @@ impl Orchestration {
 
             // Synthesize layer results for next layer
             if layer_idx < layers.len() - 1 {
-                layer_results = format!(
+                layer_input = format!(
                     "Original task: {}\n\nLayer {} results:\n{}",
                     prompt,
                     layer_idx,
@@ -1186,18 +1195,17 @@ impl Orchestration {
 
     /// Execute debate mode: agents argue in rounds until their positions converge.
     ///
-    /// After the first round, Jaccard similarity is computed between consecutive
-    /// rounds of agent responses. If the average similarity meets or exceeds the
-    /// `convergence_threshold` the debate ends early; otherwise it runs up to
-    /// `max_rounds`.
+    /// Each agent maintains its own session. The hub injects only the latest
+    /// round's arguments from OTHER agents — no prompt augmentation duplication.
     async fn execute_debate(
         &mut self,
         prompt: &str,
         max_rounds: usize,
         convergence_threshold: Option<f32>,
     ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        self.setup_agent_prompts();
         let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
-        let threshold = convergence_threshold.unwrap_or(0.75); // Default: 75% similarity
+        let threshold = convergence_threshold.unwrap_or(0.75);
         let mut converged = false;
         let mut final_convergence_score = None;
         let mut actual_rounds = 0;
@@ -1208,42 +1216,41 @@ impl Orchestration {
             let mut round_messages = Vec::new();
 
             for agent_id in self.agent_order.clone() {
-                let agent = self.agents.get(&agent_id).unwrap();
+                let mut agent = self.agents.remove(&agent_id).unwrap();
 
-                let mut debate_prompt = format!("Round {} of debate: {}\n\n", round + 1, prompt);
-
-                if !all_messages.is_empty() {
-                    debate_prompt.push_str("Previous arguments:\n");
-                    for msg in all_messages.iter().rev().take(self.agents.len() * 2) {
-                        if let Some(name) = &msg.agent_name {
-                            debate_prompt.push_str(&format!("{}: {}\n\n", name, msg.content));
-                        }
+                // Route only NEW messages this agent hasn't seen
+                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                for msg in &all_messages[cursor..] {
+                    if let Some(name) = &msg.agent_name {
+                        agent.receive_message(
+                            Role::Assistant,
+                            format!("[{}]: {}", name, msg.content),
+                        );
                     }
                 }
+                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len() + round_messages.len());
 
-                debate_prompt.push_str(
-                    "Consider the arguments presented and provide your position. \
+                let debate_prompt = format!(
+                    "Round {} of debate: {}\n\n\
+                     Consider the arguments presented and provide your position. \
                      Acknowledge strong points and challenge weak ones.",
+                    round + 1,
+                    prompt
                 );
 
-                let result = agent
-                    .generate_with_tokens(
-                        &self.system_context,
-                        &debate_prompt,
-                        &self.conversation_history,
-                    )
-                    .await;
+                let result = agent.send(&debate_prompt).await;
+                let agent_name = agent.name.clone();
+                self.agents.insert(agent_id.clone(), agent);
 
                 match result {
                     Ok(agent_response) => {
-                        // Track tokens
                         if let Some(usage) = agent_response.tokens_used {
                             total_tokens += usage.total_tokens;
                         }
 
                         let msg = OrchestrationMessage::from_agent(
-                            agent.id.clone(),
-                            agent.name.clone(),
+                            &agent_id,
+                            &agent_name,
                             agent_response.content,
                         )
                         .with_metadata("round", round.to_string());
@@ -1264,7 +1271,6 @@ impl Orchestration {
 
                 if convergence_score >= threshold {
                     converged = true;
-                    // Add the round messages before breaking
                     all_messages.extend(round_messages);
                     break;
                 }
@@ -1284,14 +1290,10 @@ impl Orchestration {
 
     /// Execute RALPH mode: autonomous iterative loop through a PRD task list.
     ///
-    /// Each iteration builds a markdown-style checklist showing completed (`[x]`)
-    /// and pending (`[ ]`) tasks, then cycles through every agent sequentially.
-    /// Agents signal task completion by including `[TASK_COMPLETE:task_id]` markers
-    /// in their response text. The loop terminates as soon as all tasks are marked
-    /// complete or `max_iterations` is exhausted.
-    ///
-    /// Returns `convergence_score = Some(completed / total)` and sets
-    /// `is_complete = true` only when every task has been marked done.
+    /// Each agent maintains its own session across iterations. The hub injects
+    /// only the iteration prompt (task checklist + instructions). Previous
+    /// iteration responses from OTHER agents are selectively injected.
+    /// LLMSession's built-in trimming handles context overflow.
     async fn execute_ralph(
         &mut self,
         prompt: &str,
@@ -1308,6 +1310,8 @@ impl Orchestration {
                 total_tokens_used: 0,
             });
         }
+
+        self.setup_agent_prompts();
 
         let mut completed_tasks: HashSet<String> = HashSet::new();
         let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
@@ -1356,35 +1360,25 @@ impl Orchestration {
 
             // Each agent responds sequentially (round-robin within iteration)
             for agent_id in self.agent_order.clone() {
-                let agent = self.agents.get(&agent_id).unwrap();
+                let mut agent = self.agents.remove(&agent_id).unwrap();
                 log::info!("  Calling agent '{}' ({})...", agent.name, agent.id);
 
-                // Trim conversation history to fit within max_tokens budget.
-                // Reserve tokens for the system prompt, the iteration prompt,
-                // and a generous output buffer.
-                let system_tokens =
-                    crate::cloudllm::llm_session::estimate_token_count(&self.system_context);
-                let prompt_tokens =
-                    crate::cloudllm::llm_session::estimate_token_count(&iteration_prompt);
-                let output_reserve = self.max_tokens / 4; // reserve ~25% for model output
-                let overhead = system_tokens + prompt_tokens + output_reserve;
-                let history_budget = self.max_tokens.saturating_sub(overhead);
+                // Route only NEW messages from other agents
+                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                for msg in &all_messages[cursor..] {
+                    if let Some(name) = &msg.agent_name {
+                        agent.receive_message(
+                            Role::Assistant,
+                            format!("[{}]: {}", name, msg.content),
+                        );
+                    }
+                }
+                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
 
-                let trimmed_history = Self::trim_history(&self.conversation_history, history_budget);
-                log::debug!(
-                    "  History trimmed: {}/{} messages kept (budget: {} tokens)",
-                    trimmed_history.len(),
-                    self.conversation_history.len(),
-                    history_budget
-                );
+                let result = agent.send(&iteration_prompt).await;
 
-                let result = agent
-                    .generate_with_tokens(
-                        &self.system_context,
-                        &iteration_prompt,
-                        &trimmed_history,
-                    )
-                    .await;
+                let agent_name_clone = agent.name.clone();
+                self.agents.insert(agent_id.clone(), agent);
 
                 match result {
                     Ok(agent_response) => {
@@ -1399,7 +1393,7 @@ impl Orchestration {
 
                         log::info!(
                             "  Agent '{}' responded ({} chars, {} tokens)",
-                            agent.name,
+                            agent_name_clone,
                             agent_response.content.len(),
                             tokens_this_call
                         );
@@ -1427,8 +1421,8 @@ impl Orchestration {
                         }
 
                         let mut msg = OrchestrationMessage::from_agent(
-                            agent.id.clone(),
-                            agent.name.clone(),
+                            &agent_id,
+                            &agent_name_clone,
                             agent_response.content,
                         )
                         .with_metadata("iteration", actual_iterations.to_string());
@@ -1501,27 +1495,6 @@ impl Orchestration {
             }
         }
         results
-    }
-
-    /// Trim conversation history from the front so that estimated tokens fit within `budget`.
-    ///
-    /// Keeps the most recent messages (they contain the latest accumulated work)
-    /// and drops the oldest ones first.
-    fn trim_history(history: &[OrchestrationMessage], budget: usize) -> Vec<OrchestrationMessage> {
-        let mut total: usize = 0;
-        let mut keep_from = history.len();
-
-        // Walk backwards, accumulating token estimates until we exceed the budget
-        for (i, msg) in history.iter().enumerate().rev() {
-            let msg_tokens = crate::cloudllm::llm_session::estimate_token_count(&msg.content);
-            if total + msg_tokens > budget {
-                break;
-            }
-            total += msg_tokens;
-            keep_from = i;
-        }
-
-        history[keep_from..].to_vec()
     }
 
     /// Calculate convergence score between the current and previous round of messages.
@@ -1655,6 +1628,7 @@ impl Orchestration {
     /// ```
     pub fn clear_history(&mut self) {
         self.conversation_history.clear();
+        self.agent_message_cursors.clear();
     }
 }
 

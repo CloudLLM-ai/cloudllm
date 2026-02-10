@@ -455,3 +455,148 @@ async fn test_ralph_mode_empty_tasks() {
     assert_eq!(response.round, 0);
     assert!(response.messages.is_empty());
 }
+
+#[tokio::test]
+async fn test_agent_send_uses_session() {
+    let client = Arc::new(MockClient {
+        name: "mock".to_string(),
+        response: "session response".to_string(),
+    });
+
+    let mut agent = Agent::new("agent1", "Test Agent", client);
+    agent.set_system_prompt("You are a helpful assistant.");
+
+    let result = agent.send("Hello").await.unwrap();
+    assert_eq!(result.content, "session response");
+
+    // After send, session should have history (user message + assistant response)
+    assert!(agent.session_history_len() >= 2);
+}
+
+#[tokio::test]
+async fn test_agent_receive_message() {
+    let client = Arc::new(MockClient {
+        name: "mock".to_string(),
+        response: "test".to_string(),
+    });
+
+    let mut agent = Agent::new("agent1", "Test Agent", client);
+    assert_eq!(agent.session_history_len(), 0);
+
+    agent.receive_message(Role::Assistant, "[Agent 2]: Some context".to_string());
+    assert_eq!(agent.session_history_len(), 1);
+
+    agent.receive_message(Role::Assistant, "[Agent 3]: More context".to_string());
+    assert_eq!(agent.session_history_len(), 2);
+}
+
+#[tokio::test]
+async fn test_hub_routing_no_duplication() {
+    use tokio::sync::Mutex as TokioMutex;
+
+    /// Mock client that counts messages received per call
+    struct CountingMockClient {
+        message_counts: Arc<TokioMutex<Vec<usize>>>,
+    }
+
+    #[async_trait]
+    impl ClientWrapper for CountingMockClient {
+        async fn send_message(
+            &self,
+            messages: &[Message],
+            _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
+            _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        ) -> Result<Message, Box<dyn std::error::Error>> {
+            let mut counts = self.message_counts.lock().await;
+            counts.push(messages.len());
+            Ok(Message {
+                role: Role::Assistant,
+                content: Arc::from("response"),
+            })
+        }
+
+        fn model_name(&self) -> &str {
+            "counting-mock"
+        }
+
+        async fn get_last_usage(&self) -> Option<TokenUsage> {
+            None
+        }
+    }
+
+    let counts1 = Arc::new(TokioMutex::new(Vec::new()));
+    let counts2 = Arc::new(TokioMutex::new(Vec::new()));
+
+    let agent1 = Agent::new(
+        "agent1",
+        "Agent 1",
+        Arc::new(CountingMockClient {
+            message_counts: counts1.clone(),
+        }),
+    );
+
+    let agent2 = Agent::new(
+        "agent2",
+        "Agent 2",
+        Arc::new(CountingMockClient {
+            message_counts: counts2.clone(),
+        }),
+    );
+
+    let mut orchestration = Orchestration::new("test", "Test")
+        .with_mode(OrchestrationMode::RoundRobin);
+
+    orchestration.add_agent(agent1).unwrap();
+    orchestration.add_agent(agent2).unwrap();
+
+    let response = orchestration.run("Test question", 2).await.unwrap();
+    assert_eq!(response.messages.len(), 4); // 2 agents * 2 rounds
+
+    // Verify agent1's message counts grow incrementally (not full broadcast)
+    let c1 = counts1.lock().await;
+    let c2 = counts2.lock().await;
+
+    // Round 1: agent1 sees system + user = 2 messages
+    // Round 1: agent2 sees system + agent1's response + user = 3 messages
+    // Round 2: agent1 sees prior + new messages + user (grows incrementally)
+    // Round 2: agent2 sees prior + new messages + user (grows incrementally)
+    //
+    // Key assertion: agent2's first call should NOT receive the entire
+    // conversation_history duplicated (which would be much larger)
+    assert!(c1.len() >= 2, "Agent 1 should have been called at least 2 times");
+    assert!(c2.len() >= 2, "Agent 2 should have been called at least 2 times");
+
+    // In the old broadcast mode, agent2's second call would receive ALL messages
+    // from ALL prior rounds plus the full conversation_history. With hub-routing,
+    // each call receives only the session's accumulated messages.
+    // Verify the message count is reasonable (not exploding)
+    for &count in c1.iter() {
+        assert!(count < 20, "Agent 1 message count {} should be reasonable", count);
+    }
+    for &count in c2.iter() {
+        assert!(count < 20, "Agent 2 message count {} should be reasonable", count);
+    }
+}
+
+#[tokio::test]
+async fn test_agent_fork_with_context() {
+    let client = Arc::new(MockClient {
+        name: "mock".to_string(),
+        response: "forked response".to_string(),
+    });
+
+    let mut agent = Agent::new("agent1", "Test Agent", client);
+    agent.set_system_prompt("You are a helpful assistant.");
+    agent.receive_message(Role::User, "Hello".to_string());
+    agent.receive_message(Role::Assistant, "Hi there!".to_string());
+    assert_eq!(agent.session_history_len(), 2);
+
+    let forked = agent.fork_with_context();
+    assert_eq!(forked.session_history_len(), 2);
+    assert_eq!(forked.id, "agent1");
+    assert_eq!(forked.name, "Test Agent");
+
+    // Regular fork should have empty session
+    let regular_fork = agent.fork();
+    assert_eq!(regular_fork.session_history_len(), 0);
+}

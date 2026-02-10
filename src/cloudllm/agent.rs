@@ -637,6 +637,239 @@ impl Agent {
         }
     }
 
+    /// Create a lightweight copy that also carries forward session context.
+    ///
+    /// Like [`fork`](Agent::fork), the clone shares tool registry and thought
+    /// chain via `Arc`, but additionally copies the current system prompt and
+    /// conversation history into the new session. Use this when a parallel
+    /// task needs the accumulated context (e.g., later rounds of an
+    /// orchestration).
+    pub fn fork_with_context(&self) -> Self {
+        let client = self.session.client().clone();
+        let max_tokens = self.session.get_max_tokens();
+        let mut session = LLMSession::new(client, String::new(), max_tokens);
+
+        // Copy system prompt
+        session.set_system_prompt(self.session.system_prompt_text().to_string());
+
+        // Copy conversation history
+        for msg in self.session.get_conversation_history() {
+            session.inject_message(msg.role.clone(), msg.content.to_string());
+        }
+
+        Self {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            expertise: self.expertise.clone(),
+            personality: self.personality.clone(),
+            metadata: self.metadata.clone(),
+            session,
+            tool_registry: Arc::clone(&self.tool_registry),
+            grok_tools: self.grok_tools.clone(),
+            openai_tools: self.openai_tools.clone(),
+            context_strategy: Box::new(TrimStrategy::default()),
+            thought_chain: self.thought_chain.clone(),
+        }
+    }
+
+    // ---- Session-based methods for hub-routed orchestration ----
+
+    /// Set the agent's LLMSession system prompt, augmented with expertise and personality.
+    ///
+    /// Called by orchestration modes during setup so each agent has its system
+    /// prompt configured once before generation begins.
+    pub fn set_system_prompt(&mut self, base_prompt: &str) {
+        let augmented = self.augment_system_prompt(base_prompt);
+        self.session.set_system_prompt(augmented);
+    }
+
+    /// Inject a message into this agent's session history without sending to the LLM.
+    ///
+    /// Used by orchestration hub-routing to feed specific messages (e.g., other
+    /// agents' responses) into this agent's context before calling [`send`](Agent::send).
+    pub fn receive_message(&mut self, role: Role, content: String) {
+        self.session.inject_message(role, content);
+    }
+
+    /// Return the number of messages in this agent's session history.
+    ///
+    /// Useful for orchestration to check whether the agent has been initialized.
+    pub fn session_history_len(&self) -> usize {
+        self.session.get_conversation_history().len()
+    }
+
+    /// Send a message using the agent's own session history.
+    ///
+    /// Unlike [`generate_with_tokens`](Agent::generate_with_tokens) which
+    /// takes an external conversation history, this method relies on the
+    /// session's accumulated messages (populated via [`receive_message`] and
+    /// prior `send` calls). The session handles system prompt, history, and
+    /// auto-trimming automatically.
+    ///
+    /// Internally runs the same tool-call loop (up to 5 iterations) as
+    /// `generate_with_tokens`.
+    pub async fn send(
+        &mut self,
+        user_message: &str,
+    ) -> Result<AgentResponse, Box<dyn Error + Send + Sync>> {
+        // Build tool description string to append to user message
+        let mut message_with_tools = user_message.to_string();
+        {
+            let registry = self.tool_registry.read().await;
+            let tools = registry.list_tools();
+            if !tools.is_empty() {
+                message_with_tools.push_str("\n\nYou have access to the following tools:\n");
+                for tool_metadata in tools {
+                    message_with_tools.push_str(&format!(
+                        "- {}: {}\n",
+                        tool_metadata.name, tool_metadata.description
+                    ));
+                    if !tool_metadata.parameters.is_empty() {
+                        message_with_tools.push_str("  Parameters:\n");
+                        for param in &tool_metadata.parameters {
+                            message_with_tools.push_str(&format!(
+                                "    - {} ({:?}): {}\n",
+                                param.name,
+                                param.param_type,
+                                param.description.as_deref().unwrap_or("No description")
+                            ));
+                        }
+                    }
+                }
+                message_with_tools.push_str(
+                    "\nTo use a tool, respond with a JSON object in the following format:\n\
+                     {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
+                     After tool execution, I'll provide the result and you can continue.\n",
+                );
+            }
+        }
+
+        let grok_tools = if self.grok_tools.is_empty() {
+            None
+        } else {
+            Some(self.grok_tools.clone())
+        };
+        let openai_tools = if self.openai_tools.is_empty() {
+            None
+        } else {
+            Some(self.openai_tools.clone())
+        };
+
+        // Tool execution loop
+        let max_tool_iterations = 5;
+        let mut tool_iteration = 0;
+        let mut total_input_tokens = 0;
+        let mut total_output_tokens = 0;
+        let mut total_tokens = 0;
+
+        // First call uses the user message
+        let response = self
+            .session
+            .send_message(
+                Role::User,
+                message_with_tools,
+                grok_tools.clone(),
+                openai_tools.clone(),
+            )
+            .await
+            .map_err(|e| {
+                Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
+                    e.to_string(),
+                )) as Box<dyn Error + Send + Sync>
+            })?;
+
+        if let Some(usage) = self.session.client().get_last_usage().await {
+            total_input_tokens += usage.input_tokens;
+            total_output_tokens += usage.output_tokens;
+            total_tokens += usage.total_tokens;
+        }
+
+        let mut current_response = response.content.to_string();
+
+        loop {
+            let tool_call = self.parse_tool_call(&current_response);
+            if let Some(tool_call) = tool_call {
+                if tool_iteration >= max_tool_iterations {
+                    current_response = format!(
+                        "{}\n\n[Warning: Maximum tool iterations reached]",
+                        current_response
+                    );
+                    break;
+                }
+                tool_iteration += 1;
+
+                // Execute the tool
+                let tool_result = {
+                    let registry = self.tool_registry.read().await;
+                    registry
+                        .execute_tool(&tool_call.name, tool_call.parameters)
+                        .await
+                };
+
+                let tool_result_message = match tool_result {
+                    Ok(result) => {
+                        if result.success {
+                            format!(
+                                "Tool '{}' executed successfully. Result: {}",
+                                tool_call.name,
+                                serde_json::to_string_pretty(&result.output)
+                                    .unwrap_or_else(|_| format!("{:?}", result.output))
+                            )
+                        } else {
+                            format!(
+                                "Tool '{}' failed. Error: {}",
+                                tool_call.name,
+                                result.error.unwrap_or_else(|| "Unknown error".to_string())
+                            )
+                        }
+                    }
+                    Err(e) => format!("Tool execution error: {}", e),
+                };
+
+                // Send tool result back through session
+                let follow_up = self
+                    .session
+                    .send_message(
+                        Role::User,
+                        tool_result_message,
+                        grok_tools.clone(),
+                        openai_tools.clone(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
+                            e.to_string(),
+                        )) as Box<dyn Error + Send + Sync>
+                    })?;
+
+                if let Some(usage) = self.session.client().get_last_usage().await {
+                    total_input_tokens += usage.input_tokens;
+                    total_output_tokens += usage.output_tokens;
+                    total_tokens += usage.total_tokens;
+                }
+
+                current_response = follow_up.content.to_string();
+            } else {
+                break;
+            }
+        }
+
+        let tokens_used = if total_tokens > 0 {
+            Some(TokenUsage {
+                input_tokens: total_input_tokens,
+                output_tokens: total_output_tokens,
+                total_tokens,
+            })
+        } else {
+            None
+        };
+
+        Ok(AgentResponse {
+            content: current_response,
+            tokens_used,
+        })
+    }
+
     // ---- Accessor for client ----
 
     /// Borrow the underlying [`ClientWrapper`] from the session.

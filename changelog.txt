@@ -1,3 +1,20 @@
+0.9.0 FEB/10/2026
+ - refactor: Per-agent sessions with hub-routed communication
+   - Orchestration no longer broadcasts full conversation_history to all agents
+   - New Agent::send() method uses LLMSession for stateful generation
+   - New Agent::receive_message() for hub-routed message injection
+   - Agent::set_system_prompt() for orchestration-managed system prompts
+   - Agent::session_history_len() accessor for orchestration to check agent state
+   - Agent::fork_with_context() for carrying session state into parallel tasks
+   - LLMSession::system_prompt_text() accessor for reading system prompt content
+   - Each orchestration mode now routes only relevant messages to each agent
+   - Eliminates prompt augmentation duplication in RoundRobin/Moderated/Debate
+   - agent_message_cursors tracking prevents duplicate message injection
+   - Removed manual trim_history() from Ralph mode (LLMSession handles trimming)
+   - generate_with_tokens() preserved for backward compatibility
+   - New tests: test_agent_send_uses_session, test_agent_receive_message,
+     test_hub_routing_no_duplication, test_agent_fork_with_context
+
 0.8.0 JAN/17/2026
  - feat: RALPH Orchestration Mode (6th collaboration mode)
    - Autonomous iterative loop where agents work through a PRD task list
