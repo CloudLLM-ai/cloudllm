@@ -17,23 +17,49 @@
 //!
 //! ```text
 //! Orchestration (orchestration engine)
+//!   ├─ EventHandler (shared — receives OrchestrationEvents + AgentEvents)
 //!   ├─ Agent 1 (OpenAI GPT-4)
 //!   │   ├─ Tools: Local + YouTube MCP Server
-//!   │   └─ Expertise: "Video Analysis"
+//!   │   ├─ Expertise: "Video Analysis"
+//!   │   └─ EventHandler ← auto-propagated from Orchestration
 //!   │
 //!   ├─ Agent 2 (Claude)
 //!   │   ├─ Tools: Local + GitHub MCP Server
-//!   │   └─ Expertise: "Code Architecture"
+//!   │   ├─ Expertise: "Code Architecture"
+//!   │   └─ EventHandler ← auto-propagated from Orchestration
 //!   │
 //!   └─ Agent 3 (Grok)
 //!       ├─ Tools: Memory Protocol
-//!       └─ Expertise: "System Coordination"
+//!       ├─ Expertise: "System Coordination"
+//!       └─ EventHandler ← auto-propagated from Orchestration
 //! ```
+//!
+//! # Event System
+//!
+//! Attach an [`EventHandler`](crate::event::EventHandler) via
+//! [`with_event_handler`](Orchestration::with_event_handler) to receive
+//! real-time [`OrchestrationEvent`](crate::event::OrchestrationEvent)s
+//! (run lifecycle, round boundaries, RALPH task progress) and
+//! [`AgentEvent`](crate::event::AgentEvent)s (LLM calls, tool usage) through
+//! a single callback. The handler is automatically propagated to all agents
+//! when they are added via [`add_agent`](Orchestration::add_agent). See the
+//! [`event`](crate::event) module for the full list of events and examples.
+//!
+//! # Hub-Routed Sessions
+//!
+//! Each agent maintains its own [`LLMSession`](crate::LLMSession). The orchestration
+//! engine acts as a hub: it selectively routes messages between agents by injecting
+//! relevant prior responses into each agent's session via
+//! [`receive_message`](crate::Agent::receive_message). Per-agent cursors track
+//! which messages each agent has already seen, preventing duplicate injection.
 //!
 //! # Tool Integration
 //!
-//! Starting in 0.5.0, agents can access tools from multiple protocols simultaneously.
-//! This enables rich multi-source interaction patterns in orchestrations.
+//! Agents can access tools from multiple protocols simultaneously via
+//! [`ToolRegistry`](crate::tool_protocol::ToolRegistry). Share a tool registry
+//! across agents using [`with_shared_tools`](crate::Agent::with_shared_tools) —
+//! all agents will see the same tools and can coordinate via shared state
+//! (e.g., [`Memory`](crate::tools::Memory)).
 //!
 //! # Example
 //!
@@ -552,7 +578,10 @@ pub struct Orchestration {
     /// Used by hub-routing to avoid re-injecting messages agents already have.
     agent_message_cursors: HashMap<String, usize>,
 
-    /// Optional event handler for orchestration lifecycle events.
+    /// Optional event handler for real-time observability. When set, the orchestration
+    /// emits [`OrchestrationEvent`]s during `run()` and propagates the handler to
+    /// agents added via `add_agent()` so their [`AgentEvent`](crate::event::AgentEvent)s
+    /// also flow through the same callback.
     event_handler: Option<Arc<dyn EventHandler>>,
 }
 
@@ -642,23 +671,55 @@ impl Orchestration {
         self
     }
 
-    /// Attach an event handler for orchestration lifecycle events (builder pattern).
+    /// Attach an [`EventHandler`] for orchestration and agent lifecycle events (builder pattern).
     ///
-    /// The handler is also propagated to agents when they are added via
-    /// [`add_agent`](Orchestration::add_agent).
+    /// The handler receives [`OrchestrationEvent`]s directly from the orchestration
+    /// engine (run start/end, round boundaries, RALPH progress, etc.). Additionally,
+    /// the handler is **automatically propagated** to every agent added via
+    /// [`add_agent`](Orchestration::add_agent), so those agents will also emit
+    /// their [`AgentEvent`](crate::event::AgentEvent)s through the same handler.
+    /// This gives you a unified stream of both orchestration-level and agent-level
+    /// events through a single callback.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::orchestration::{Orchestration, OrchestrationMode};
+    /// use cloudllm::event::{EventHandler, OrchestrationEvent};
+    /// use async_trait::async_trait;
+    /// use std::sync::Arc;
+    ///
+    /// struct MyHandler;
+    /// #[async_trait]
+    /// impl EventHandler for MyHandler {
+    ///     async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
+    ///         println!("{:?}", event);
+    ///     }
+    /// }
+    ///
+    /// let orch = Orchestration::new("id", "name")
+    ///     .with_mode(OrchestrationMode::RoundRobin)
+    ///     .with_event_handler(Arc::new(MyHandler));
+    /// ```
     pub fn with_event_handler(mut self, handler: Arc<dyn EventHandler>) -> Self {
         self.event_handler = Some(handler);
         self
     }
 
-    /// Emit an orchestration event to the registered handler.
+    /// Emit an [`OrchestrationEvent`] to the registered handler.
+    ///
+    /// If no handler is registered, this is a no-op. Called throughout the
+    /// execution methods to signal run start/end, round boundaries, agent
+    /// selection/response/failure, convergence checks, and RALPH progress.
     async fn emit(&self, event: OrchestrationEvent) {
         if let Some(handler) = &self.event_handler {
             handler.on_orchestration_event(&event).await;
         }
     }
 
-    /// Return a human-readable name for the current orchestration mode.
+    /// Return a human-readable name for the current [`OrchestrationMode`].
+    ///
+    /// Used in [`OrchestrationEvent::RunStarted`] to populate the `mode` field.
     fn mode_name(&self) -> &'static str {
         match &self.mode {
             OrchestrationMode::Parallel => "Parallel",
@@ -700,9 +761,14 @@ impl Orchestration {
                 id
             )));
         }
+
+        // Propagate the orchestration's event handler to the agent so that
+        // AgentEvents (LLM calls, tool usage, etc.) flow through the same
+        // handler as OrchestrationEvents, giving the user a unified stream.
         if let Some(handler) = &self.event_handler {
             agent.set_event_handler(Arc::clone(handler));
         }
+
         self.agent_order.push(id.clone());
         self.agents.insert(id, agent);
         Ok(())
@@ -885,6 +951,11 @@ impl Orchestration {
     /// For each round, every agent is forked into a separate `tokio` task.
     /// Each fork receives only the system prompt and the user prompt via
     /// hub-routing — no full history broadcast.
+    ///
+    /// # Events Emitted
+    ///
+    /// Per round: `RoundStarted`, then `AgentResponded` (or `AgentFailed`)
+    /// for each agent, then `RoundCompleted`.
     async fn execute_parallel(
         &mut self,
         prompt: &str,
@@ -987,6 +1058,11 @@ impl Orchestration {
     /// Each agent has its own session. The hub routes only prior agents'
     /// responses into the current agent's session before it generates.
     /// No prompt augmentation duplication — each message is injected once.
+    ///
+    /// # Events Emitted
+    ///
+    /// Per round: `RoundStarted`, then for each agent: `AgentSelected` →
+    /// `AgentResponded` (or `AgentFailed`), then `RoundCompleted`.
     async fn execute_round_robin(
         &mut self,
         prompt: &str,
@@ -1088,6 +1164,12 @@ impl Orchestration {
     /// The moderator and each expert use their own sessions. The hub routes
     /// discussion messages selectively — the moderator sees everything, while
     /// the chosen expert receives only the messages it hasn't seen yet.
+    ///
+    /// # Events Emitted
+    ///
+    /// The moderator's `send()` call is not surfaced as an `AgentSelected` event
+    /// (it's an internal selection step). The selected expert's response triggers
+    /// `AgentResponded` (or `AgentFailed`).
     async fn execute_moderated(
         &mut self,
         prompt: &str,
@@ -1223,6 +1305,12 @@ impl Orchestration {
     /// All agents within a single layer run in parallel via `fork()` + `send()`.
     /// Layer N agents receive only the synthesised output from layer N-1 —
     /// no full history broadcast.
+    ///
+    /// # Events Emitted
+    ///
+    /// Per layer: `RoundStarted`, then `AgentSelected` → `AgentResponded`
+    /// (or `AgentFailed`) for each agent in the layer, then `RoundCompleted`.
+    /// Each layer counts as one "round".
     async fn execute_hierarchical(
         &mut self,
         prompt: &str,
@@ -1351,6 +1439,13 @@ impl Orchestration {
     ///
     /// Each agent maintains its own session. The hub injects only the latest
     /// round's arguments from OTHER agents — no prompt augmentation duplication.
+    ///
+    /// # Events Emitted
+    ///
+    /// Per round: `RoundStarted`, then `AgentSelected` → `AgentResponded`
+    /// (or `AgentFailed`) for each agent, then `ConvergenceChecked` (after
+    /// round 1+), then `RoundCompleted`. The debate terminates early when
+    /// `ConvergenceChecked` reports `converged: true`.
     async fn execute_debate(
         &mut self,
         prompt: &str,
@@ -1499,6 +1594,13 @@ impl Orchestration {
     /// only the iteration prompt (task checklist + instructions). Previous
     /// iteration responses from OTHER agents are selectively injected.
     /// LLMSession's built-in trimming handles context overflow.
+    ///
+    /// # Events Emitted
+    ///
+    /// Per iteration: `RalphIterationStarted`, `RoundStarted`, then
+    /// `AgentResponded` (or `AgentFailed`) + `RalphTaskCompleted` (if tasks
+    /// were completed) for each agent, then `RoundCompleted`. The loop ends
+    /// when all tasks are done or `max_iterations` is reached.
     async fn execute_ralph(
         &mut self,
         prompt: &str,

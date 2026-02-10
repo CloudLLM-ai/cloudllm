@@ -20,6 +20,8 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 * **Server Deployment**: Easy standalone MCP server creation via [`MCPServerBuilder`](https://docs.rs/cloudllm/latest/cloudllm/mcp_server/struct.MCPServerBuilder.html)
   with HTTP, authentication, and IP filtering,
 * **Flexible Tool Creation**: From simple Rust closures to advanced custom protocol implementations,
+* **Event System**: Real-time observability via [`EventHandler`](https://docs.rs/cloudllm/latest/cloudllm/event/trait.EventHandler.html)
+  callbacks for LLM round-trips, tool calls, task completions, and orchestration lifecycle,
 * **Stateful Sessions**: A [`LLMSession`](https://docs.rs/cloudllm/latest/cloudllm/struct.LLMSession.html) for
   managing conversation history with context trimming and token accounting,
 * **Provider Flexibility**: Unified [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/index.html)
@@ -48,6 +50,12 @@ crate-level manual.
 - [Context Strategies: Managing Context Window Exhaustion](#context-strategies-managing-context-window-exhaustion)
 - [Agent::fork() — Lightweight Copies for Parallel Execution](#agentfork--lightweight-copies-for-parallel-execution)
 - [Runtime Tool Hot-Swapping](#runtime-tool-hot-swapping)
+- [Event System: Real-Time Agent & Orchestration Observability](#event-system-real-time-agent--orchestration-observability)
+  - [EventHandler Trait](#eventhandler-trait)
+  - [AgentEvent Variants](#agentevent-variants)
+  - [OrchestrationEvent Variants](#orchestrationevent-variants)
+  - [Registering an Event Handler](#registering-an-event-handler)
+  - [Full Example: Real-Time Progress Display](#full-example-real-time-progress-display)
 - [Tool Registry: Multi-Protocol Tool Access](#tool-registry-multi-protocol-tool-access)
 - [Deploying Tool Servers with MCPServerBuilder](#deploying-tool-servers-with-mcpserverbuilder)
 - [Creating Tools: Simple to Advanced](#creating-tools-simple-to-advanced)
@@ -68,7 +76,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.8.0"
+cloudllm = "0.9.0"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.
@@ -262,7 +270,7 @@ Key features:
 - **Progress tracking**: `convergence_score` reports task completion fraction (0.0 to 1.0)
 - **History trimming**: Conversation history is automatically trimmed to fit within `max_tokens`,
   keeping the most recent messages
-- **Live progress**: `log::info!` output shows iteration progress, agent calls, and task completions
+- **Live progress**: Event handler shows real-time iteration progress, LLM round-trips, tool calls, and task completions (see [Event System](#event-system-real-time-agent--orchestration-observability))
 
 ```rust,no_run
 use std::sync::Arc;
@@ -434,7 +442,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let expr = params["expr"].as_str().unwrap_or("0");
                 match calc.evaluate(expr).await {
                     Ok(val) => Ok(ToolResult::success(serde_json::json!({ "result": val }))),
-                    Err(e)  => Ok(ToolResult::error(e)),
+                    Err(e)  => Ok(ToolResult::failure(e.to_string())),
                 }
             })
         }),
@@ -690,6 +698,275 @@ let agent_b = Agent::new("b", "Agent B", client)
 
 ---
 
+## Event System: Real-Time Agent & Orchestration Observability
+
+The [`event`](https://docs.rs/cloudllm/latest/cloudllm/event/index.html) module provides
+a callback-based observability layer for agents and orchestrations. Implement the
+[`EventHandler`](https://docs.rs/cloudllm/latest/cloudllm/event/trait.EventHandler.html) trait
+to receive real-time notifications about LLM round-trips, tool calls, task completions, and more.
+
+This replaces guessing what's happening during long-running orchestrations — you'll see exactly
+when each agent starts thinking, which tools it calls, and when the LLM responds.
+
+### EventHandler Trait
+
+```rust,no_run
+use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
+use async_trait::async_trait;
+
+struct MyHandler;
+
+#[async_trait]
+impl EventHandler for MyHandler {
+    async fn on_agent_event(&self, event: &AgentEvent) {
+        // Handle agent-level events (LLM calls, tool usage, etc.)
+        println!("Agent: {:?}", event);
+    }
+    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
+        // Handle orchestration-level events (rounds, task completion, etc.)
+        println!("Orchestration: {:?}", event);
+    }
+}
+```
+
+Both methods have **default no-op implementations**, so you only need to override the events you
+care about. For example, to only observe orchestration-level progress:
+
+```rust,no_run
+# use cloudllm::event::{EventHandler, OrchestrationEvent};
+# use async_trait::async_trait;
+struct ProgressLogger;
+
+#[async_trait]
+impl EventHandler for ProgressLogger {
+    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
+        match event {
+            OrchestrationEvent::RunCompleted { rounds, total_tokens, is_complete, .. } => {
+                println!("Done! {} rounds, {} tokens, complete={}", rounds, total_tokens, is_complete);
+            }
+            _ => {}
+        }
+    }
+}
+```
+
+### AgentEvent Variants
+
+Events emitted by an [`Agent`](https://docs.rs/cloudllm/latest/cloudllm/struct.Agent.html)
+during its lifecycle. Every variant carries `agent_id` and `agent_name` for identification.
+
+| Variant | Fields | When Emitted |
+|---------|--------|--------------|
+| **`SendStarted`** | `message_preview` | At the start of `send()` or `generate_with_tokens()` |
+| **`SendCompleted`** | `tokens_used`, `tool_calls_made`, `response_length` | When `send()` or `generate_with_tokens()` finishes successfully |
+| **`LLMCallStarted`** | `iteration` | Before each LLM round-trip (first call + each tool-loop follow-up) |
+| **`LLMCallCompleted`** | `iteration`, `tokens_used`, `response_length` | After each LLM round-trip completes |
+| **`ToolCallDetected`** | `tool_name`, `parameters`, `iteration` | When a tool call is parsed from the LLM response |
+| **`ToolExecutionCompleted`** | `tool_name`, `parameters`, `success`, `error`, `iteration` | After a tool finishes executing |
+| **`ToolMaxIterationsReached`** | _(none extra)_ | When the tool loop hits its iteration cap |
+| **`ThoughtCommitted`** | `thought_type` | After a thought is appended to the ThoughtChain |
+| **`ProtocolAdded`** | `protocol_name` | When a new tool protocol is added to the agent |
+| **`ProtocolRemoved`** | `protocol_name` | When a tool protocol is removed |
+| **`SystemPromptSet`** | _(none extra)_ | When the agent's system prompt is set or replaced |
+| **`MessageReceived`** | _(none extra)_ | When a message is injected into the agent's session |
+| **`Forked`** | _(none extra)_ | When `fork()` creates a lightweight copy (fresh session) |
+| **`ForkedWithContext`** | _(none extra)_ | When `fork_with_context()` copies the agent with history |
+
+The `LLMCallStarted`/`LLMCallCompleted` pair is especially useful for understanding latency —
+during orchestration you'll see exactly when each agent is waiting on the LLM and when the
+response arrives.
+
+### OrchestrationEvent Variants
+
+Events emitted by an
+[`Orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/struct.Orchestration.html)
+during a `run()`. Each variant carries `orchestration_id` for identification.
+
+| Variant | Fields | When Emitted |
+|---------|--------|--------------|
+| **`RunStarted`** | `orchestration_name`, `mode`, `agent_count` | At the start of `run()` |
+| **`RunCompleted`** | `orchestration_name`, `rounds`, `total_tokens`, `is_complete` | When `run()` finishes |
+| **`RoundStarted`** | `round` | At the start of each round/iteration |
+| **`RoundCompleted`** | `round` | At the end of each round/iteration |
+| **`AgentSelected`** | `agent_id`, `agent_name`, `reason` | When an agent is chosen to respond (Moderated, Hierarchical modes) |
+| **`AgentResponded`** | `agent_id`, `agent_name`, `tokens_used`, `response_length` | After an agent responds successfully |
+| **`AgentFailed`** | `agent_id`, `agent_name`, `error` | When an agent encounters an error |
+| **`ConvergenceChecked`** | `round`, `score`, `threshold`, `converged` | After similarity check in Debate mode |
+| **`RalphIterationStarted`** | `iteration`, `max_iterations`, `tasks_completed`, `tasks_total` | At the start of each RALPH iteration |
+| **`RalphTaskCompleted`** | `agent_id`, `agent_name`, `task_ids`, `tasks_completed_total`, `tasks_total` | When a RALPH task is completed by an agent |
+
+### Registering an Event Handler
+
+Wrap your handler in `Arc` and register it via the builder pattern:
+
+**On an Agent:**
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::Agent;
+use cloudllm::event::EventHandler;
+use cloudllm::clients::openai::OpenAIClient;
+
+# fn example(handler: Arc<dyn EventHandler>) {
+let agent = Agent::new("a1", "Agent", Arc::new(
+    OpenAIClient::new_with_model_string("key", "gpt-4o"),
+))
+.with_event_handler(handler);  // builder pattern
+# }
+```
+
+You can also set or replace the handler at runtime:
+
+```rust,no_run
+# use std::sync::Arc;
+# use cloudllm::Agent;
+# use cloudllm::event::EventHandler;
+# use cloudllm::clients::openai::OpenAIClient;
+# fn example(handler: Arc<dyn EventHandler>) {
+# let mut agent = Agent::new("a1", "Agent", Arc::new(
+#     OpenAIClient::new_with_model_string("key", "gpt-4o"),
+# ));
+agent.set_event_handler(handler);  // runtime mutation
+# }
+```
+
+**On an Orchestration:**
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::orchestration::{Orchestration, OrchestrationMode};
+use cloudllm::event::EventHandler;
+
+# fn example(handler: Arc<dyn EventHandler>) {
+let orchestration = Orchestration::new("id", "Name")
+    .with_mode(OrchestrationMode::RoundRobin)
+    .with_event_handler(handler);  // auto-propagates to agents added later
+# }
+```
+
+When you register an event handler on an `Orchestration`, it is **automatically propagated** to
+every agent added via `add_agent()`. This means agents emit their own `AgentEvent`s through the
+same handler, giving you a unified stream of both agent-level and orchestration-level events.
+
+### Full Example: Real-Time Progress Display
+
+This example (adapted from `examples/breakout_game_ralph.rs`) shows a handler that tracks
+elapsed time and pretty-prints events as they happen:
+
+```rust,no_run
+use async_trait::async_trait;
+use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
+use std::time::Instant;
+use std::sync::Arc;
+
+struct ProgressHandler {
+    start: Instant,
+}
+
+impl ProgressHandler {
+    fn new() -> Self { Self { start: Instant::now() } }
+
+    fn elapsed(&self) -> String {
+        let secs = self.start.elapsed().as_secs();
+        format!("{:02}:{:02}", secs / 60, secs % 60)
+    }
+}
+
+#[async_trait]
+impl EventHandler for ProgressHandler {
+    async fn on_agent_event(&self, event: &AgentEvent) {
+        match event {
+            AgentEvent::SendStarted { agent_name, message_preview, .. } => {
+                let preview = &message_preview[..80.min(message_preview.len())];
+                println!("  [{}] >> {} thinking... ({}...)", self.elapsed(), agent_name, preview);
+            }
+            AgentEvent::SendCompleted { agent_name, tokens_used, response_length, tool_calls_made, .. } => {
+                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+                println!("  [{}] << {} responded ({} chars, {} tokens, {} tool calls)",
+                    self.elapsed(), agent_name, response_length, tokens, tool_calls_made);
+            }
+            AgentEvent::LLMCallStarted { agent_name, iteration, .. } => {
+                println!("  [{}]    {} sending to LLM (round {})...", self.elapsed(), agent_name, iteration);
+            }
+            AgentEvent::LLMCallCompleted { agent_name, iteration, tokens_used, response_length, .. } => {
+                let tokens = tokens_used.as_ref()
+                    .map(|u| format!("{} tokens", u.total_tokens))
+                    .unwrap_or_else(|| "no token info".to_string());
+                println!("  [{}]    {} LLM round {} complete ({} chars, {})",
+                    self.elapsed(), agent_name, iteration, response_length, tokens);
+            }
+            AgentEvent::ToolCallDetected { agent_name, tool_name, parameters, iteration, .. } => {
+                println!("  [{}]    {} calling tool '{}' (iter {}), params={}",
+                    self.elapsed(), agent_name, tool_name, iteration,
+                    serde_json::to_string(parameters).unwrap_or_default());
+            }
+            AgentEvent::ToolExecutionCompleted { agent_name, tool_name, success, error, .. } => {
+                if *success {
+                    println!("  [{}]    {} tool '{}' succeeded", self.elapsed(), agent_name, tool_name);
+                } else {
+                    println!("  [{}]    {} tool '{}' FAILED: {}",
+                        self.elapsed(), agent_name, tool_name, error.as_deref().unwrap_or("unknown"));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
+        match event {
+            OrchestrationEvent::RunStarted { orchestration_name, mode, agent_count, .. } => {
+                println!("\n{}\n  {} — mode={}, agents={}\n{}",
+                    "=".repeat(70), orchestration_name, mode, agent_count, "=".repeat(70));
+            }
+            OrchestrationEvent::RalphIterationStarted { iteration, max_iterations, tasks_completed, tasks_total, .. } => {
+                println!("\n  RALPH Iteration {}/{} — {}/{} tasks complete",
+                    iteration, max_iterations, tasks_completed, tasks_total);
+            }
+            OrchestrationEvent::RalphTaskCompleted { agent_name, task_ids, tasks_completed_total, tasks_total, .. } => {
+                println!("  [{}] *** {} completed tasks: [{}] — progress: {}/{}",
+                    self.elapsed(), agent_name, task_ids.join(", "), tasks_completed_total, tasks_total);
+            }
+            OrchestrationEvent::AgentFailed { agent_name, error, .. } => {
+                println!("  [{}] !!! {} FAILED: {}", self.elapsed(), agent_name, error);
+            }
+            OrchestrationEvent::RunCompleted { rounds, total_tokens, is_complete, .. } => {
+                println!("\n{}\n  Run complete — {} rounds, {} tokens, complete={}\n{}",
+                    "=".repeat(70), rounds, total_tokens, is_complete, "=".repeat(70));
+            }
+            _ => {}
+        }
+    }
+}
+
+// Register on an orchestration (auto-propagates to all agents):
+// let handler = Arc::new(ProgressHandler::new());
+// let orchestration = Orchestration::new("id", "Name")
+//     .with_event_handler(handler);
+```
+
+**Sample output during a RALPH run:**
+
+```text
+======================================================================
+  Breakout Game RALPH Orchestration — mode=Ralph, agents=4
+======================================================================
+
+  RALPH Iteration 1/5 — 0/10 tasks complete
+  [00:00] >> Game Architect thinking... (Build a complete Atari Breakout game...)
+  [00:00]    Game Architect sending to LLM (round 1)...
+  [00:22]    Game Architect LLM round 1 complete (8923 chars, 3241 tokens)
+  [00:22]    Game Architect calling tool 'write_game_file' (iter 1), params={"filename":"breakout_game.html",...}
+  [00:22]    Game Architect tool 'write_game_file' succeeded
+  [00:22]    Game Architect sending to LLM (round 2)...
+  [00:35]    Game Architect LLM round 2 complete (412 chars, 158 tokens)
+  [00:35] << Game Architect responded (412 chars, 3399 tokens, 1 tool calls)
+  [00:35] *** Game Architect completed tasks: [html_structure, game_loop] — progress: 2/10
+  [00:35] >> Game Programmer thinking... (Build a complete Atari Breakout game...)
+  ...
+```
+
+---
+
 ## Tool Registry: Multi-Protocol Tool Access
 
 Agents access tools through the `ToolRegistry`, which supports **multiple simultaneous protocols**. Use local tools, remote MCP servers, persistent Memory, or custom implementations—all transparently:
@@ -853,7 +1130,7 @@ impl ToolProtocol for DatabaseAdapter {
                 // Execute actual database query
                 Ok(ToolResult::success(serde_json::json!({"result": "data"})))
             }
-            _ => Ok(ToolResult::error("Unknown tool".into()))
+            _ => Ok(ToolResult::failure("Unknown tool".to_string()))
         }
     }
 
@@ -1097,7 +1374,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(registry);
 
     // Agent can now use memory via commands like:
-    // "P research_state Gathering data TTL:7200"
+    // "P research_state Gathering data 7200"
     // "G research_state META"
     // "L"
 
@@ -1111,7 +1388,7 @@ The Memory tool uses a token-efficient protocol designed for LLM communication:
 
 | Command | Syntax | Example | Use Case |
 |---------|--------|---------|----------|
-| **Put** | `P <key> <value> [TTL:<seconds>]` | `P task_status InProgress TTL:3600` | Store state with 1-hour expiration |
+| **Put** | `P <key> <value> [ttl_seconds]` | `P task_status InProgress 3600` | Store state with 1-hour expiration |
 | **Get** | `G <key> [META]` | `G task_status META` | Retrieve value + metadata |
 | **List** | `L [META]` | `L META` | List all keys with metadata |
 | **Delete** | `D <key>` | `D task_status` | Remove specific memory |

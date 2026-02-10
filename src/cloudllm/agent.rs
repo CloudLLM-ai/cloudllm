@@ -1,7 +1,8 @@
 //! Agent System
 //!
-//! This module provides the core `Agent` struct that represents an LLM-powered agent
-//! with identity, expertise, personality, and optional tool access.
+//! This module provides the core [`Agent`] struct that represents an LLM-powered agent
+//! with identity, expertise, personality, optional tool access, and real-time event
+//! observability.
 //!
 //! Agents are the fundamental building blocks for LLM applications in CloudLLM and can be used:
 //! - Standalone for single-agent interactions
@@ -12,11 +13,20 @@
 //!
 //! - **Agent**: Represents an LLM agent with identity and capabilities
 //! - **LLMSession**: Each agent wraps its own session with rolling history and token tracking
-//! - **Tool Access**: Agents can be granted access to local or remote tools via ToolRegistry
+//! - **Tool Access**: Agents can be granted access to local or remote tools via [`ToolRegistry`](crate::tool_protocol::ToolRegistry)
 //! - **ThoughtChain**: Optional persistent, hash-chained memory for findings/decisions
 //! - **ContextStrategy**: Pluggable strategy for handling context window exhaustion
+//! - **EventHandler**: Optional callback for real-time observability of LLM calls, tool usage, and lifecycle events
 //! - **Expertise & Personality**: Optional attributes for behavior customization
 //! - **Metadata**: Arbitrary key-value pairs for domain-specific extensions
+//!
+//! # Event System
+//!
+//! Agents emit [`AgentEvent`](crate::event::AgentEvent)s during their lifecycle. Attach
+//! an [`EventHandler`](crate::event::EventHandler) via [`with_event_handler`](Agent::with_event_handler)
+//! or [`set_event_handler`](Agent::set_event_handler) to receive real-time notifications
+//! about LLM round-trips, tool calls, thought commits, and more. See the
+//! [`event`](crate::event) module for the full list of events and examples.
 //!
 //! # Example
 //!
@@ -51,12 +61,18 @@ use std::io;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Parsed representation of a tool call emitted by an agent.
+/// Internal representation of a parsed tool call extracted from an LLM response.
+///
+/// The agent's `parse_tool_call()` method scans LLM output for JSON fragments
+/// matching `{"tool_call": {"name": "...", "parameters": {...}}}` and returns
+/// this struct. The `name` is used to route the call through the
+/// [`ToolRegistry`](crate::tool_protocol::ToolRegistry), and `parameters` is
+/// the raw JSON payload forwarded to the tool protocol's `execute()` method.
 #[derive(Debug, Clone)]
 struct ToolCall {
-    /// Name of the tool to execute.
+    /// Name of the tool to execute (e.g. `"memory"`, `"calculator"`, `"write_game_file"`).
     name: String,
-    /// JSON payload describing the arguments.
+    /// Raw JSON parameters extracted from the LLM's tool call request.
     parameters: serde_json::Value,
 }
 
@@ -74,15 +90,17 @@ pub struct AgentResponse {
     pub tokens_used: Option<TokenUsage>,
 }
 
-/// Represents an agent with identity, expertise, and optional tool access.
+/// Represents an agent with identity, expertise, optional tool access, and
+/// event observability.
 ///
 /// Agents are LLM-powered entities that can:
 /// - Generate responses based on system prompts and user messages
-/// - Access tools through a ToolRegistry (single or multi-protocol)
-/// - Maintain per-agent conversation memory via LLMSession
-/// - Persist findings and decisions via ThoughtChain
-/// - Handle context window exhaustion via pluggable ContextStrategy
-/// - Be orchestrated by orchestrations or used independently
+/// - Access tools through a [`ToolRegistry`] (single or multi-protocol)
+/// - Maintain per-agent conversation memory via [`LLMSession`]
+/// - Persist findings and decisions via [`ThoughtChain`]
+/// - Handle context window exhaustion via pluggable [`ContextStrategy`]
+/// - Emit [`AgentEvent`]s for real-time observability of LLM calls and tool usage
+/// - Be orchestrated by [`Orchestration`](crate::orchestration::Orchestration) or used independently
 pub struct Agent {
     // ---- Identity (public, unchanged) ----
 
@@ -111,6 +129,11 @@ pub struct Agent {
 
     context_strategy: Box<dyn ContextStrategy>,
     thought_chain: Option<Arc<RwLock<ThoughtChain>>>,
+
+    /// Optional event handler for real-time observability. When set, the agent
+    /// emits [`AgentEvent`]s during `send()`, `generate_with_tokens()`, `commit()`,
+    /// `add_protocol()`, `remove_protocol()`, `fork()`, `set_system_prompt()`,
+    /// and `receive_message()`.
     event_handler: Option<Arc<dyn EventHandler>>,
 }
 
@@ -327,25 +350,67 @@ impl Agent {
         self
     }
 
-    /// Attach an event handler that will receive lifecycle events (builder pattern).
+    /// Attach an [`EventHandler`] that will receive lifecycle events (builder pattern).
+    ///
+    /// The handler receives [`AgentEvent`]s for LLM calls, tool usage, thought
+    /// commits, protocol mutations, fork operations, and session changes.
+    /// When this agent is added to an [`Orchestration`](crate::orchestration::Orchestration)
+    /// via `add_agent()`, the orchestration's handler (if any) will override this one.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::Agent;
+    /// use cloudllm::event::{AgentEvent, EventHandler};
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use async_trait::async_trait;
+    /// use std::sync::Arc;
+    ///
+    /// struct MyHandler;
+    /// #[async_trait]
+    /// impl EventHandler for MyHandler {
+    ///     async fn on_agent_event(&self, event: &AgentEvent) {
+    ///         println!("{:?}", event);
+    ///     }
+    /// }
+    ///
+    /// let agent = Agent::new("a1", "Agent", Arc::new(
+    ///     OpenAIClient::new_with_model_string("key", "gpt-4o"),
+    /// ))
+    /// .with_event_handler(Arc::new(MyHandler));
+    /// ```
     pub fn with_event_handler(mut self, handler: Arc<dyn EventHandler>) -> Self {
         self.event_handler = Some(handler);
         self
     }
 
     /// Set or replace the event handler at runtime.
+    ///
+    /// Unlike [`with_event_handler`](Agent::with_event_handler) (which consumes `self`
+    /// in the builder chain), this takes `&mut self` so the handler can be attached
+    /// to a live agent. Used internally by [`Orchestration::add_agent`](crate::orchestration::Orchestration::add_agent)
+    /// to propagate the orchestration's handler to each agent.
     pub fn set_event_handler(&mut self, handler: Arc<dyn EventHandler>) {
         self.event_handler = Some(handler);
     }
 
-    /// Emit an agent event (async context).
+    /// Emit an [`AgentEvent`] to the registered handler (async context).
+    ///
+    /// If no handler is registered, this is a no-op. Called from async methods
+    /// like `send()`, `generate_with_tokens()`, `commit()`, `add_protocol()`,
+    /// and `remove_protocol()`.
     async fn emit(&self, event: AgentEvent) {
         if let Some(handler) = &self.event_handler {
             handler.on_agent_event(&event).await;
         }
     }
 
-    /// Emit an agent event from a non-async context.
+    /// Emit an [`AgentEvent`] from a non-async (synchronous) context.
+    ///
+    /// Spawns a detached tokio task to call the async handler. Used by
+    /// synchronous methods like `fork()`, `fork_with_context()`,
+    /// `set_system_prompt()`, and `receive_message()` that cannot `.await`.
+    /// The event delivery is fire-and-forget.
     fn emit_sync(&self, event: AgentEvent) {
         if let Some(handler) = &self.event_handler {
             let handler = Arc::clone(handler);
@@ -772,14 +837,31 @@ impl Agent {
 
     /// Send a message using the agent's own session history.
     ///
-    /// Unlike [`generate_with_tokens`](Agent::generate_with_tokens) which
-    /// takes an external conversation history, this method relies on the
-    /// session's accumulated messages (populated via [`receive_message`] and
-    /// prior `send` calls). The session handles system prompt, history, and
+    /// This is the primary method used by orchestration modes. Unlike
+    /// [`generate_with_tokens`](Agent::generate_with_tokens) which takes an
+    /// external conversation history, this method relies on the session's
+    /// accumulated messages (populated via [`receive_message`] and prior
+    /// `send` calls). The session handles system prompt, history, and
     /// auto-trimming automatically.
     ///
-    /// Internally runs the same tool-call loop (up to 5 iterations) as
-    /// `generate_with_tokens`.
+    /// # Tool Loop
+    ///
+    /// After the initial LLM call, the method checks whether the response
+    /// contains a tool call (`{"tool_call": {"name": "...", "parameters": {...}}}`).
+    /// If so, the tool is executed via the [`ToolRegistry`], the result is
+    /// fed back into the session as a follow-up message, and the LLM is
+    /// called again. This loop runs for up to 5 iterations.
+    ///
+    /// # Events Emitted
+    ///
+    /// The following [`AgentEvent`]s are emitted during `send()` (in order):
+    /// 1. [`SendStarted`](AgentEvent::SendStarted) — at entry
+    /// 2. [`LLMCallStarted`](AgentEvent::LLMCallStarted) — before each LLM call
+    /// 3. [`LLMCallCompleted`](AgentEvent::LLMCallCompleted) — after each LLM call
+    /// 4. [`ToolCallDetected`](AgentEvent::ToolCallDetected) — when a tool call is parsed
+    /// 5. [`ToolExecutionCompleted`](AgentEvent::ToolExecutionCompleted) — after tool execution
+    /// 6. [`ToolMaxIterationsReached`](AgentEvent::ToolMaxIterationsReached) — if the loop cap is hit
+    /// 7. [`SendCompleted`](AgentEvent::SendCompleted) — at exit
     pub async fn send(
         &mut self,
         user_message: &str,
@@ -1092,7 +1174,26 @@ impl Agent {
     }
 
     /// Send a message to the backing model and capture the response plus token usage.
-    /// This is used internally by orchestrations and can be used for direct agent interaction.
+    ///
+    /// Unlike [`send`](Agent::send) which uses the agent's own session, this
+    /// method takes an explicit system prompt and conversation history. Each
+    /// call builds a fresh message array — there is no session state carried
+    /// between calls. This makes it suitable for one-shot interactions or
+    /// when you manage conversation history externally.
+    ///
+    /// The tool loop (up to 5 iterations) works identically to `send()` and
+    /// emits the same [`AgentEvent`]s.
+    ///
+    /// # Parameters
+    ///
+    /// - `system_prompt` — Base system prompt (augmented with the agent's
+    ///   expertise and personality automatically).
+    /// - `user_message` — The user's question or instruction.
+    /// - `conversation_history` — Prior messages to include as context.
+    ///
+    /// # Returns
+    ///
+    /// An [`AgentResponse`] containing the final text and cumulative token usage.
     pub async fn generate_with_tokens(
         &self,
         system_prompt: &str,
@@ -1359,7 +1460,11 @@ impl Agent {
         })
     }
 
-    /// Convenience wrapper around `generate_with_tokens` that discards usage data.
+    /// Convenience wrapper around [`generate_with_tokens`](Agent::generate_with_tokens)
+    /// that discards token-usage data and returns only the response text.
+    ///
+    /// Useful for quick one-shot interactions where you don't need to track
+    /// token consumption. All events are still emitted normally.
     pub async fn generate(
         &self,
         system_prompt: &str,
@@ -1372,15 +1477,23 @@ impl Agent {
         Ok(response.content)
     }
 
-    /// Parse a tool call emitted by a model response.
+    /// Parse a tool call from an LLM response.
     ///
-    /// The method looks for JSON fragments in the format
-    /// `{ "tool_call": { "name": "...", "parameters": { ... }}}`.
+    /// Scans the response text for a JSON fragment matching the pattern:
+    /// ```json
+    /// {"tool_call": {"name": "tool_name", "parameters": {...}}}
+    /// ```
+    ///
+    /// The method uses brace-counting to find the matching closing `}` rather
+    /// than parsing the entire response as JSON. This handles the common case
+    /// where the LLM wraps the tool call in surrounding prose.
+    ///
+    /// Returns `Some(ToolCall)` if a valid tool call is found, `None` otherwise.
+    /// Only the *first* tool call in the response is extracted.
     fn parse_tool_call(&self, response: &str) -> Option<ToolCall> {
-        // Try to find JSON object in the response
-        // Look for the pattern {"tool_call": ...}
+        // Locate the start of the tool_call JSON fragment
         if let Some(start_idx) = response.find("{\"tool_call\"") {
-            // Find the matching closing brace
+            // Use brace-counting to find the matching closing brace
             let mut brace_count = 0;
             let mut end_idx = start_idx;
             let chars: Vec<char> = response.chars().collect();

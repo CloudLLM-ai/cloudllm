@@ -61,7 +61,20 @@ use tokio::sync::RwLock;
 // ── Event Handler ──────────────────────────────────────────────────────────
 
 /// Pretty-prints agent and orchestration events in real-time.
+///
+/// Implements [`EventHandler`] to provide a live progress display during
+/// RALPH orchestration runs. Tracks elapsed time from construction and
+/// formats each event as a timestamped line.
+///
+/// Handles the following events:
+/// - `AgentEvent::SendStarted` / `SendCompleted` — agent generation lifecycle
+/// - `AgentEvent::LLMCallStarted` / `LLMCallCompleted` — per-call LLM latency visibility
+/// - `AgentEvent::ToolCallDetected` / `ToolExecutionCompleted` — tool usage tracking
+/// - `OrchestrationEvent::RunStarted` / `RunCompleted` — orchestration banners
+/// - `OrchestrationEvent::RalphIterationStarted` / `RalphTaskCompleted` — RALPH progress
+/// - `OrchestrationEvent::AgentFailed` — error reporting
 struct BreakoutEventHandler {
+    /// Wall-clock instant captured at construction, used for elapsed time display.
     start: Instant,
 }
 
@@ -298,6 +311,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("{}\n", "=".repeat(80));
 
     // ── Shared Memory + Custom Tools ──────────────────────────────────────
+    // All agents share the same Memory store and custom tool protocol through
+    // an Arc<RwLock<ToolRegistry>>. This allows agents to coordinate by reading
+    // and writing to shared memory, and to write game files to disk.
 
     let memory = Arc::new(Memory::new());
     let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
@@ -461,6 +477,9 @@ You have access to shared Memory and a write_game_file tool:\n\
 - Memory: Use PUT/GET/LIST commands to coordinate with other agents (e.g., store design decisions)\n\
 - write_game_file: Write the game HTML to a file (filename + content parameters)";
 
+    // Register the event handler on the orchestration. It will be
+    // auto-propagated to each agent added via add_agent(), giving us
+    // a unified stream of both OrchestrationEvents and AgentEvents.
     let event_handler = Arc::new(BreakoutEventHandler::new());
 
     let mut orchestration =
