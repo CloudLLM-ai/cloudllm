@@ -65,8 +65,8 @@ use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
-use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
-use cloudllm::tools::Memory;
+use cloudllm::tool_protocols::{BashProtocol, CustomToolProtocol, MemoryProtocol};
+use cloudllm::tools::{BashTool, Memory, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
     Agent,
@@ -358,12 +358,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         )
         .await;
 
+    // Set up Bash protocol for command execution
+    // Auto-detect platform (Linux or macOS)
+    #[cfg(target_os = "macos")]
+    let bash_tool = Arc::new(BashTool::new(Platform::macOS));
+    #[cfg(target_os = "linux")]
+    let bash_tool = Arc::new(BashTool::new(Platform::Linux));
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let bash_tool = Arc::new(BashTool::new(Platform::Linux)); // Fallback
+
+    let bash_protocol = Arc::new(BashProtocol::new(bash_tool));
+
+    // Create shared tool registry with all protocols
     let mut shared_registry = ToolRegistry::empty();
     shared_registry
         .add_protocol("memory", memory_protocol)
         .await?;
     shared_registry
         .add_protocol("custom", custom_protocol)
+        .await?;
+    shared_registry
+        .add_protocol("bash", bash_protocol)
         .await?;
     let shared_registry = Arc::new(RwLock::new(shared_registry));
 
@@ -547,9 +562,10 @@ When you work on a task, output the COMPLETE updated index.html incorporating AL
 plus your additions. Never output partial snippets — always output the full file. \n\n\
 When a task is fully implemented, include the marker [TASK_COMPLETE:task_id] at the end of your \
 response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks at once.\n\n\
-You have access to shared Memory and a write_game_file tool:\n\
-- Memory: Use PUT/GET/LIST commands to coordinate with other agents (e.g., store design decisions)\n\
-- write_game_file: Write the game HTML to a file (filename + content parameters)";
+You have access to a comprehensive toolkit for coordination and development:\n\
+- Memory (memory:*): Use PUT/GET/LIST commands to coordinate (e.g., store design decisions)\n\
+- Bash (bash:*): Execute shell commands for file operations, git, testing, debugging\n\
+- Custom Tools (custom:write_game_file): Write the game HTML to a file (filename + content parameters)";
 
     // Register the event handler on the orchestration. It will be
     // auto-propagated to each agent added via add_agent(), giving us

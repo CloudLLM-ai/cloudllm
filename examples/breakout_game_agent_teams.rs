@@ -81,8 +81,8 @@ use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::event::{EventHandler, OrchestrationEvent};
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
-use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
-use cloudllm::tools::Memory;
+use cloudllm::tool_protocols::{BashProtocol, CustomToolProtocol, MemoryProtocol};
+use cloudllm::tools::{BashTool, Memory, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, WorkItem},
     Agent,
@@ -374,13 +374,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         )
         .await;
 
-    // Create shared tool registry with Memory and Custom protocols
+    // Set up Bash protocol for command execution
+    // Auto-detect platform (Linux or macOS)
+    #[cfg(target_os = "macos")]
+    let bash_tool = Arc::new(BashTool::new(Platform::macOS));
+    #[cfg(target_os = "linux")]
+    let bash_tool = Arc::new(BashTool::new(Platform::Linux));
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let bash_tool = Arc::new(BashTool::new(Platform::Linux)); // Fallback
+
+    let bash_protocol = Arc::new(BashProtocol::new(bash_tool));
+
+    // Create shared tool registry with all protocols
     let mut shared_registry = ToolRegistry::empty();
     shared_registry
         .add_protocol("memory", memory_protocol)
         .await?;
     shared_registry
         .add_protocol("custom", custom_protocol)
+        .await?;
+    shared_registry
+        .add_protocol("bash", bash_protocol)
         .await?;
 
     let shared_registry = Arc::new(RwLock::new(shared_registry));
@@ -454,6 +468,7 @@ other agents (retrieved via Memory GET) plus your additions. Never output partia
 always output the full file.\n\n\
 You have access to a comprehensive toolkit for coordination and development:\n\
 - Memory (memory:*): Use PUT/GET/LIST to discover tasks, claim work, store designs, coordinate\n\
+- Bash (bash:*): Execute shell commands for file operations, git, testing, debugging\n\
 - Custom Tools (custom:write_game_file): Write the final game HTML to disk when complete\n\
 \n\
 Memory Task Pool Keys:\n\
