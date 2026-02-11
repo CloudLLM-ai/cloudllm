@@ -311,10 +311,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    let api_key = match std::env::var("ANTHROPIC_KEY") {
+    let api_key = match std::env::var("ANTHROPIC_API_KEY") {
         Ok(key) => key,
         Err(_) => {
-            eprintln!("Error: Set ANTHROPIC_KEY environment variable.");
+            eprintln!("\n❌ Error: ANTHROPIC_API_KEY environment variable is not set.");
+            eprintln!("\nThis example requires a valid Anthropic API key to run Claude agents.");
+            eprintln!("\nTo fix this:");
+            eprintln!("  1. Get your API key from https://console.anthropic.com/");
+            eprintln!("  2. Set the environment variable:");
+            eprintln!("     export ANTHROPIC_API_KEY=your-actual-key-here");
+            eprintln!("  3. Run the example again:");
+            eprintln!("     cargo run --example breakout_game_ralph");
+            eprintln!("\nExpected runtime: 5-8 minutes");
+            eprintln!("Expected cost: $1.00-$2.00 (Claude Haiku 4.5 is cost-effective)\n");
             std::process::exit(1);
         }
     };

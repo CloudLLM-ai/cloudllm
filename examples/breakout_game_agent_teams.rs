@@ -408,7 +408,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // ── Agents ──────────────────────────────────────────────────────────────────
 
-    let claude_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| "demo-key".to_string());
+    let claude_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| {
+        eprintln!("\n❌ Error: ANTHROPIC_API_KEY environment variable is not set.");
+        eprintln!("\nThis example requires a valid Anthropic API key to run Claude Haiku 4.5 agents.");
+        eprintln!("\nTo fix this:");
+        eprintln!("  1. Get your API key from https://console.anthropic.com/");
+        eprintln!("  2. Set the environment variable:");
+        eprintln!("     export ANTHROPIC_API_KEY=your-actual-key-here");
+        eprintln!("  3. Run the example again:");
+        eprintln!("     cargo run --example breakout_game_agent_teams");
+        eprintln!("\nExpected runtime: 10-15 minutes");
+        eprintln!("Expected cost: $2.00-$4.00 (Claude Haiku 4.5 is cost-effective)\n");
+        std::process::exit(1);
+    });
 
     // Factory for creating Claude Haiku 4.5 clients
     let make_client = || {
