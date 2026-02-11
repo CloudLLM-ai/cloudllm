@@ -957,3 +957,210 @@ impl ToolProtocol for BashProtocol {
         "bash"
     }
 }
+
+/// HTTP Client Protocol for making web requests
+///
+/// Wraps an HttpClient to expose HTTP operations (GET, POST, PUT, DELETE, PATCH)
+/// as discoverable tools through the ToolProtocol interface.
+///
+/// # Tools Provided
+///
+/// - `http_get`: Make HTTP GET requests
+/// - `http_post`: Make HTTP POST requests
+/// - `http_put`: Make HTTP PUT requests
+/// - `http_delete`: Make HTTP DELETE requests
+/// - `http_patch`: Make HTTP PATCH requests
+///
+/// # Example
+///
+/// ```ignore
+/// use cloudllm::tools::HttpClient;
+/// use cloudllm::tool_protocols::HttpClientProtocol;
+/// use std::sync::Arc;
+///
+/// let http_client = Arc::new(HttpClient::new());
+/// let protocol = Arc::new(HttpClientProtocol::new(http_client));
+/// ```
+pub struct HttpClientProtocol {
+    /// The underlying HTTP client implementation
+    http_client: Arc<crate::cloudllm::tools::HttpClient>,
+}
+
+impl HttpClientProtocol {
+    /// Create a new HTTP protocol wrapping an HttpClient
+    pub fn new(http_client: Arc<crate::cloudllm::tools::HttpClient>) -> Self {
+        Self { http_client }
+    }
+}
+
+#[async_trait]
+impl ToolProtocol for HttpClientProtocol {
+    async fn execute(
+        &self,
+        tool_name: &str,
+        parameters: JsonValue,
+    ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+        let url = parameters["url"]
+            .as_str()
+            .ok_or("'url' parameter is required")?;
+
+        match tool_name {
+            "http_get" => {
+                match self.http_client.get(url).await {
+                    Ok(response) => Ok(ToolResult::success(serde_json::json!({
+                        "status": response.status,
+                        "body": response.body,
+                        "headers": response.headers,
+                    }))),
+                    Err(e) => Ok(ToolResult::failure(e.to_string())),
+                }
+            }
+            "http_post" => {
+                let body = parameters.get("body").cloned().unwrap_or(JsonValue::Null);
+                match self.http_client.post(url, body).await {
+                    Ok(response) => Ok(ToolResult::success(serde_json::json!({
+                        "status": response.status,
+                        "body": response.body,
+                        "headers": response.headers,
+                    }))),
+                    Err(e) => Ok(ToolResult::failure(e.to_string())),
+                }
+            }
+            "http_put" => {
+                let body = parameters.get("body").cloned().unwrap_or(JsonValue::Null);
+                match self.http_client.put(url, body).await {
+                    Ok(response) => Ok(ToolResult::success(serde_json::json!({
+                        "status": response.status,
+                        "body": response.body,
+                        "headers": response.headers,
+                    }))),
+                    Err(e) => Ok(ToolResult::failure(e.to_string())),
+                }
+            }
+            "http_delete" => {
+                match self.http_client.delete(url).await {
+                    Ok(response) => Ok(ToolResult::success(serde_json::json!({
+                        "status": response.status,
+                        "body": response.body,
+                        "headers": response.headers,
+                    }))),
+                    Err(e) => Ok(ToolResult::failure(e.to_string())),
+                }
+            }
+            "http_patch" => {
+                let body = parameters.get("body").cloned().unwrap_or(JsonValue::Null);
+                match self.http_client.patch(url, body).await {
+                    Ok(response) => Ok(ToolResult::success(serde_json::json!({
+                        "status": response.status,
+                        "body": response.body,
+                        "headers": response.headers,
+                    }))),
+                    Err(e) => Ok(ToolResult::failure(e.to_string())),
+                }
+            }
+            _ => Err(Box::new(ToolError::NotFound(tool_name.to_string()))),
+        }
+    }
+
+    async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
+        Ok(vec![
+            ToolMetadata::new("http_get", "Make an HTTP GET request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request (e.g., 'https://api.example.com/data')")
+                        .required(),
+                ),
+            ToolMetadata::new("http_post", "Make an HTTP POST request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                )
+                .with_parameter(
+                    ToolParameter::new("body", ToolParameterType::String)
+                        .with_description("JSON body to send (optional)"),
+                ),
+            ToolMetadata::new("http_put", "Make an HTTP PUT request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                )
+                .with_parameter(
+                    ToolParameter::new("body", ToolParameterType::String)
+                        .with_description("JSON body to send (optional)"),
+                ),
+            ToolMetadata::new("http_delete", "Make an HTTP DELETE request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                ),
+            ToolMetadata::new("http_patch", "Make an HTTP PATCH request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                )
+                .with_parameter(
+                    ToolParameter::new("body", ToolParameterType::String)
+                        .with_description("JSON body to send (optional)"),
+                ),
+        ])
+    }
+
+    async fn get_tool_metadata(
+        &self,
+        tool_name: &str,
+    ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+        match tool_name {
+            "http_get" => Ok(ToolMetadata::new("http_get", "Make an HTTP GET request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request (e.g., 'https://api.example.com/data')")
+                        .required(),
+                )),
+            "http_post" => Ok(ToolMetadata::new("http_post", "Make an HTTP POST request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                )
+                .with_parameter(
+                    ToolParameter::new("body", ToolParameterType::String)
+                        .with_description("JSON body to send (optional)"),
+                )),
+            "http_put" => Ok(ToolMetadata::new("http_put", "Make an HTTP PUT request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                )
+                .with_parameter(
+                    ToolParameter::new("body", ToolParameterType::String)
+                        .with_description("JSON body to send (optional)"),
+                )),
+            "http_delete" => Ok(ToolMetadata::new("http_delete", "Make an HTTP DELETE request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                )),
+            "http_patch" => Ok(ToolMetadata::new("http_patch", "Make an HTTP PATCH request")
+                .with_parameter(
+                    ToolParameter::new("url", ToolParameterType::String)
+                        .with_description("The URL to request")
+                        .required(),
+                )
+                .with_parameter(
+                    ToolParameter::new("body", ToolParameterType::String)
+                        .with_description("JSON body to send (optional)"),
+                )),
+            _ => Err(Box::new(ToolError::NotFound(tool_name.to_string()))),
+        }
+    }
+
+    fn protocol_name(&self) -> &str {
+        "http"
+    }
+}
