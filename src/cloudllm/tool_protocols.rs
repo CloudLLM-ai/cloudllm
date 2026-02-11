@@ -960,18 +960,47 @@ impl ToolProtocol for BashProtocol {
 
 /// HTTP Client Protocol for making web requests
 ///
-/// Wraps an HttpClient to expose HTTP operations (GET, POST, PUT, DELETE, PATCH)
-/// as discoverable tools through the ToolProtocol interface.
+/// Wraps an [`HttpClient`](crate::cloudllm::tools::HttpClient) to expose HTTP operations
+/// (GET, POST, PUT, DELETE, PATCH) as discoverable tools through the [`ToolProtocol`] interface.
+///
+/// This protocol enables agents to make web requests for research, data fetching, API calls,
+/// and coordination with remote services. All HTTP tools return consistent response structures
+/// with status, body, and headers.
 ///
 /// # Tools Provided
 ///
-/// - `http_get`: Make HTTP GET requests
-/// - `http_post`: Make HTTP POST requests
-/// - `http_put`: Make HTTP PUT requests
-/// - `http_delete`: Make HTTP DELETE requests
-/// - `http_patch`: Make HTTP PATCH requests
+/// - **`http_get`**: Make HTTP GET requests to fetch data
+/// - **`http_post`**: Make HTTP POST requests to send data (with optional JSON body)
+/// - **`http_put`**: Make HTTP PUT requests to update resources (with optional JSON body)
+/// - **`http_delete`**: Make HTTP DELETE requests to remove resources
+/// - **`http_patch`**: Make HTTP PATCH requests to partially update resources (with optional JSON body)
 ///
-/// # Example
+/// # Tool Parameters
+///
+/// All HTTP tools require:
+/// - **`url`** (string, required): The endpoint to request (e.g., `"https://api.example.com/data"`)
+///
+/// POST/PUT/PATCH tools additionally support:
+/// - **`body`** (string, optional): JSON body to send in the request
+///
+/// # Response Format
+///
+/// All HTTP tools return a consistent JSON response:
+///
+/// ```json
+/// {
+///   "status": 200,
+///   "body": "response content",
+///   "headers": {
+///     "content-type": "application/json",
+///     "content-length": "1234"
+///   }
+/// }
+/// ```
+///
+/// # Examples
+///
+/// ## Basic Setup
 ///
 /// ```ignore
 /// use cloudllm::tools::HttpClient;
@@ -979,7 +1008,89 @@ impl ToolProtocol for BashProtocol {
 /// use std::sync::Arc;
 ///
 /// let http_client = Arc::new(HttpClient::new());
-/// let protocol = Arc::new(HttpClientProtocol::new(http_client));
+/// let http_protocol = Arc::new(HttpClientProtocol::new(http_client));
+/// ```
+///
+/// ## With ToolRegistry
+///
+/// ```ignore
+/// use cloudllm::tool_protocol::ToolRegistry;
+/// use cloudllm::tools::HttpClient;
+/// use cloudllm::tool_protocols::HttpClientProtocol;
+/// use std::sync::Arc;
+///
+/// let http_client = Arc::new(HttpClient::new());
+/// let http_protocol = Arc::new(HttpClientProtocol::new(http_client));
+///
+/// let mut registry = ToolRegistry::empty();
+/// registry
+///     .add_protocol("http", http_protocol)
+///     .await?;
+/// ```
+///
+/// ## Agent Usage Examples
+///
+/// ### GET Request (Fetch Data)
+/// ```json
+/// {
+///   "tool": "http_get",
+///   "parameters": {
+///     "url": "https://api.github.com/repos/anthropics/anthropic-sdk-python"
+///   }
+/// }
+/// ```
+///
+/// ### POST Request (Send Data)
+/// ```json
+/// {
+///   "tool": "http_post",
+///   "parameters": {
+///     "url": "https://api.example.com/data",
+///     "body": "{\"name\": \"test\", \"value\": 42}"
+///   }
+/// }
+/// ```
+///
+/// ### PUT Request (Update Resource)
+/// ```json
+/// {
+///   "tool": "http_put",
+///   "parameters": {
+///     "url": "https://api.example.com/users/123",
+///     "body": "{\"status\": \"active\"}"
+///   }
+/// }
+/// ```
+///
+/// ### DELETE Request (Remove Resource)
+/// ```json
+/// {
+///   "tool": "http_delete",
+///   "parameters": {
+///     "url": "https://api.example.com/users/123"
+///   }
+/// }
+/// ```
+///
+/// # Security Considerations
+///
+/// The underlying [`HttpClient`](crate::cloudllm::tools::HttpClient) supports:
+/// - Domain allowlist/blocklist for restricting which URLs can be accessed
+/// - Configurable timeouts (default 30 seconds)
+/// - Response size limits (default 10MB)
+/// - Automatic HTTPS enforcement
+///
+/// # Integration with Agents
+///
+/// Agents can discover available HTTP tools automatically:
+///
+/// ```ignore
+/// // Agent discovers tools
+/// let tools = protocol.list_tools().await?;
+/// // Returns: [http_get, http_post, http_put, http_delete, http_patch]
+///
+/// // Agent makes HTTP request
+/// let result = protocol.execute("http_get", json!({"url": "..."})).await?;
 /// ```
 pub struct HttpClientProtocol {
     /// The underlying HTTP client implementation

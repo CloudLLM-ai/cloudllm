@@ -1,4 +1,13 @@
 0.10.0 FEB/10/2026
+ - feat: HttpClientProtocol — dedicated protocol for HTTP requests
+   - New HttpClientProtocol struct wrapping HttpClient
+   - 5 HTTP tools: http_get, http_post, http_put, http_delete, http_patch
+   - Discoverable tools via ToolProtocol interface
+   - Consistent JSON response format (status, body, headers)
+   - Optional JSON body support for POST/PUT/PATCH
+   - Full async/await with proper error handling
+   - Comprehensive documentation with examples and security notes
+   - Integrated into both breakout_game_ralph.rs and breakout_game_agent_teams.rs examples
  - feat: AnthropicAgentTeams orchestration mode (7th collaboration mode)
    - Decentralized task-based coordination inspired by Anthropic's C compiler work
    - No central orchestrator — agents autonomously discover and claim tasks
