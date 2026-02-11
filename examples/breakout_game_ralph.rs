@@ -591,7 +591,7 @@ You have access to a comprehensive toolkit for coordination and development:\n\
   • C: Clear all keys\n\
   • SPEC: Get protocol specification\n\
   Example: {\"command\": \"P design_state HTML structure completed\"}\n\
-- Bash (bash:*): Execute shell commands for file operations, git, testing, debugging\n\
+- Bash (bash:*): Execute shell commands - recommend using cat <<'EOF' to write game to breakout_game_ralph.html\n\
 - HTTP Client (http:*): Make web requests (http_get, http_post, http_put, http_delete, http_patch)\n\
 - Custom Tools (custom:write_game_file): Write the game HTML to a file (filename + content parameters)";
 

@@ -602,7 +602,7 @@ You have access to a comprehensive toolkit for coordination and development:\n\
   • L: List all stored keys\n\
   • D key: Delete a key\n\
   • C: Clear all keys\n\
-- Bash (bash:*): Execute shell commands for file operations, git, testing, debugging\n\
+- Bash (bash:*): Execute shell commands - recommend using cat <<'EOF' to write game to breakout_game_agent_teams.html\n\
 - HTTP Client (http:*): Make web requests (http_get, http_post, http_put, http_delete, http_patch)\n\
 - Custom Tools (custom:write_game_file): Write the final game HTML to disk when complete\n\
 \n\
