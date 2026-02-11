@@ -198,9 +198,7 @@ impl EventHandler for TeamsEventHandler {
                     );
                 }
             }
-            AgentEvent::LLMCallStarted {
-                agent_name, ..
-            } => {
+            AgentEvent::LLMCallStarted { agent_name, .. } => {
                 println!(
                     "  [{}]    {} sending to LLM...",
                     self.elapsed_str(),
