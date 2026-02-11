@@ -80,12 +80,16 @@
 use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::event::{EventHandler, OrchestrationEvent};
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
+use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
+use cloudllm::tools::Memory;
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, WorkItem},
     Agent,
 };
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::RwLock;
 
 // ── Event Handler ──────────────────────────────────────────────────────────
 
@@ -335,51 +339,100 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n📋 Task Pool: {} items", tasks.len());
     println!("   Core Mechanics (6), Audio (2), Powerups (3), Effects (3), Advanced (4)\n");
 
+    // ── Shared Tools Setup ──────────────────────────────────────────────────────
+    // All agents share access to a comprehensive toolkit including:
+    // - Memory: For task pool coordination (teams:<pool_id>:*)
+    // - Custom Tools: write_game_file for saving game to disk
+
+    let memory = Arc::new(Memory::new());
+    let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
+
+    // Set up custom tools (write_game_file)
+    let custom_protocol = Arc::new(CustomToolProtocol::new());
+    custom_protocol
+        .register_tool(
+            ToolMetadata::new("write_game_file", "Write the complete game HTML to disk")
+                .with_parameter(
+                    ToolParameter::new("filename", ToolParameterType::String)
+                        .with_description("The output filename (e.g., 'breakout_game.html')"),
+                )
+                .with_parameter(
+                    ToolParameter::new("content", ToolParameterType::String)
+                        .with_description("The complete HTML document with inline CSS and JavaScript"),
+                ),
+            Arc::new(|params| {
+                let filename = params["filename"]
+                    .as_str()
+                    .unwrap_or("breakout_game.html")
+                    .to_string();
+                let content = params["content"].as_str().unwrap_or("").to_string();
+                std::fs::write(&filename, &content)?;
+                Ok(cloudllm::tool_protocol::ToolResult::success(
+                    serde_json::json!({"written": filename, "bytes": content.len()}),
+                ))
+            }),
+        )
+        .await;
+
+    // Create shared tool registry with Memory and Custom protocols
+    let mut shared_registry = ToolRegistry::empty();
+    shared_registry
+        .add_protocol("memory", memory_protocol)
+        .await?;
+    shared_registry
+        .add_protocol("custom", custom_protocol)
+        .await?;
+
+    let shared_registry = Arc::new(RwLock::new(shared_registry));
+
     // ── Agents ──────────────────────────────────────────────────────────────────
 
     let claude_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| "demo-key".to_string());
 
-    // All agents use Claude Haiku 4.5
-    let architect = Agent::new(
-        "architect",
-        "Architect (Claude Haiku 4.5)",
+    // Factory for creating Claude Haiku 4.5 clients
+    let make_client = || {
         Arc::new(ClaudeClient::new_with_model_enum(
             &claude_key,
             Model::ClaudeHaiku45,
-        )),
-    );
+        ))
+    };
+
+    // All agents use Claude Haiku 4.5 with shared access to all tools
+    let architect = Agent::new(
+        "architect",
+        "Architect (Claude Haiku 4.5)",
+        make_client(),
+    )
+    .with_expertise("HTML5 structure, CSS layout, Canvas setup, responsive design")
+    .with_personality("Meticulous front-end architect who produces clean, well-structured HTML/CSS.")
+    .with_shared_tools(shared_registry.clone());
 
     let core_engineer = Agent::new(
         "core-engineer",
         "Core Engineer (Claude Haiku 4.5)",
-        Arc::new(ClaudeClient::new_with_model_enum(
-            &claude_key,
-            Model::ClaudeHaiku45,
-        )),
-    );
+        make_client(),
+    )
+    .with_expertise("JavaScript game mechanics, physics, collision detection, rendering")
+    .with_personality("Seasoned game developer who writes tight, performant JavaScript.")
+    .with_shared_tools(shared_registry.clone());
 
     let audio_engineer = Agent::new(
         "audio-engineer",
         "Audio Engineer (Claude Haiku 4.5)",
-        Arc::new(ClaudeClient::new_with_model_enum(
-            &claude_key,
-            Model::ClaudeHaiku45,
-        )),
-    );
+        make_client(),
+    )
+    .with_expertise("Web Audio API, chiptune synthesis, oscillator-based sound effects")
+    .with_personality("Retro audio enthusiast who crafts authentic Atari 2600-era sounds.")
+    .with_shared_tools(shared_registry.clone());
 
     let features_engineer = Agent::new(
         "features-engineer",
         "Features Engineer (Claude Haiku 4.5)",
-        Arc::new(ClaudeClient::new_with_model_enum(
-            &claude_key,
-            Model::ClaudeHaiku45,
-        )),
-    );
-
-    // ── Memory Setup ────────────────────────────────────────────────────────────
-    // Memory is initialized but agents will discover it through the orchestration's
-    // task pool mechanism. In a future enhancement, agents can use Memory for
-    // inter-agent coordination beyond the task pool.
+        make_client(),
+    )
+    .with_expertise("Game powerup systems, spawn logic, timed effects, animations")
+    .with_personality("Creative gameplay engineer who designs fun and balanced mechanics.")
+    .with_shared_tools(shared_registry.clone());
 
     // ── Orchestration ───────────────────────────────────────────────────────────
 
@@ -399,8 +452,14 @@ TASK DISCOVERY & CLAIMING PROCESS:\n\
 IMPORTANT: Always output the COMPLETE updated index.html incorporating ALL previous work from \
 other agents (retrieved via Memory GET) plus your additions. Never output partial snippets — \
 always output the full file.\n\n\
-You have access to shared Memory for coordination:\n\
-- Memory: Use PUT/GET/LIST commands to discover tasks, claim work, store designs, and coordinate with teammates";
+You have access to a comprehensive toolkit for coordination and development:\n\
+- Memory (memory:*): Use PUT/GET/LIST to discover tasks, claim work, store designs, coordinate\n\
+- Custom Tools (custom:write_game_file): Write the final game HTML to disk when complete\n\
+\n\
+Memory Task Pool Keys:\n\
+  teams:<pool_id>:unclaimed:<task_id> - Discover available work\n\
+  teams:<pool_id>:claimed:<task_id> - Mark task as claimed\n\
+  teams:<pool_id>:completed:<task_id> - Record completed work";
 
     let event_handler = Arc::new(TeamsEventHandler::new());
 
