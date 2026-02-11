@@ -79,7 +79,7 @@
 
 use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
-use cloudllm::event::{EventHandler, OrchestrationEvent};
+use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
 use cloudllm::tool_protocols::{
     BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
@@ -118,6 +118,117 @@ impl TeamsEventHandler {
 
 #[async_trait]
 impl EventHandler for TeamsEventHandler {
+    async fn on_agent_event(&self, event: &AgentEvent) {
+        match event {
+            AgentEvent::SendStarted {
+                agent_name,
+                message_preview,
+                ..
+            } => {
+                let preview_len = 60.min(message_preview.len());
+                let preview_end = message_preview
+                    .char_indices()
+                    .nth(preview_len)
+                    .map(|(i, _)| i)
+                    .unwrap_or(message_preview.len());
+                println!(
+                    "  [{}] >> {} thinking... ({}...)",
+                    self.elapsed_str(),
+                    agent_name,
+                    &message_preview[..preview_end]
+                );
+            }
+            AgentEvent::SendCompleted {
+                agent_name,
+                response_length,
+                tokens_used,
+                tool_calls_made,
+                ..
+            } => {
+                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+                println!(
+                    "  [{}] << {} responded ({} chars, {} tokens, {} tool calls)",
+                    self.elapsed_str(),
+                    agent_name,
+                    response_length,
+                    tokens,
+                    tool_calls_made
+                );
+            }
+            AgentEvent::ToolCallDetected {
+                agent_name,
+                tool_name,
+                parameters,
+                ..
+            } => {
+                let params_str = serde_json::to_string(parameters).unwrap_or_default();
+                println!(
+                    "  [{}]      └─ {} calling tool '{}' | params={}",
+                    self.elapsed_str(),
+                    agent_name,
+                    tool_name,
+                    if params_str.len() > 80 {
+                        format!("{}...", &params_str[..80])
+                    } else {
+                        params_str
+                    }
+                );
+            }
+            AgentEvent::ToolExecutionCompleted {
+                agent_name,
+                tool_name,
+                success,
+                error,
+                ..
+            } => {
+                if *success {
+                    println!(
+                        "  [{}]      └─ {} tool '{}' ✓",
+                        self.elapsed_str(),
+                        agent_name,
+                        tool_name
+                    );
+                } else {
+                    println!(
+                        "  [{}]      └─ {} tool '{}' ✗ {}",
+                        self.elapsed_str(),
+                        agent_name,
+                        tool_name,
+                        error.as_deref().unwrap_or("unknown error")
+                    );
+                }
+            }
+            AgentEvent::LLMCallStarted {
+                agent_name, ..
+            } => {
+                println!(
+                    "  [{}]    {} sending to LLM...",
+                    self.elapsed_str(),
+                    agent_name
+                );
+            }
+            AgentEvent::LLMCallCompleted {
+                agent_name,
+                tokens_used,
+                response_length,
+                ..
+            } => {
+                let tokens = tokens_used
+                    .as_ref()
+                    .map(|u| format!("{}", u.total_tokens))
+                    .unwrap_or_else(|| "?".to_string());
+                println!(
+                    "  [{}]    {} LLM complete ({} chars, {} tokens)",
+                    self.elapsed_str(),
+                    agent_name,
+                    response_length,
+                    tokens
+                );
+            }
+            _ => {}
+        }
+    }
+
     async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
         match event {
             OrchestrationEvent::RunStarted {
