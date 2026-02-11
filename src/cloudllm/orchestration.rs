@@ -12,6 +12,8 @@
 //! - **Hierarchical**: Lead agent coordinates, specialists handle specific aspects
 //! - **Debate**: Agents discuss and challenge each other until convergence is reached
 //! - **Ralph**: Autonomous iterative loop that works through a PRD task list
+//! - **AnthropicAgentTeams** ⭐: Decentralized task-based coordination with no central orchestrator
+//!   Agents autonomously discover, claim, and complete tasks from a shared pool via Memory
 //!
 //! # Architecture
 //!
@@ -136,40 +138,161 @@ pub struct RalphTask {
 
 /// A work item in an AnthropicAgentTeams task pool.
 ///
-/// Each `WorkItem` represents a discrete task that agents autonomously discover
-/// and claim from a shared Memory pool. Agents coordinate via hierarchical Memory
-/// keys: `teams:<pool_id>:unclaimed:<task_id>`, `teams:<pool_id>:claimed:<task_id>`,
-/// and `teams:<pool_id>:completed:<task_id>`.
+/// Each `WorkItem` represents a discrete, independently-completable task that agents
+/// autonomously discover and claim from a shared Memory pool. Work items are the
+/// fundamental unit of coordination in decentralized agent teams.
+///
+/// # Design Principles
+///
+/// - **Atomic**: Each task is small enough to complete in one agent turn (~2 minutes)
+/// - **Independent**: Minimal dependencies between tasks (agents claim one at a time)
+/// - **Clear**: Description and criteria must be understandable by LLMs
+/// - **Ordered**: Earlier tasks in the vec are presented first (set task order explicitly)
+///
+/// # Structure
+///
+/// Work items have three components:
+///
+/// | Field | Purpose | Example |
+/// |-------|---------|---------|
+/// | `id` | Unique task identifier | `"research_nmn"` |
+/// | `description` | 1-2 sentence task brief | `"Research phase — NMN+ mechanisms"` |
+/// | `acceptance_criteria` | Success condition for agents | `"Summarize NAD+ boosting pathways"` |
+///
+/// # Memory Storage
+///
+/// When added to an orchestration, each WorkItem is represented in Memory as:
+/// - **Unclaimed**: `teams:<pool_id>:unclaimed:<task_id>` → `description + "\n\nAcceptance criteria: " + acceptance_criteria`
+/// - **Claimed**: `teams:<pool_id>:claimed:<task_id>` → `<agent_id>:<timestamp>` (when agent starts work)
+/// - **Completed**: `teams:<pool_id>:completed:<task_id>` → `<result>` (when work is done)
+///
+/// # Best Practices for Effective Tasks
+///
+/// **Good Task IDs** (What to use):
+/// - `research_phase`, `analysis_block`, `write_summary`, `peer_review`
+/// - Short, lowercase, underscores between words
+/// - Easily parseable by LLMs (no special chars, no spaces)
+///
+/// **Avoid**:
+/// - `task1`, `step_1_a_i` (too generic or complex)
+/// - `Research Phase` (uppercase, spaces break LLM parsing)
+/// - `task-with-hyphens` (hyphens can confuse tokenizers)
+///
+/// **Good Descriptions** (What to use):
+/// - `"Research phase — identify NAD+ pathways and mitochondrial functions"`
+/// - `"Analysis phase — synthesize 3-5 key biological mechanisms"`
+/// - 1-2 sentences, specific enough for agent to start work
+///
+/// **Avoid**:
+/// - `"Do research"` (too vague)
+/// - `"Research phase. Analysis phase. Write it up. Review it."` (should be separate tasks)
+/// - `"Implement X, which depends on Y, which depends on Z"` (hide dependencies)
+///
+/// **Good Acceptance Criteria** (What to use):
+/// - `"Identify 5+ peer-reviewed sources; summarize in 2-3 paragraphs"`
+/// - `"Extract 3-5 key biological themes; map relationships between them"`
+/// - Specific, measurable, achievable in a single agent turn
+///
+/// **Avoid**:
+/// - `"Do it well"` (not measurable)
+/// - `"Complete by next Tuesday"` (time-based, not work-based)
+/// - `"Until perfect"` (subjective, unbounded)
+///
+/// # Example Task Pools
+///
+/// **Research Project (8 tasks)**:
+/// ```text
+/// 1. research_sources    — Research phase      — Find 5+ sources
+/// 2. analyze_findings    — Analysis phase      — Extract 3-5 themes
+/// 3. research_background — Deep research      — Explore historical context
+/// 4. analyze_mechanisms  — Mechanism analysis  — Map causal relationships
+/// 5. write_summary       — Writing phase      — Draft 2-3 page summary
+/// 6. create_outline      — Structure phase    — Organize findings into sections
+/// 7. synthesis_report    — Synthesis phase    — Synthesize all findings
+/// 8. final_review        — Quality review     — Peer review for accuracy
+/// ```
+///
+/// **Code Review Project (6 tasks)**:
+/// ```text
+/// 1. review_architecture — Architecture review   — Assess design patterns
+/// 2. review_tests        — Test coverage review  — Identify gaps
+/// 3. review_performance  — Performance review    — Flag bottlenecks
+/// 4. review_security     — Security review       — Identify vulnerabilities
+/// 5. summarize_issues    — Issue synthesis      — Consolidate findings
+/// 6. final_recommendations — Recommendations    — Suggest top 3-5 changes
+/// ```
+///
+/// # Task Ordering & Dependencies
+///
+/// When inserting tasks into a `WorkItem` vector, consider:
+///
+/// - **Phase ordering**: Research → Analysis → Writing → Review
+/// - **Logical grouping**: Related tasks nearby (helps agents understand context)
+/// - **Complexity gradient**: Simple tasks early (give agents quick wins)
+/// - **Explicit dependencies**: If task B needs task A done first, mention it in description
 ///
 /// # Examples
 ///
 /// ```
 /// use cloudllm::orchestration::WorkItem;
 ///
+/// // Simple research task
 /// let task = WorkItem::new(
-///     "research_phase",
-///     "Research phase — gather background information",
-///     "Find and summarize at least 5 relevant sources",
+///     "research_nmn",
+///     "Research phase — NMN+ mechanisms and pathways",
+///     "Gather and summarize current scientific literature on NAD+ boosting, \
+///      NMN metabolism, mitochondrial function, and sirtuins activation",
 /// );
 ///
-/// assert_eq!(task.id, "research_phase");
+/// assert_eq!(task.id, "research_nmn");
+/// assert!(task.description.contains("NMN+"));
+/// assert!(task.acceptance_criteria.contains("NAD+"));
+///
+/// // Analysis task
+/// let analysis = WorkItem::new(
+///     "analyze_longevity",
+///     "Analysis phase — longevity effects and clinical outcomes",
+///     "Synthesize findings on aging reversal, lifespan extension, \
+///      and key biomarkers of rejuvenation (NAD+ levels, cellular senescence)",
+/// );
+///
+/// // Create a small task pool
+/// let tasks = vec![task, analysis];
+/// assert_eq!(tasks.len(), 2);
 /// ```
 #[derive(Debug, Clone)]
 pub struct WorkItem {
     /// Unique identifier for this task (used in Memory key prefixes).
     ///
-    /// Keep IDs short, lowercase, and free of whitespace (e.g., `"research"`, `"analysis"`).
+    /// - **Format**: lowercase, underscores between words, no spaces or special chars
+    /// - **Length**: 10-30 characters (short enough to embed in Memory keys)
+    /// - **Semantic**: Descriptive enough that agents understand the work
+    /// - **Examples**: `"research_nmn"`, `"analyze_findings"`, `"write_summary"`, `"peer_review"`
     pub id: String,
 
-    /// Human-readable task description shown to agents.
+    /// Human-readable task description shown to agents when they discover available work.
     ///
     /// This text is stored in Memory at `teams:<pool_id>:unclaimed:<task_id>` and
-    /// read by agents when they discover available work.
+    /// becomes the primary signal for agent task selection. Should be concise but specific.
+    ///
+    /// - **Length**: 1-2 sentences; 50-150 characters
+    /// - **Content**: Task category + brief objective
+    /// - **Example**: `"Research phase — identify NAD+ pathways and mechanisms"`
+    /// - **Pattern**: `"<Phase> — <Objective>"`
     pub description: String,
 
     /// Acceptance criteria or success condition for this task.
     ///
-    /// Guidance for agents on how to know when the work is complete.
+    /// Guidance for agents on how to know when the work is complete. Agents use this
+    /// to evaluate their own output and decide when to report completion.
+    ///
+    /// - **Specificity**: Measurable, not subjective ("5+ sources" not "thorough research")
+    /// - **Length**: 1-3 sentences; 100-300 characters
+    /// - **Constraints**: Achievable in a single agent turn (~2 minutes max)
+    /// - **Examples**:
+    ///   - `"Identify 5+ peer-reviewed sources; summarize in 2-3 paragraphs"`
+    ///   - `"Extract 3-5 key biological mechanisms; map relationships between them"`
+    ///   - `"Review code for security vulnerabilities; identify top 3 issues with impact levels"`
     pub acceptance_criteria: String,
 }
 
@@ -179,13 +302,37 @@ impl WorkItem {
     /// All three parameters accept anything that implements `Into<String>`, so you
     /// can pass `&str`, `String`, or other convertible types.
     ///
+    /// # Best Practices
+    ///
+    /// 1. **Use clear, semantic IDs**: `"research_nmn"` instead of `"task1"`
+    /// 2. **Keep descriptions short**: 1-2 sentences, 50-150 chars
+    /// 3. **Make criteria measurable**: `"5+ sources"` instead of `"do it well"`
+    /// 4. **Order tasks logically**: Research → Analysis → Writing → Review
+    /// 5. **Design for independence**: Each task should be claimable and completable alone
+    ///
     /// # Examples
     ///
     /// ```
     /// use cloudllm::orchestration::WorkItem;
     ///
-    /// let item = WorkItem::new("research", "Research phase", "Summarize 5 sources");
-    /// assert_eq!(item.id, "research");
+    /// // Research task
+    /// let research = WorkItem::new(
+    ///     "research_nmn",
+    ///     "Research phase — NMN+ mechanisms",
+    ///     "Summarize NAD+ boosting pathways in 2-3 paragraphs",
+    /// );
+    /// assert_eq!(research.id, "research_nmn");
+    ///
+    /// // Analysis task
+    /// let analysis = WorkItem::new(
+    ///     "analyze_findings",
+    ///     "Analysis phase — synthesize research",
+    ///     "Extract 3-5 key themes; identify relationships",
+    /// );
+    ///
+    /// // Create task pool
+    /// let tasks = vec![research, analysis];
+    /// assert_eq!(tasks.len(), 2);
     /// ```
     pub fn new(
         id: impl Into<String>,
@@ -236,19 +383,20 @@ impl RalphTask {
 /// Each variant produces different communication patterns and termination semantics.
 /// Choose the mode that best fits your use-case:
 ///
-/// | Mode | Pattern | Termination |
-/// |------|---------|-------------|
-/// | `Parallel` | All agents respond at once | Fixed rounds |
-/// | `RoundRobin` | Agents take turns sequentially | Fixed rounds |
-/// | `Moderated` | Moderator picks who speaks | Fixed rounds |
-/// | `Hierarchical` | Layer-by-layer processing | All layers done |
-/// | `Debate` | Agents challenge each other | Convergence or max rounds |
-/// | `Ralph` | Iterative PRD task loop | All tasks done or max iterations |
+/// | Mode | Pattern | Termination | Best For |
+/// |------|---------|-------------|----------|
+/// | `Parallel` | All agents respond at once | Fixed rounds | Independent opinions |
+/// | `RoundRobin` | Agents take turns sequentially | Fixed rounds | Sequential refinement |
+/// | `Moderated` | Moderator picks who speaks | Fixed rounds | Expert selection |
+/// | `Hierarchical` | Layer-by-layer processing | All layers done | Pipeline architectures |
+/// | `Debate` | Agents challenge each other | Convergence or max rounds | Consensus building |
+/// | `Ralph` | Iterative PRD task loop | All tasks done or max iterations | Checklist completion |
+/// | `AnthropicAgentTeams` | Autonomous task claiming | All tasks done or max iterations | Large task pools |
 ///
 /// # Examples
 ///
 /// ```
-/// use cloudllm::orchestration::{OrchestrationMode, RalphTask};
+/// use cloudllm::orchestration::{OrchestrationMode, RalphTask, WorkItem};
 ///
 /// // Simple parallel — every agent answers independently
 /// let mode = OrchestrationMode::Parallel;
@@ -266,6 +414,16 @@ impl RalphTask {
 ///         RalphTask::new("step2", "Step 2", "Do the second thing"),
 ///     ],
 ///     max_iterations: 3,
+/// };
+///
+/// // AnthropicAgentTeams — decentralized task coordination
+/// let mode = OrchestrationMode::AnthropicAgentTeams {
+///     pool_id: "research-2024".to_string(),
+///     tasks: vec![
+///         WorkItem::new("task1", "Research phase", "Find 5 sources"),
+///         WorkItem::new("task2", "Analysis phase", "Synthesize findings"),
+///     ],
+///     max_iterations: 10,
 /// };
 /// ```
 #[derive(Debug, Clone)]
@@ -338,27 +496,209 @@ pub enum OrchestrationMode {
         max_iterations: usize,
     },
 
-    /// Anthropic Agent Teams: Decentralized task-based coordination via shared Memory.
+    /// Anthropic Agent Teams: Decentralized task-based coordination (no central orchestrator).
     ///
-    /// No central orchestrator. Agents autonomously discover and claim tasks from a
-    /// shared Memory pool. Task coordination uses hierarchical Memory keys:
-    /// - `teams:<pool_id>:unclaimed:<task_id>` — task description (discoverable)
-    /// - `teams:<pool_id>:claimed:<task_id>` — `<agent_id>:<timestamp>` (indicates who's working)
-    /// - `teams:<pool_id>:completed:<task_id>` — result JSON (task done)
-    /// - `teams:<pool_id>:metadata` — pool config (total tasks, created_at, etc.)
+    /// Inspired by Anthropic's agent coordination methodology (C compiler project), this mode
+    /// enables **autonomous multi-agent cooperation** through a shared Memory pool. Each agent
+    /// self-selects work by discovering unclaimed tasks, claiming them atomically via Memory,
+    /// completing the work, and reporting results — all without a central coordinator.
     ///
-    /// Each iteration, agents are called with a prompt asking them to discover
-    /// an unclaimed task via Memory LIST, claim it, work on it, and report the result.
-    /// The loop terminates when all tasks are completed or `max_iterations` is reached.
+    /// # Key Characteristics
+    ///
+    /// - **No Central Orchestrator**: Every agent has equal autonomy; no manager or moderator
+    /// - **Atomic Task Claiming**: Memory PUT ensures only one agent claims a task (single-threaded)
+    /// - **Self-Discovery**: Agents use Memory LIST to find available work
+    /// - **Scalable**: Add more agents or tasks without architectural changes
+    /// - **Mixed Providers**: Works seamlessly with different LLM providers (OpenAI, Claude, etc.)
+    /// - **Event-Driven Progress**: TaskClaimed, TaskCompleted, TaskFailed events for monitoring
+    ///
+    /// # Memory Coordination Scheme
+    ///
+    /// Task state is stored in Memory with hierarchical keys:
+    ///
+    /// ```text
+    /// teams:<pool_id>:unclaimed:<task_id>     → task description + criteria (discoverable)
+    /// teams:<pool_id>:claimed:<task_id>       → "<agent_id>:<timestamp>" (who's working)
+    /// teams:<pool_id>:completed:<task_id>     → "<result_json>" (task finished)
+    /// teams:<pool_id>:metadata                → pool configuration + timestamp
+    /// teams:<pool_id>:stats                   → progress counters (completed, failed, total)
+    /// ```
+    ///
+    /// # Task Lifecycle
+    ///
+    /// Each task transitions through states:
+    /// 1. **Unclaimed** → Agent discovers it via `LIST teams:<pool_id>:unclaimed:*`
+    /// 2. **Claimed** → Agent atomically PUT's to `teams:<pool_id>:claimed:<task_id>`
+    /// 3. **In Progress** → Agent works on the task using LLM
+    /// 4. **Completed** → Agent PUT's result to `teams:<pool_id>:completed:<task_id>`
+    ///
+    /// # Runtime Behavior
+    ///
+    /// **Per Iteration:**
+    /// - Each iteration calls all agents sequentially (in registration order)
+    /// - Every agent gets a prompt listing available unclaimed tasks
+    /// - Agent decides autonomously whether to claim a task or wait
+    /// - Agent completes work and reports via simulated Memory operations
+    /// - Orchestration detects claimed/completed tasks and emits events
+    ///
+    /// **Termination:**
+    /// - Stops when all tasks are completed (best case)
+    /// - Or when `max_iterations` is reached (safety ceiling)
+    /// - Estimated runtime: ~1-5 minutes for 8 tasks with 4 agents (depends on LLM latency)
+    ///
+    /// # Best Practices
+    ///
+    /// **Task Design:**
+    /// - Keep task IDs short, lowercase, underscore-separated (e.g., `research_phase`)
+    /// - Write clear descriptions (1-2 sentences) that LLMs can parse
+    /// - Define acceptance criteria explicitly (what does "done" mean?)
+    /// - Group related tasks into logical phases
+    ///
+    /// **Agent Mix:**
+    /// - Combine specialized agents: researcher, analyst, writer, reviewer
+    /// - Mix LLM providers for cost optimization (fast Haiku for easy tasks, smart Sonnet for complex)
+    /// - Consider agent count vs. task pool size (4 agents per 8 tasks is ideal)
+    ///
+    /// **Iteration Tuning:**
+    /// - `max_iterations = task_count / agent_count + 2` is a good starting heuristic
+    /// - For 8 tasks + 4 agents: `8 / 4 + 2 = 4` iterations
+    /// - Increase if tasks are complex or interdependent
+    ///
+    /// **Monitoring:**
+    /// - Attach an EventHandler to track TaskClaimed, TaskCompleted, TaskFailed events
+    /// - Watch the convergence_score (0.0 = no progress, 1.0 = all tasks done)
+    /// - Log iteration boundaries to diagnose bottlenecks
+    ///
+    /// # Example: Research Team with 4 Agents and 8 Tasks
+    ///
+    /// ```rust,no_run
+    /// use cloudllm::{Agent, orchestration::{Orchestration, OrchestrationMode, WorkItem}};
+    /// use cloudllm::clients::openai::OpenAIClient;
+    /// use cloudllm::clients::claude::{ClaudeClient, Model};
+    /// use std::sync::Arc;
+    ///
+    /// # async {
+    /// // Define task pool (8 research tasks)
+    /// let tasks = vec![
+    ///     WorkItem::new("research_nmn", "NMN+ research", "Summarize NAD+ boosting mechanisms"),
+    ///     WorkItem::new("analyze_longevity", "Longevity analysis", "Identify 3-5 aging reversal markers"),
+    ///     WorkItem::new("research_alzheimers", "Alzheimer's research", "Document amyloid-beta pathology"),
+    ///     WorkItem::new("analyze_protection", "Neuroprotection analysis", "Map NAD+ restoration benefits"),
+    ///     WorkItem::new("memory_recovery", "Memory recovery research", "Find evidence for cognitive restoration"),
+    ///     WorkItem::new("clinical_integration", "Clinical analysis", "Assess therapeutic feasibility"),
+    ///     WorkItem::new("synthesis_report", "Report writing", "Synthesize findings into 3-4 page report"),
+    ///     WorkItem::new("final_review", "Quality review", "Peer review for accuracy and completeness"),
+    /// ];
+    ///
+    /// // Create mixed-provider agents (4 specialists)
+    /// let openai_key = std::env::var("OPENAI_API_KEY").unwrap();
+    /// let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap();
+    ///
+    /// let researcher = Agent::new(
+    ///     "researcher",
+    ///     "Research Agent (GPT)",
+    ///     Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+    /// );
+    ///
+    /// let analyst = Agent::new(
+    ///     "analyst",
+    ///     "Analysis Agent (Claude Haiku)",
+    ///     Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeHaiku45)),
+    /// );
+    ///
+    /// // ... create writer and reviewer agents similarly
+    ///
+    /// // Create orchestration with AnthropicAgentTeams mode
+    /// let mut orchestration = Orchestration::new("research-team", "NMN+ Research Team")
+    ///     .with_mode(OrchestrationMode::AnthropicAgentTeams {
+    ///         pool_id: "nmn-research-2024".to_string(),
+    ///         tasks,
+    ///         max_iterations: 4,  // Safety ceiling
+    ///     })
+    ///     .with_system_context(
+    ///         "You are a specialized researcher in a coordinated team. \
+    ///          Autonomously claim and complete tasks from the shared pool. \
+    ///          Work collaboratively and focus on scientific accuracy."
+    ///     )
+    ///     .with_max_tokens(4096);
+    ///
+    /// orchestration.add_agent(researcher)?;
+    /// orchestration.add_agent(analyst)?;
+    /// // ... add other agents
+    ///
+    /// // Run the team coordination
+    /// let prompt = "Prepare a comprehensive report on NMN+ for Alzheimer's recovery";
+    /// let response = orchestration.run(prompt, 1).await?;
+    ///
+    /// println!("Completed: {}/{} tasks",
+    ///     (response.convergence_score.unwrap_or(0.0) * response.messages.len() as f32) as usize,
+    ///     tasks.len()
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    /// # }
+    /// ```
+    ///
+    /// # Comparison with RALPH
+    ///
+    /// Both modes are iterative, but differ in coordination:
+    ///
+    /// | Aspect | AnthropicAgentTeams | RALPH |
+    /// |--------|-------------------|-------|
+    /// | **Orchestrator** | None (decentralized) | Implicit (centralized) |
+    /// | **Task Selection** | Agent-autonomous via Memory | Orchestration-assigned (checklist) |
+    /// | **Coordination** | Memory keys | Completion markers `[TASK_COMPLETE:id]` |
+    /// | **Scalability** | Better for large pools | Better for small checklists |
+    /// | **Complexity** | More agent autonomy | More orchestration control |
+    ///
+    /// Choose **AnthropicAgentTeams** if:
+    /// - You have >8 tasks (scales better than RALPH's centralized checklist)
+    /// - You want agents to self-select work (more natural collaboration)
+    /// - You're mixing different LLM providers (simpler coordination)
+    /// - You prioritize agent autonomy over orchestration control
+    ///
+    /// Choose **RALPH** if:
+    /// - You have a fixed checklist (<8 items)
+    /// - You need strict orchestration control over task assignment
+    /// - You want completion markers embedded in agent responses
+    ///
+    /// # Common Pitfalls & Solutions
+    ///
+    /// **Pitfall**: Tasks not getting completed
+    /// - **Cause**: max_iterations too low or task descriptions unclear
+    /// - **Solution**: Increase max_iterations to 2x task count; make descriptions specific
+    ///
+    /// **Pitfall**: Same agent always claims the same tasks
+    /// - **Cause**: Agent preferences in task selection logic (LLM behavior)
+    /// - **Solution**: Vary system prompts per agent; randomize task order in descriptions
+    ///
+    /// **Pitfall**: High token usage / long runtime
+    /// - **Cause**: max_iterations too high or agents taking unnecessary turns
+    /// - **Solution**: Monitor via events; use fast models (Haiku) for simple tasks
+    ///
+    /// **Pitfall**: No progress (convergence_score stuck at low value)
+    /// - **Cause**: Agents failing to detect task completion or claim work
+    /// - **Solution**: Check system prompt clarity; add logging to task descriptions
     AnthropicAgentTeams {
         /// Unique identifier for this task pool (used in Memory key prefixes).
+        ///
+        /// This ID scopes all Memory operations, allowing multiple independent pools
+        /// to coexist. Use descriptive names: `"research-2024"`, `"code-review-batch-1"`.
         pool_id: String,
 
         /// Tasks to be completed. Each [`WorkItem`] has an id, description, and acceptance criteria.
+        ///
+        /// Tasks are presented to agents in order each iteration. Agent IDs and descriptions
+        /// should be concise and LLM-friendly. Acceptance criteria guide agents on success.
+        /// **Recommended**: 5-20 tasks per pool; 4-8 agents.
         tasks: Vec<WorkItem>,
 
         /// Maximum iterations (one pass through all agents per iteration).
-        /// Loop terminates early if all tasks completed.
+        ///
+        /// Acts as a safety ceiling to prevent infinite loops. Typical heuristic:
+        /// `max_iterations = (task_count / agent_count) + buffer`.
+        /// For 8 tasks and 4 agents: `max_iterations = 3 + 1 = 4`.
+        /// Loop terminates early if all tasks are completed.
+        /// **Estimated runtime**: ~30 seconds per iteration (with 4 agents, 1-3 sec LLM calls each).
         max_iterations: usize,
     },
 }
