@@ -16,9 +16,15 @@ Complete 18-task game development orchestrated via RALPH (checklist-based) mode.
 **Demonstrates**:
 - RALPH orchestration with task completion markers
 - 4 specialized agents (architect, programmer, sound designer, powerup engineer)
-- Shared Memory for inter-agent coordination
+- Tool ecosystem: Shared Memory for coordination, Bash for command execution, HTTP Client for research
 - Complex real-world game features: HTML5 Canvas, physics, collision, audio, 8 powerups, particle effects, mobile controls
 - 18 work items: core mechanics, audio system, powerup system, visual effects, advanced mechanics
+
+**Agent Tools Available**:
+- **Memory**: Inter-agent coordination and progress tracking (keys: `memory:*`)
+- **Bash**: Shell command execution for research and file operations (macOS/Linux)
+- **HTTP Client**: REST API calls for external data/research
+- **Custom Tool**: `write_game_file` to persist game HTML output
 
 **Features Implemented**:
 - 5 game states (MENU, PLAYING, PAUSED, GAME_OVER, LEVEL_COMPLETE)
@@ -37,7 +43,7 @@ export ANTHROPIC_API_KEY=your-key
 cargo run --example breakout_game_ralph
 ```
 
-**Runtime**: ~5-8 minutes | **Cost**: $1-2 | **Output**: `breakout_game.html`
+**Runtime**: ~5-8 minutes | **Cost**: $1-2 | **Output**: `breakout_game_ralph.html`
 
 ---
 
@@ -52,6 +58,13 @@ Same 18-task game built with decentralized task coordination (AnthropicAgentTeam
 - Memory-based task coordination: `teams:<pool_id>:unclaimed/claimed/completed:*`
 - Real-time progress tracking via TeamsEventHandler
 - All 18 game features implemented identically to RALPH version
+- Tool ecosystem: Shared Memory, Bash, HTTP Client for research and coordination
+
+**Agent Tools Available**:
+- **Memory**: Task pool coordination and inter-agent state sharing (`teams:<pool_id>:*` keys)
+- **Bash**: Shell command execution for research and file operations (macOS/Linux)
+- **HTTP Client**: REST API calls for external data/research
+- **Custom Tool**: `write_game_file` to persist game HTML output
 
 **Key Differences from RALPH**:
 - Agents autonomously select work via Memory LIST operations
@@ -66,7 +79,7 @@ export ANTHROPIC_API_KEY=your-key
 cargo run --example breakout_game_agent_teams
 ```
 
-**Runtime**: ~10-15 minutes | **Cost**: $2-4 | **Output**: `breakout_game.html`
+**Runtime**: ~10-15 minutes | **Cost**: $2-4 | **Output**: `breakout_game_agent_teams.html`
 
 ---
 
