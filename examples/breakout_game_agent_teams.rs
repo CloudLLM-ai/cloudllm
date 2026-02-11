@@ -591,9 +591,10 @@ TASK DISCOVERY & CLAIMING PROCESS:\n\
 3. Select a task matching your specialty and claim it: {\"command\": \"P teams:<pool_id>:claimed:<task_id> <your_agent_id>\"}\n\
 4. Work on the task autonomously (e.g., generate code, design patterns, or implementations)\n\
 5. When complete, store result: {\"command\": \"P teams:<pool_id>:completed:<task_id> <work_result>\"}\n\n\
-IMPORTANT: Always output the COMPLETE updated index.html incorporating ALL previous work from \
-other agents (retrieved via Memory G command) plus your additions. Never output partial snippets — \
-always output the full file.\n\n\
+CRITICAL REQUIREMENT: After completing each task, you MUST output the COMPLETE updated index.html \
+incorporating ALL previous work from other agents (retrieved via Memory G command) plus your additions. \
+Never output partial snippets — always output the full file. This complete HTML in your message is \
+essential for preserving and integrating all team work.\n\n\
 You have access to a comprehensive toolkit for coordination and development:\n\
 - Memory Tool (memory): Store/retrieve shared state with single-letter commands:\n\
   • P key value: Store a value\n\
@@ -694,7 +695,53 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
         println!("  ... ({} more messages)", response.messages.len() - 10);
     }
 
-    println!("\n✅ Build complete! Check breakout_game_agent_teams.html in current directory.");
+    // ── Extract HTML ───────────────────────────────────────────────────────
+
+    // Search through messages to find one that contains valid HTML game code
+    let mut game_html: Option<String> = None;
+
+    for msg in response.messages.iter().rev() {
+        let html = extract_html(&msg.content);
+        if html.len() > 1000 && (html.contains("<canvas") || html.contains("canvas")) {
+            // Found a message with substantial HTML containing canvas
+            game_html = Some(html);
+            break;
+        }
+    }
+
+    if let Some(html) = game_html {
+        std::fs::write("breakout_game_agent_teams.html", &html)?;
+        println!(
+            "\n✅ Build complete! Game written to breakout_game_agent_teams.html ({} bytes)",
+            html.len()
+        );
+        println!("Open it in a browser to play!");
+    } else {
+        println!("\n⚠️  Warning: Could not find valid HTML game code in agent responses.");
+        println!("Searched through all {} messages but found no canvas-based HTML.", response.messages.len());
+        if let Some(last_msg) = response.messages.last() {
+            eprintln!("\nLast message was: {}", &last_msg.content[..last_msg.content.len().min(200)]);
+        }
+    }
 
     Ok(())
+}
+
+/// Attempt to extract a self-contained HTML document from an LLM response.
+/// Falls back to using the entire string if no `<!DOCTYPE` or `<html` tag is found.
+fn extract_html(text: &str) -> String {
+    // Look for the start of an HTML document
+    let lower = text.to_lowercase();
+    let start = lower
+        .find("<!doctype")
+        .or_else(|| lower.find("<html"))
+        .unwrap_or(0);
+
+    // Look for the closing </html> tag
+    let end = lower
+        .rfind("</html>")
+        .map(|i| i + "</html>".len())
+        .unwrap_or(text.len());
+
+    text[start..end].to_string()
 }
