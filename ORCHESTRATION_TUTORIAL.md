@@ -2,753 +2,241 @@
 
 ## Introduction
 
-This tutorial demonstrates how to build multi-agent AI systems using CloudLLM's Orchestration framework. We'll progress from simple to complex collaboration patterns, solving increasingly difficult problems with teams of AI agents from different providers (OpenAI, Claude, Gemini, Grok).
+This tutorial demonstrates how to build multi-agent AI systems using CloudLLM's Orchestration framework. We'll progress through six collaboration patterns from simple to complex, with a focus on understanding **costs, runtime expectations, and real-world tradeoffs**.
 
-**The Challenge**: Throughout this tutorial, we'll tackle a pressing scientific problem: **designing an optimal carbon capture and storage (CCS) strategy** to combat climate change. This is a real-world problem with known solutions, allowing us to evaluate how well our AI orchestrations converge on optimal approaches.
+**⚠️ Cost & Runtime Warning**: This tutorial emphasizes cost implications because multi-agent orchestrations can run up bills quickly. We provide concrete examples with token estimates and timing for each mode.
 
-## Prerequisites
+---
+
+## Quick Reference: Modes by Complexity & Cost
+
+| Mode | Complexity | Est. Runtime | Est. Cost (4 agents) | Best For | ⚠️ Cost Risk |
+|------|-----------|--------------|---------------------|----------|-------------|
+| **AnthropicAgentTeams** | ★★★★★ | 2-5 min | $0.30-$1.00 | Large task pools | HIGH if max_iterations too high |
+| **RALPH** | ★★★☆☆ | 3-8 min | $0.40-$1.50 | Checklist completion | MEDIUM (controlled iterations) |
+| **Debate** | ★★★★☆ | 5-15 min | $0.60-$2.00 | Consensus building | **VERY HIGH** (exponential with rounds) |
+| **Parallel** | ★☆☆☆☆ | 10-20 sec | $0.10-$0.30 | Independent opinions | LOW |
+| **RoundRobin** | ★★☆☆☆ | 20-60 sec | $0.15-$0.50 | Sequential refinement | LOW-MEDIUM |
+| **Moderated** | ★★★☆☆ | 30-90 sec | $0.20-$0.60 | Q&A sessions | MEDIUM |
+| **Hierarchical** | ★★★★☆ | 1-3 min | $0.25-$0.80 | Multi-level problems | MEDIUM |
+
+---
+
+# MODE 1: AnthropicAgentTeams — Decentralized Task Coordination
+
+## Overview
+
+**AnthropicAgentTeams** is a **completely decentralized** orchestration mode where agents autonomously discover, claim, and complete tasks from a shared pool with **no central orchestrator**. This is the most powerful mode for large, complex projects but also the easiest to over-run and waste money.
+
+**Key Insight**: Instead of the orchestration engine assigning tasks (like RALPH), agents use Memory to coordinate work peer-to-peer. This enables true autonomous multi-agent teams.
+
+### ⚠️ COST WARNING
+
+- **Per Iteration Cost**: ~$0.05-$0.15 per agent (4 agents = $0.20-$0.60/iteration)
+- **Default Settings**: 4 iterations × 8 tasks = 16-32 LLM calls
+- **Worst Case**: Setting `max_iterations: 100` with 4 agents = **3200 LLM calls** = **$1000+** in costs
+- **How to Avoid**: Always cap `max_iterations` to ~2-3x your task count. For 8 tasks with 4 agents: use `max_iterations: 5` max.
+
+### Runtime Expectations
+
+- **Best case**: All tasks claimed and completed → ~2-3 minutes
+- **Average case**: Agents work through pool → ~3-5 minutes
+- **Worst case**: Poor task design, many retries → 10+ minutes
+
+### Example: Research Team with NMN+ Study (8 Tasks)
 
 ```rust
 use cloudllm::{
-    orchestration::{Agent, Orchestration, OrchestrationMode},
-    clients::{
-        openai::OpenAIClient,
-        claude::ClaudeClient,
-        gemini::GeminiClient,
-        grok::GrokClient,
-    },
+    Agent,
+    orchestration::{Orchestration, OrchestrationMode, WorkItem},
+    clients::openai::OpenAIClient,
+    clients::claude::{ClaudeClient, Model},
+    event::{EventHandler, OrchestrationEvent},
 };
+use async_trait::async_trait;
 use std::sync::Arc;
 
-// Set your API keys
-let openai_key = std::env::var("OPENAI_KEY").expect("OPENAI_KEY not set");
-let anthropic_key = std::env::var("ANTHROPIC_KEY").expect("ANTHROPIC_KEY not set");
-let gemini_key = std::env::var("GEMINI_KEY").expect("GEMINI_KEY not set");
-let xai_key = std::env::var("XAI_KEY").expect("XAI_KEY not set");
-```
-
----
-
-## Recipe 1: Parallel Mode - Independent Expert Analysis
-
-**Use Case**: When you need multiple independent perspectives on a problem without agents influencing each other.
-
-**Problem**: Evaluate the three main carbon capture technologies: Direct Air Capture (DAC), Point Source Capture, and Ocean-based capture.
-
-### The Orchestration
-
-```rust
-async fn parallel_carbon_capture_analysis() -> Result<(), Box<dyn std::error::Error>> {
-    // Create specialized agents with different AI providers
-    let agent_chemistry = Agent::new(
-        "chemistry-expert",
-        "Dr. Chen (Chemistry Specialist)",
-        Arc::new(ClaudeClient::new_with_model_str(
-            &anthropic_key,
-            "claude-3-5-sonnet-20241022"
-        ))
-    )
-    .with_expertise("Chemical engineering, carbon chemistry, catalysis")
-    .with_personality("Analytical, detail-oriented, focuses on molecular-level processes");
-
-    let agent_economics = Agent::new(
-        "economics-expert",
-        "Dr. Martinez (Environmental Economist)",
-        Arc::new(OpenAIClient::new_with_model_string(
-            &openai_key,
-            "gpt-4o"
-        ))
-    )
-    .with_expertise("Cost-benefit analysis, carbon markets, policy economics")
-    .with_personality("Pragmatic, data-driven, focuses on scalability and ROI");
-
-    let agent_engineering = Agent::new(
-        "engineering-expert",
-        "Dr. Patel (Process Engineer)",
-        Arc::new(GeminiClient::new_with_model_string(
-            &gemini_key,
-            "gemini-1.5-pro"
-        ))
-    )
-    .with_expertise("Industrial processes, energy efficiency, systems integration")
-    .with_personality("Practical, systems-thinking, focuses on implementation challenges");
-
-    // Build the orchestration
-    let mut orchestration = Orchestration::new(
-        "carbon-capture-orchestration",
-        "Carbon Capture Technology Assessment Orchestration"
-    )
-    .with_mode(OrchestrationMode::Parallel)
-    .with_system_context(
-        "You are part of an expert panel evaluating carbon capture technologies. \
-         Provide your independent analysis based on your domain expertise."
-    );
-
-    orchestration.add_agent(agent_chemistry)?;
-    orchestration.add_agent(agent_economics)?;
-    orchestration.add_agent(agent_engineering)?;
-
-    // Execute parallel analysis
-    let response = orchestration.run(
-        "Analyze the three main carbon capture technologies (DAC, Point Source, Ocean-based) \
-         and identify the most promising approach for immediate deployment. Consider: \
-         1) Technical maturity, 2) Cost per ton CO2, 3) Scalability, 4) Environmental impact.",
-        1  // One round
-    ).await?;
-
-    // Review results
-    println!("=== PARALLEL ANALYSIS RESULTS ===\n");
-    for msg in &response.messages {
-        if let Some(name) = &msg.agent_name {
-            println!("--- {} ---", name);
-            println!("{}\n", msg.content);
-        }
-    }
-
-    println!("Total tokens used: {}", response.total_tokens_used);
-
-    Ok(())
+/// Event handler for cost monitoring
+struct CostTracker {
+    iteration: std::sync::atomic::AtomicUsize,
 }
-```
 
-**Expected Outcome**: Three independent analyses that can be compared side-by-side. Each expert provides their perspective without being influenced by others. Chemistry expert focuses on capture efficiency, economist on cost-effectiveness, engineer on practical deployment challenges.
-
-**Best For**:
-- Initial problem exploration
-- Diverse viewpoint gathering
-- Avoiding groupthink
-- Fast parallel processing
-
----
-
-## Recipe 2: Round-Robin Mode - Sequential Deliberation
-
-**Use Case**: When agents should build upon each other's insights in a structured sequence.
-
-**Problem**: Design a comprehensive carbon capture deployment strategy, where each expert adds their layer of analysis.
-
-### The Orchestration
-
-```rust
-async fn round_robin_deployment_strategy() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a 4-agent orchestration with specific sequencing
-    let agent_scientist = Agent::new(
-        "climate-scientist",
-        "Dr. Thompson (Climate Scientist)",
-        Arc::new(ClaudeClient::new_with_model_str(
-            &anthropic_key,
-            "claude-3-5-sonnet-20241022"
-        ))
-    )
-    .with_expertise("Climate modeling, carbon cycles, atmospheric science")
-    .with_personality("Evidence-based, urgent but measured, focuses on climate impact");
-
-    let agent_engineer = Agent::new(
-        "systems-engineer",
-        "Dr. Kim (Systems Engineer)",
-        Arc::new(GeminiClient::new_with_model_string(
-            &gemini_key,
-            "gemini-1.5-pro"
-        ))
-    )
-    .with_expertise("Large-scale infrastructure, grid integration, logistics")
-    .with_personality("Methodical, risk-aware, focuses on feasibility");
-
-    let agent_economist = Agent::new(
-        "policy-economist",
-        "Dr. Rodriguez (Policy & Economics)",
-        Arc::new(OpenAIClient::new_with_model_string(
-            &openai_key,
-            "gpt-4o"
-        ))
-    )
-    .with_expertise("Carbon pricing, government incentives, international cooperation")
-    .with_personality("Strategic, diplomatic, focuses on policy mechanisms");
-
-    let agent_innovator = Agent::new(
-        "tech-innovator",
-        "Dr. Zhang (Innovation Strategist)",
-        Arc::new(GrokClient::new_with_model_str(
-            &xai_key,
-            "grok-beta"
-        ))
-    )
-    .with_expertise("Emerging technologies, R&D acceleration, moonshot thinking")
-    .with_personality("Optimistic, forward-thinking, challenges assumptions");
-
-    let mut orchestration = Orchestration::new(
-        "deployment-orchestration",
-        "Carbon Capture Deployment Strategy Orchestration"
-    )
-    .with_mode(OrchestrationMode::RoundRobin)
-    .with_system_context(
-        "You are collaboratively designing a global carbon capture deployment strategy. \
-         Build upon previous experts' insights while adding your unique perspective."
-    );
-
-    // Order matters in Round-Robin!
-    orchestration.add_agent(agent_scientist)?;  // Sets the scientific foundation
-    orchestration.add_agent(agent_engineer)?;   // Adds engineering reality
-    orchestration.add_agent(agent_economist)?;  // Layers in policy/economics
-    orchestration.add_agent(agent_innovator)?;  // Challenges with innovation
-
-    // Run 2 rounds - each agent speaks twice
-    let response = orchestration.run(
-        "Design a 10-year global deployment strategy for carbon capture to remove \
-         5 gigatons CO2/year by 2035. Address: \
-         1) Technology selection and phasing, \
-         2) Infrastructure requirements, \
-         3) Financing mechanisms, \
-         4) Innovation acceleration.",
-        2
-    ).await?;
-
-    // Display sequential discussion
-    println!("=== ROUND-ROBIN STRATEGY DEVELOPMENT ===\n");
-    let mut current_round = 0;
-    for msg in &response.messages {
-        if let Some(round_str) = msg.metadata.get("round") {
-            let round: usize = round_str.parse().unwrap_or(0);
-            if round != current_round {
-                current_round = round;
-                println!("\n╔════════════════════════════════════╗");
-                println!("║         ROUND {}                    ║", round + 1);
-                println!("╚════════════════════════════════════╝\n");
+#[async_trait]
+impl EventHandler for CostTracker {
+    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
+        match event {
+            OrchestrationEvent::RoundStarted { round, .. } => {
+                println!("📍 Iteration {} starting...", round);
             }
-        }
-
-        if let Some(name) = &msg.agent_name {
-            println!(">>> {} <<<", name);
-            println!("{}\n", msg.content);
-        }
-    }
-
-    println!("Total tokens used: {}", response.total_tokens_used);
-
-    Ok(())
-}
-```
-
-**Expected Outcome**: A layered, comprehensive strategy where each expert builds on the previous insights. Round 1 establishes the foundation, Round 2 refines and integrates. You'll see how Dr. Kim references Dr. Thompson's climate urgency, how Dr. Rodriguez builds financing around Kim's infrastructure needs, and how Dr. Zhang proposes innovations to accelerate the timeline.
-
-**Best For**:
-- Building complex, layered solutions
-- Ensuring all perspectives are heard in order
-- Creating comprehensive strategies
-- Educational content (seeing reasoning progression)
-
----
-
-## Recipe 3: Moderated Mode - Expert Panel with Chair
-
-**Use Case**: When you have a moderator who should intelligently route questions to the most qualified expert.
-
-**Problem**: Answer technical questions about carbon capture implementation, with a moderator selecting the right expert for each query.
-
-### The Orchestration
-
-```rust
-async fn moderated_qa_session() -> Result<(), Box<dyn std::error::Error>> {
-    // Create the moderator
-    let moderator = Agent::new(
-        "moderator",
-        "Dr. Sarah Wilson (Panel Chair)",
-        Arc::new(OpenAIClient::new_with_model_string(
-            &openai_key,
-            "gpt-4o"
-        ))
-    )
-    .with_expertise("Carbon capture overview, interdisciplinary coordination")
-    .with_personality("Diplomatic, organized, excellent at matching questions to expertise");
-
-    // Create specialized experts
-    let agent_chemical = Agent::new(
-        "chemical-expert",
-        "Dr. Liu (Chemical Processes)",
-        Arc::new(ClaudeClient::new_with_model_str(
-            &anthropic_key,
-            "claude-3-5-sonnet-20241022"
-        ))
-    )
-    .with_expertise("Amine solvents, sorbent materials, reaction kinetics")
-    .with_personality("Highly technical, precise with chemistry details");
-
-    let agent_energy = Agent::new(
-        "energy-expert",
-        "Dr. Okafor (Energy Systems)",
-        Arc::new(GeminiClient::new_with_model_string(
-            &gemini_key,
-            "gemini-1.5-pro"
-        ))
-    )
-    .with_expertise("Energy requirements, heat integration, renewable coupling")
-    .with_personality("Quantitative, focuses on energy efficiency and sustainability");
-
-    let agent_storage = Agent::new(
-        "storage-expert",
-        "Dr. Bjorn (Geological Storage)",
-        Arc::new(GrokClient::new_with_model_str(
-            &xai_key,
-            "grok-beta"
-        ))
-    )
-    .with_expertise("CO2 sequestration, reservoir characterization, long-term monitoring")
-    .with_personality("Safety-focused, experienced with subsurface engineering");
-
-    let agent_lifecycle = Agent::new(
-        "lifecycle-expert",
-        "Dr. Sharma (Lifecycle Assessment)",
-        Arc::new(OpenAIClient::new_with_model_string(
-            &openai_key,
-            "gpt-4o-mini"
-        ))
-    )
-    .with_expertise("Full lifecycle analysis, net carbon accounting, environmental impact")
-    .with_personality("Holistic thinker, considers entire system impacts");
-
-    let mut orchestration = Orchestration::new(
-        "moderated-qa-orchestration",
-        "Carbon Capture Q&A Panel"
-    )
-    .with_mode(OrchestrationMode::Moderated {
-        moderator_id: "moderator".to_string()
-    })
-    .with_system_context(
-        "You are participating in a technical Q&A session about carbon capture technology."
-    );
-
-    orchestration.add_agent(moderator)?;
-    orchestration.add_agent(agent_chemical)?;
-    orchestration.add_agent(agent_energy)?;
-    orchestration.add_agent(agent_storage)?;
-    orchestration.add_agent(agent_lifecycle)?;
-
-    // Ask a complex question requiring expert knowledge
-    let response = orchestration.run(
-        "We're considering a 1 MT/year direct air capture facility powered by geothermal energy \
-         in Iceland, storing CO2 in basalt formations. What are the key technical challenges and \
-         is the net carbon balance truly negative when accounting for construction and operations?",
-        3  // Let moderator route to 3 different experts
-    ).await?;
-
-    println!("=== MODERATED EXPERT Q&A ===\n");
-    for msg in &response.messages {
-        if let Some(name) = &msg.agent_name {
-            if let Some(moderator_id) = msg.metadata.get("moderator") {
-                println!("[Selected by {}]", moderator_id);
+            OrchestrationEvent::TaskClaimed {
+                agent_name,
+                task_id,
+                ..
+            } => {
+                println!("  ✋ {} claimed: {}", agent_name, task_id);
             }
-            println!(">>> {} <<<", name);
-            println!("{}\n", msg.content);
-        }
-    }
-
-    println!("Total tokens used: {}", response.total_tokens_used);
-
-    Ok(())
-}
-```
-
-**Expected Outcome**: The moderator intelligently routes the multi-part question to appropriate experts. Energy expert discusses geothermal coupling, storage expert analyzes basalt mineralization potential, and lifecycle expert provides the net carbon accounting. The moderator may ask follow-ups to specific experts.
-
-**Best For**:
-- Q&A sessions
-- Dynamic problem routing
-- Efficient use of specialized expertise
-- Interactive consultations
-
----
-
-## Recipe 4: Hierarchical Mode - Multi-Layer Problem Solving
-
-**Use Case**: When you need worker-level analysis, supervisor synthesis, and executive decision-making.
-
-**Problem**: Evaluate and select the optimal carbon capture technology portfolio for three different regions with different constraints.
-
-### The Orchestration
-
-```rust
-async fn hierarchical_technology_selection() -> Result<(), Box<dyn std::error::Error>> {
-    // === LAYER 1: Regional Analysis Workers ===
-
-    let worker_north_america = Agent::new(
-        "worker-na",
-        "Analysis Team: North America",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini"))
-    )
-    .with_expertise("North American energy infrastructure, policy landscape, industrial base")
-    .with_personality("Detail-oriented, region-specific knowledge");
-
-    let worker_europe = Agent::new(
-        "worker-eu",
-        "Analysis Team: Europe",
-        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-haiku-20240307"))
-    )
-    .with_expertise("European carbon markets, renewable integration, environmental regulations")
-    .with_personality("Compliance-focused, sustainability-driven");
-
-    let worker_asia = Agent::new(
-        "worker-asia",
-        "Analysis Team: Asia-Pacific",
-        Arc::new(GeminiClient::new_with_model_string(&gemini_key, "gemini-1.5-flash"))
-    )
-    .with_expertise("Rapid industrialization, coal infrastructure, emerging technology adoption")
-    .with_personality("Growth-oriented, pragmatic about constraints");
-
-    // === LAYER 2: Domain Supervisors ===
-
-    let supervisor_tech = Agent::new(
-        "supervisor-tech",
-        "Technical Supervisor",
-        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-5-sonnet-20241022"))
-    )
-    .with_expertise("Technology assessment, comparative analysis, technical feasibility")
-    .with_personality("Synthesizes technical details, identifies patterns across regions");
-
-    let supervisor_business = Agent::new(
-        "supervisor-business",
-        "Business Supervisor",
-        Arc::new(GeminiClient::new_with_model_string(&gemini_key, "gemini-1.5-pro"))
-    )
-    .with_expertise("Investment analysis, market dynamics, commercial viability")
-    .with_personality("ROI-focused, risk assessment, market opportunities");
-
-    // === LAYER 3: Executive Decision Maker ===
-
-    let executive = Agent::new(
-        "executive",
-        "Chief Strategy Officer",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
-    )
-    .with_expertise("Strategic planning, portfolio management, resource allocation")
-    .with_personality("Decisive, balances multiple objectives, long-term vision");
-
-    let mut orchestration = Orchestration::new(
-        "hierarchical-orchestration",
-        "Global Carbon Capture Portfolio Selection"
-    )
-    .with_mode(OrchestrationMode::Hierarchical {
-        layers: vec![
-            // Layer 1: Regional workers (parallel)
-            vec![
-                "worker-na".to_string(),
-                "worker-eu".to_string(),
-                "worker-asia".to_string(),
-            ],
-            // Layer 2: Domain supervisors (parallel)
-            vec![
-                "supervisor-tech".to_string(),
-                "supervisor-business".to_string(),
-            ],
-            // Layer 3: Executive (single decision maker)
-            vec!["executive".to_string()],
-        ],
-    })
-    .with_system_context(
-        "You are part of a hierarchical decision-making process for global carbon capture deployment."
-    );
-
-    // Add all agents
-    orchestration.add_agent(worker_north_america)?;
-    orchestration.add_agent(worker_europe)?;
-    orchestration.add_agent(worker_asia)?;
-    orchestration.add_agent(supervisor_tech)?;
-    orchestration.add_agent(supervisor_business)?;
-    orchestration.add_agent(executive)?;
-
-    let response = orchestration.run(
-        "Evaluate carbon capture technology options for deployment in: \
-         1) North America (abundant natural gas, existing industrial CO2 sources), \
-         2) Europe (strong renewables, carbon pricing, limited storage), \
-         3) Asia-Pacific (coal-heavy, rapid growth, cost sensitivity). \
-         \
-         Recommend a technology portfolio for each region that maximizes CO2 removal \
-         while minimizing cost and risk. Consider: Point Source Capture, Direct Air Capture, \
-         and Bioenergy with CCS (BECCS).",
-        1
-    ).await?;
-
-    println!("=== HIERARCHICAL DECISION PROCESS ===\n");
-
-    for msg in &response.messages {
-        if let Some(layer_str) = msg.metadata.get("layer") {
-            let layer: usize = layer_str.parse().unwrap_or(0);
-            let layer_name = match layer {
-                0 => "LAYER 1: Regional Analysis",
-                1 => "LAYER 2: Domain Supervision",
-                2 => "LAYER 3: Executive Decision",
-                _ => "Unknown Layer",
-            };
-
-            println!("\n╔═══════════════════════════════════╗");
-            println!("║  {}  ║", layer_name);
-            println!("╚═══════════════════════════════════╝\n");
-        }
-
-        if let Some(name) = &msg.agent_name {
-            println!(">>> {} <<<", name);
-            println!("{}\n", msg.content);
-        }
-    }
-
-    println!("Total tokens used: {}", response.total_tokens_used);
-
-    Ok(())
-}
-```
-
-**Expected Outcome**:
-- **Layer 1**: Three regional teams provide detailed analysis of constraints and opportunities
-- **Layer 2**: Supervisors synthesize the regional inputs - tech supervisor evaluates feasibility across regions, business supervisor assesses commercial viability
-- **Layer 3**: Executive makes final portfolio allocation decision based on synthesized analysis
-
-This mimics real organizational decision-making with clear information flow up the hierarchy.
-
-**Best For**:
-- Complex multi-region/multi-domain problems
-- Organizational decision simulation
-- Problems requiring both detail and synthesis
-- Resource allocation decisions
-
----
-
-## Recipe 5: Debate Mode - Adversarial Refinement with Convergence
-
-**Use Case**: When you need agents to challenge each other's assumptions and converge on the most robust solution through argumentation.
-
-**Problem**: Determine the optimal carbon price needed to make carbon capture economically viable. This is contentious with no single answer - perfect for debate.
-
-### The Orchestration
-
-```rust
-async fn debate_carbon_pricing() -> Result<(), Box<dyn std::error::Error>> {
-    // Create agents with genuinely different perspectives
-
-    let agent_market_optimist = Agent::new(
-        "market-optimist",
-        "Dr. Chen (Market Optimist)",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
-    )
-    .with_expertise("Market mechanisms, technological learning curves, innovation economics")
-    .with_personality(
-        "Believes in market efficiency and technology cost reductions. \
-         Argues for moderate carbon prices with strong R&D support. \
-         Optimistic about breakthrough technologies."
-    );
-
-    let agent_climate_hawk = Agent::new(
-        "climate-hawk",
-        "Dr. Andersson (Climate Emergency Advocate)",
-        Arc::new(ClaudeClient::new_with_model_str(
-            &anthropic_key,
-            "claude-3-5-sonnet-20241022"
-        ))
-    )
-    .with_expertise("Climate science, tipping points, urgency of action")
-    .with_personality(
-        "Emphasizes the urgency of climate crisis and social cost of carbon. \
-         Advocates for high carbon prices to reflect true environmental cost. \
-         Focuses on moral imperative and intergenerational justice."
-    );
-
-    let agent_pragmatist = Agent::new(
-        "pragmatist",
-        "Dr. Patel (Economic Pragmatist)",
-        Arc::new(GeminiClient::new_with_model_string(&gemini_key, "gemini-1.5-pro"))
-    )
-    .with_expertise("Development economics, political feasibility, transition planning")
-    .with_personality(
-         "Balances climate urgency with economic reality and political feasibility. \
-         Advocates for gradual, predictable carbon price escalation. \
-         Concerned about economic disruption and public acceptance."
-    );
-
-    let agent_industry_realist = Agent::new(
-        "industry-realist",
-        "Dr. Mueller (Industrial Engineer)",
-        Arc::new(GrokClient::new_with_model_str(&xai_key, "grok-beta"))
-    )
-    .with_expertise("Industrial processes, capital investment cycles, competitiveness")
-    .with_personality(
-        "Represents industry perspective and capital constraints. \
-         Argues for carbon prices aligned with technology readiness and investment cycles. \
-         Warns against policies that cause carbon leakage or economic damage."
-    );
-
-    let agent_systems_thinker = Agent::new(
-        "systems-thinker",
-        "Dr. Okonkwo (Systems Analyst)",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
-    )
-    .with_expertise("Systems dynamics, policy modeling, feedback loops")
-    .with_personality(
-        "Analyzes feedback loops and system effects. \
-         Seeks carbon price that optimizes multiple objectives simultaneously. \
-         Challenges simplistic arguments from all sides."
-    );
-
-    let mut orchestration = Orchestration::new(
-        "debate-orchestration",
-        "Carbon Pricing Debate Orchestration"
-    )
-    .with_mode(OrchestrationMode::Debate {
-        max_rounds: 5,
-        convergence_threshold: Some(0.65),  // 65% similarity triggers convergence
-    })
-    .with_system_context(
-        "You are participating in a rigorous debate on carbon pricing policy. \
-         Challenge weak arguments, acknowledge strong points, and refine your position \
-         based on evidence presented by others. Seek truth through dialectic."
-    );
-
-    orchestration.add_agent(agent_market_optimist)?;
-    orchestration.add_agent(agent_climate_hawk)?;
-    orchestration.add_agent(agent_pragmatist)?;
-    orchestration.add_agent(agent_industry_realist)?;
-    orchestration.add_agent(agent_systems_thinker)?;
-
-    let response = orchestration.run(
-        "What carbon price ($/ton CO2) should be implemented globally to make carbon capture \
-         and storage economically competitive while being politically and economically feasible? \
-         \
-         Consider: \
-         - Current CCS costs ($50-150/ton depending on technology) \
-         - Social cost of carbon ($50-200/ton depending on discount rate) \
-         - Political feasibility and public acceptance \
-         - Impact on industrial competitiveness \
-         - Technology learning curves and R&D incentives \
-         - Timeline for climate targets (net-zero by 2050) \
-         \
-         Justify your position with evidence and respond to counterarguments.",
-        5
-    ).await?;
-
-    println!("=== CARBON PRICING DEBATE ===\n");
-
-    let mut current_round = 0;
-    for msg in &response.messages {
-        if let Some(round_str) = msg.metadata.get("round") {
-            let round: usize = round_str.parse().unwrap_or(0);
-            if round != current_round {
-                current_round = round;
-                println!("\n");
-                println!("╔═══════════════════════════════════════════════════╗");
-                println!("║              DEBATE ROUND {}                       ║", round + 1);
-                println!("╚═══════════════════════════════════════════════════╝");
-                println!();
+            OrchestrationEvent::TaskCompleted {
+                agent_name,
+                task_id,
+                ..
+            } => {
+                println!("  ✅ {} completed: {}", agent_name, task_id);
             }
-        }
-
-        if let Some(name) = &msg.agent_name {
-            println!("┌─ {} ─┐", name);
-            println!("{}", msg.content);
-            println!("└─────────────────────────────────────────────────────┘\n");
+            OrchestrationEvent::RoundCompleted { .. } => {
+                println!("  Cost for this iteration: ~$0.30-$0.50");
+            }
+            _ => {}
         }
     }
-
-    println!("\n=== DEBATE OUTCOME ===");
-    println!("Rounds completed: {}", response.round);
-    println!("Converged: {}", response.is_complete);
-    if let Some(score) = response.convergence_score {
-        println!("Convergence score: {:.2}%", score * 100.0);
-    }
-    println!("Total tokens used: {}", response.total_tokens_used);
-
-    Ok(())
 }
-```
 
-**Expected Outcome**:
-- **Round 1**: Agents stake out initial positions ranging from $50-$200/ton
-- **Round 2-3**: Agents challenge each other's assumptions. Climate hawk criticizes optimist's timeline, pragmatist questions hawk's political feasibility, industry realist highlights competitiveness concerns
-- **Round 4-5**: Positions begin to converge as agents acknowledge valid points. May settle around $80-120/ton with gradual escalation
-- **Convergence**: Debate terminates early if agents reach >65% similarity in their arguments
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Define task pool
+    let tasks = vec![
+        WorkItem::new(
+            "research_nmn",
+            "Research phase — NMN+ mechanisms",
+            "Summarize NAD+ pathways, mitochondrial function, sirtuins in 2-3 paragraphs",
+        ),
+        WorkItem::new(
+            "analyze_longevity",
+            "Analysis phase — longevity mechanisms",
+            "Extract 3-5 key aging reversal pathways; estimate lifespan impact",
+        ),
+        WorkItem::new(
+            "research_alzheimers",
+            "Research phase — Alzheimer's pathology",
+            "Document amyloid-beta, tau tangles, neuroinflammation; summarize in 2 paragraphs",
+        ),
+        WorkItem::new(
+            "analyze_neuroprotection",
+            "Analysis phase — neuroprotective mechanisms",
+            "Map how NAD+ restoration combats neurodegeneration (5+ specific mechanisms)",
+        ),
+        WorkItem::new(
+            "memory_recovery",
+            "Research phase — memory recovery evidence",
+            "Find 3+ studies showing cognitive restoration in AD models; summarize findings",
+        ),
+        WorkItem::new(
+            "clinical_integration",
+            "Analysis phase — clinical feasibility",
+            "Assess dosing, bioavailability, safety profile; recommend next clinical trial",
+        ),
+        WorkItem::new(
+            "synthesis_report",
+            "Writing phase — comprehensive synthesis",
+            "Write 3-4 page executive report integrating all findings with clear conclusions",
+        ),
+        WorkItem::new(
+            "final_review",
+            "Quality review — peer review assessment",
+            "Review report for accuracy, completeness, evidence quality; suggest improvements",
+        ),
+    ];
 
-The debate mode is powerful because it surfaces and resolves conflicts through argumentation rather than averaging.
+    println!("═══════════════════════════════════════════════════════");
+    println!("   NMN+ Research Team — AnthropicAgentTeams Mode");
+    println!("═══════════════════════════════════════════════════════\n");
 
-**Best For**:
-- Contested decisions with no clear answer
-- Exploring tradeoff spaces
-- Stress-testing assumptions
-- Finding robust consensus through dialectic
+    println!("⚠️  COST ESTIMATE:");
+    println!("  - 8 tasks × 4 agents = max 32 LLM calls");
+    println!("  - At $0.05-0.10/call = $1.60-$3.20 total");
+    println!("  - Runtime: ~3-5 minutes\n");
 
----
+    // Create agents with mixed providers
+    let openai_key = std::env::var("OPENAI_API_KEY")?;
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY")?;
 
-## Advanced: Combining Tools with Agents
+    let researcher = Agent::new(
+        "researcher",
+        "Research Agent (GPT-4o-mini)",
+        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+    );
 
-All orchestration modes support tool-augmented agents. Here's an example with real calculations:
-
-```rust
-use cloudllm::{
-    tool_adapters::CustomToolAdapter,
-    tool_protocol::{ToolRegistry, ToolMetadata, ToolParameter, ToolParameterType, ToolResult},
-};
-
-async fn orchestration_with_tools() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a calculator tool for carbon accounting
-    let mut adapter = CustomToolAdapter::new();
-
-    adapter.register_tool(
-        ToolMetadata::new("calculate_ccs_cost", "Calculate total cost of CCS deployment")
-            .with_parameter(
-                ToolParameter::new("capacity_mt_per_year", ToolParameterType::Number)
-                    .with_description("Capture capacity in megatons CO2 per year")
-                    .required()
-            )
-            .with_parameter(
-                ToolParameter::new("cost_per_ton", ToolParameterType::Number)
-                    .with_description("Cost per ton of CO2 captured")
-                    .required()
-            )
-            .with_parameter(
-                ToolParameter::new("years", ToolParameterType::Number)
-                    .with_description("Number of years of operation")
-                    .required()
-            ),
-        Arc::new(|params| {
-            let capacity = params["capacity_mt_per_year"].as_f64().unwrap_or(0.0);
-            let cost_per_ton = params["cost_per_ton"].as_f64().unwrap_or(0.0);
-            let years = params["years"].as_f64().unwrap_or(0.0);
-
-            let total_co2 = capacity * years;
-            let total_cost = total_co2 * cost_per_ton * 1_000_000.0; // MT to tons
-            let annual_cost = total_cost / years;
-
-            Ok(ToolResult::success(serde_json::json!({
-                "total_co2_removed_tons": total_co2 * 1_000_000.0,
-                "total_cost_usd": total_cost,
-                "annual_cost_usd": annual_cost,
-                "cost_per_ton_usd": cost_per_ton
-            })))
-        })
-    ).await;
-
-    let registry = Arc::new(ToolRegistry::new(Arc::new(adapter)));
-
-    // Create agent with tools
-    let agent_analyst = Agent::new(
+    let analyst = Agent::new(
         "analyst",
-        "Carbon Economics Analyst",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
+        "Analysis Agent (Claude Haiku 4.5)",
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeHaiku45)),
+    );
+
+    let writer = Agent::new(
+        "writer",
+        "Writing Agent (GPT-4o-mini)",
+        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+    );
+
+    let reviewer = Agent::new(
+        "reviewer",
+        "Review Agent (Claude Haiku 4.5)",
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeHaiku45)),
+    );
+
+    // ⚠️ CRITICAL: max_iterations calculation
+    // Formula: (task_count / agent_count) * 1.5, capped at 5
+    // 8 tasks / 4 agents = 2 * 1.5 = 3, use 4 for safety
+    let max_iterations = 4;  // DO NOT SET TO 100!
+
+    let mut orchestration = Orchestration::new(
+        "nmn-research-team",
+        "NMN+ & Alzheimer's Research Team",
     )
-    .with_expertise("Carbon economics, cost analysis, financial modeling")
-    .with_tools(registry);
+    .with_mode(OrchestrationMode::AnthropicAgentTeams {
+        pool_id: "nmn-study-2024".to_string(),
+        tasks: tasks.clone(),
+        max_iterations,
+    })
+    .with_system_context(
+        "You are a specialized researcher in a coordinated team. \
+         Autonomously claim tasks from the shared pool and complete them thoroughly. \
+         Build on previous agents' work when relevant. Focus on scientific accuracy \
+         and clear communication. When done, report completion.",
+    )
+    .with_max_tokens(4096)
+    .with_event_handler(Arc::new(CostTracker {
+        iteration: std::sync::atomic::AtomicUsize::new(0),
+    }));
 
-    let mut orchestration = Orchestration::new("analysis-orchestration", "CCS Cost Analysis")
-        .with_mode(OrchestrationMode::Parallel);
+    orchestration.add_agent(researcher)?;
+    orchestration.add_agent(analyst)?;
+    orchestration.add_agent(writer)?;
+    orchestration.add_agent(reviewer)?;
 
-    orchestration.add_agent(agent_analyst)?;
+    // Run orchestration
+    let prompt = "Prepare a comprehensive scientific report on NMN+ for longevity and \
+                   Alzheimer's disease recovery, with specific focus on memory restoration. \
+                   The team will autonomously work through the 8 research tasks.";
 
-    let response = orchestration.run(
-        "Calculate the total cost of deploying 5 MT/year carbon capture capacity \
-         over 20 years at $100/ton. Use the calculate_ccs_cost tool.",
-        1
-    ).await?;
+    println!("👥 Team Members:");
+    println!("  1. Researcher (GPT) — finds and summarizes sources");
+    println!("  2. Analyst (Claude Haiku) — synthesizes findings");
+    println!("  3. Writer (GPT) — drafts comprehensive report");
+    println!("  4. Reviewer (Claude Haiku) — ensures quality\n");
 
-    println!("=== TOOL-AUGMENTED ANALYSIS ===\n");
-    for msg in &response.messages {
+    println!("⏱️  Starting orchestration...");
+
+    let start = std::time::Instant::now();
+    let response = orchestration.run(prompt, 1).await?;
+    let elapsed = start.elapsed();
+
+    println!("\n✨ RESULTS:");
+    println!("  ├─ Iterations completed: {}", response.round);
+    println!("  ├─ Tasks completed: {:.0}%", response.convergence_score.unwrap_or(0.0) * 100.0);
+    println!("  ├─ Total time: {:.1}s", elapsed.as_secs_f32());
+    println!("  ├─ Total tokens: {}", response.total_tokens_used);
+    println!("  └─ Estimated cost: ${:.2}", (response.total_tokens_used as f64) * 0.00001);
+
+    // Print sample messages
+    println!("\n📝 Sample outputs:");
+    for (i, msg) in response.messages.iter().take(3).enumerate() {
         if let Some(name) = &msg.agent_name {
-            println!("--- {} ---", name);
-            println!("{}\n", msg.content);
+            let preview = if msg.content.len() > 200 {
+                format!("{}...", &msg.content[..200])
+            } else {
+                msg.content.to_string()
+            };
+            println!("  {}. [{}]: {}", i + 1, name, preview);
         }
     }
 
@@ -756,194 +244,621 @@ async fn orchestration_with_tools() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The agent will:
-1. See the tool is available in its system prompt
-2. Respond with: `{"tool_call": {"name": "calculate_ccs_cost", "parameters": {"capacity_mt_per_year": 5, "cost_per_ton": 100, "years": 20}}}`
-3. Tool executes automatically
-4. Agent receives result and formulates final response
-
----
-
-## Best Practices
-
-### 1. **Choosing the Right Mode**
-
-| Mode | Use When | Avoid When |
-|------|----------|-----------|
-| **Parallel** | Need independent viewpoints, speed critical | Agents should build on each other |
-| **RoundRobin** | Building layered solutions, clear expertise order | Need debate or routing |
-| **Moderated** | Dynamic Q&A, varied question types | All questions suit same expert |
-| **Hierarchical** | Complex multi-level problems, org simulation | Flat problem structure |
-| **Debate** | Contested decisions, need robust consensus | Clear optimal solution exists |
-
-### 2. **Agent Design Tips**
-
-- **Expertise**: Be specific and actionable ("chemical kinetics of amine solvents" not "chemistry")
-- **Personality**: Give distinct perspectives, not just different knowledge
-- **Provider diversity**: Mix Claude (analytical), GPT-4 (balanced), Gemini (creative), Grok (contrarian)
-- **Agent names**: Use realistic names and titles for better role-playing
-
-### 3. **Prompt Engineering for Orchestrations**
-
-Good orchestration prompts:
-- ✅ Are specific and measurable
-- ✅ Require multiple perspectives
-- ✅ Have constrained solution spaces
-- ✅ Provide context and constraints
-
-Poor orchestration prompts:
-- ❌ Are too open-ended
-- ❌ Can be answered by one expert
-- ❌ Lack success criteria
-- ❌ Are purely factual lookups
-
-### 4. **Token Management**
+### Key Parameters to Tune
 
 ```rust
-// Monitor token usage
-let response = orchestration.run(prompt, rounds).await?;
-println!("Tokens used: {}", response.total_tokens_used);
+// ✅ GOOD: Controls cost effectively
+max_iterations: 4,           // 8 tasks ÷ 4 agents × 1.5 buffer = ~4 iterations
+with_max_tokens(4096),       // Prevents runaway responses
 
-// For expensive debates, limit rounds
-OrchestrationMode::Debate {
-    max_rounds: 3,  // Lower for cost control
-    convergence_threshold: Some(0.70)  // Higher = earlier convergence = lower cost
-}
+// ❌ BAD: Will waste money
+max_iterations: 100,         // Could run for 30+ minutes, $50+ cost
+max_iterations: 50,          // Excessive iterations for 8 tasks
+with_max_tokens(32768),      // Allows 100KB responses per agent
 ```
 
-### 5. **Convergence Tuning**
+### Best Practices for AnthropicAgentTeams
 
-The Jaccard similarity threshold controls debate termination:
-- **0.50-0.60**: Very different positions can converge (loose consensus)
-- **0.65-0.75**: Moderate agreement needed (recommended)
-- **0.80-0.90**: Strong agreement needed (strict consensus)
-- **0.95+**: Near-identical responses (potentially groupthink)
+1. **Task Design**: Keep task IDs short (`research_nmn` not `research_phase_1_nanoparticle_nmn_mechanism`)
+2. **Iteration Cap**: `max_iterations = ceil(task_count / agent_count) + 1`
+3. **Agent Count**: 3-6 agents per 8-15 tasks (more agents = more parallelism but higher cost)
+4. **Monitoring**: Use event handler to detect stuck agents (same task claimed repeatedly)
+5. **Early Exit**: If convergence_score reaches 1.0 before max_iterations, orchestration stops automatically
+
+### ⚠️ When AnthropicAgentTeams Gets Expensive
+
+These scenarios can waste $100+:
+
+```rust
+// ❌ TOO MANY ITERATIONS
+max_iterations: 50,      // Even if tasks complete in 5, runs all 50
+tasks: vec![...], // 20 tasks
+                         // Result: 50 × 4 agents × 5-10 calls = 1000-2000 calls = $10-50
+
+// ❌ AMBIGUOUS TASKS
+WorkItem::new("task1", "Do research", "Complete the task"),  // Agents don't know what "done" is
+                         // Result: Agents keep claiming same task, never marking complete
+
+// ❌ TOO MANY AGENTS FOR TASK POOL
+max_iterations: 20,
+tasks: vec![3_items], // 3 tasks
+                         // Result: 4 agents all working on same 3 tasks repeatedly
+
+// ✅ CORRECT
+max_iterations: 2,       // 3 tasks ÷ 4 agents + buffer = 2 iterations
+tasks: vec![...],
+with_max_tokens(4096),   // Reasonable response length
+```
 
 ---
 
-## Complete Example: Full Pipeline
+# MODE 2: RALPH — Iterative Checklist with Agent Turn-Taking
 
-Here's a complete program combining multiple modes:
+## Overview
+
+**RALPH** (Requirements Addressing Progressive Lite Heuristic) is for problems that can be broken into a **fixed checklist** of tasks. Unlike AnthropicAgentTeams, the orchestration engine manages the task list and agents signal completion via response markers.
+
+**Best For**: Step-by-step project completion where tasks are clearly sequential or grouped.
+
+### ⚠️ COST WARNING
+
+- **Per Iteration**: ~$0.05-$0.15 per agent
+- **Typical Cost**: 3-5 iterations × 3-4 agents = $0.45-$2.00
+- **Risk**: Setting too high max_iterations for simple tasks
+- **How to Avoid**: Monitor completion markers in responses; stop if no progress for 2 iterations
+
+### Runtime Expectations
+
+- **Simple checklist (5 items, 3 agents)**: 2-3 minutes, $0.30-$0.60
+- **Medium checklist (10 items, 4 agents)**: 4-7 minutes, $0.80-$1.50
+- **Complex checklist (15+ items)**: 8-15 minutes, $1.50-$3.00+
+
+### Example: Breakout Game Implementation (10 Tasks)
 
 ```rust
 use cloudllm::{
-    orchestration::{Agent, Orchestration, OrchestrationMode},
-    clients::{openai::OpenAIClient, claude::ClaudeClient, gemini::GeminiClient, grok::GrokClient},
+    Agent,
+    orchestration::{Orchestration, OrchestrationMode, RalphTask},
+    clients::openai::OpenAIClient,
+    clients::claude::{ClaudeClient, Model},
 };
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load API keys
-    let openai_key = std::env::var("OPENAI_KEY")?;
-    let anthropic_key = std::env::var("ANTHROPIC_KEY")?;
-    let gemini_key = std::env::var("GEMINI_KEY")?;
-    let xai_key = std::env::var("XAI_KEY")?;
+    println!("═══════════════════════════════════════════════════════");
+    println!("   Breakout Game Implementation — RALPH Mode");
+    println!("═══════════════════════════════════════════════════════\n");
 
-    println!("╔════════════════════════════════════════════════════════╗");
-    println!("║  Carbon Capture Strategy: Multi-Mode Orchestration Pipeline  ║");
-    println!("╚════════════════════════════════════════════════════════╝\n");
+    println!("⚠️  COST ESTIMATE:");
+    println!("  - 10 tasks × 3 iterations avg = 30 LLM calls");
+    println!("  - At $0.03-0.10/call = $0.90-$3.00 total");
+    println!("  - Runtime: ~4-7 minutes\n");
 
-    // STAGE 1: Parallel analysis of technologies
-    println!("📊 STAGE 1: Independent Technology Assessment (Parallel Mode)\n");
+    // Define task checklist
+    let tasks = vec![
+        RalphTask::new(
+            "html_structure",
+            "HTML Structure",
+            "Create basic HTML with canvas element and game container div",
+        ),
+        RalphTask::new(
+            "canvas_setup",
+            "Canvas Setup",
+            "Initialize canvas, set width/height, get 2D context",
+        ),
+        RalphTask::new(
+            "game_objects",
+            "Game Objects",
+            "Define Ball, Paddle, Brick classes with position/velocity properties",
+        ),
+        RalphTask::new(
+            "paddle_control",
+            "Paddle Control",
+            "Implement keyboard controls (arrow keys) for paddle movement",
+        ),
+        RalphTask::new(
+            "ball_physics",
+            "Ball Physics",
+            "Implement ball movement with gravity and boundary collision",
+        ),
+        RalphTask::new(
+            "paddle_collision",
+            "Paddle Collision",
+            "Detect ball-paddle collision and bounce physics",
+        ),
+        RalphTask::new(
+            "brick_grid",
+            "Brick Grid",
+            "Create grid of bricks; detect ball-brick collision and brick removal",
+        ),
+        RalphTask::new(
+            "game_state",
+            "Game State",
+            "Implement lives, score, win/lose conditions, game reset",
+        ),
+        RalphTask::new(
+            "rendering",
+            "Rendering",
+            "Draw canvas each frame: paddle, ball, bricks, score, lives",
+        ),
+        RalphTask::new(
+            "game_loop",
+            "Game Loop",
+            "requestAnimationFrame loop; integrate physics, collisions, rendering",
+        ),
+    ];
 
-    let mut stage1_orchestration = Orchestration::new("stage1", "Tech Assessment")
-        .with_mode(OrchestrationMode::Parallel);
+    // Create agents
+    let openai_key = std::env::var("OPENAI_API_KEY")?;
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY")?;
 
-    stage1_orchestration.add_agent(Agent::new(
-        "tech1", "Technology Analyst A",
-        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-5-sonnet-20241022"))
-    ).with_expertise("Direct Air Capture"))?;
+    let architect = Agent::new(
+        "architect",
+        "Game Architect",
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeSonnet45)),
+    );
 
-    stage1_orchestration.add_agent(Agent::new(
-        "tech2", "Technology Analyst B",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
-    ).with_expertise("Point Source Capture"))?;
+    let programmer = Agent::new(
+        "programmer",
+        "Implementation Specialist",
+        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o")),
+    );
 
-    let stage1_result = stage1_orchestration.run(
-        "Evaluate your assigned carbon capture technology. Provide: \
-         1) Readiness level (TRL 1-9), 2) Current cost, 3) Key challenges.",
-        1
-    ).await?;
+    let qa_engineer = Agent::new(
+        "qa",
+        "QA Engineer",
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeHaiku45)),
+    );
 
-    for msg in &stage1_result.messages {
+    // Create orchestration
+    let mut orchestration = Orchestration::new("breakout-game", "Atari Breakout Implementation")
+        .with_mode(OrchestrationMode::Ralph {
+            tasks: tasks.clone(),
+            max_iterations: 5,  // ⚠️ Safety cap
+        })
+        .with_system_context(
+            "You are implementing a classic Atari Breakout game in HTML5/Canvas. \
+             Work through the task checklist systematically. When you complete a task, \
+             include [TASK_COMPLETE:task_id] in your response. Focus on clean, working code.",
+        )
+        .with_max_tokens(8192);
+
+    orchestration.add_agent(architect)?;
+    orchestration.add_agent(programmer)?;
+    orchestration.add_agent(qa_engineer)?;
+
+    let prompt = "Implement a complete Atari Breakout game in HTML5/Canvas with: \
+                  - Paddle control via keyboard \
+                  - Ball physics with collision detection \
+                  - Brick grid that destroys on collision \
+                  - Score tracking and win/lose conditions";
+
+    println!("👥 Team: Architect (Claude), Programmer (GPT-4), QA (Claude Haiku)");
+    println!("📋 Tasks: 10-item checklist");
+    println!("⏱️  Starting RALPH orchestration...\n");
+
+    let start = std::time::Instant::now();
+    let response = orchestration.run(prompt, 1).await?;
+    let elapsed = start.elapsed();
+
+    println!("\n✨ RESULTS:");
+    println!("  ├─ Iterations: {}", response.round);
+    println!("  ├─ Completion: {:.0}%", response.convergence_score.unwrap_or(0.0) * 100.0);
+    println!("  ├─ Time: {:.1}s", elapsed.as_secs_f32());
+    println!("  ├─ Tokens: {}", response.total_tokens_used);
+    println!("  └─ Est. cost: ${:.2}", (response.total_tokens_used as f64) * 0.00002);
+
+    // Show progress
+    let completed_count = (response.convergence_score.unwrap_or(0.0) * tasks.len() as f32) as usize;
+    println!("\n📊 Tasks completed: {}/{}", completed_count, tasks.len());
+
+    Ok(())
+}
+```
+
+### RALPH vs. AnthropicAgentTeams: Decision Matrix
+
+| Scenario | Use RALPH | Use AnthropicAgentTeams |
+|----------|-----------|------------------------|
+| < 8 tasks | ✅ Yes | ❌ No (overkill) |
+| 8-20 tasks | ✅ Maybe | ✅ Yes (better) |
+| 20+ tasks | ❌ No | ✅ Yes (scales better) |
+| Tasks are sequential | ✅ Yes | ✅ Yes (but looser) |
+| Need tight orchestration control | ✅ Yes | ❌ No |
+| Want agent autonomy | ❌ No | ✅ Yes |
+| Building a game/app | ✅ Yes | ❌ No |
+| Research/analysis project | ❌ No | ✅ Yes |
+
+---
+
+# MODE 3: Debate — Consensus Through Adversarial Refinement
+
+## Overview
+
+**Debate** mode has agents argue positions and refine their stances based on counterarguments. Agents continue until they reach **convergence** (word-set similarity) or hit max_rounds.
+
+**Best For**: Contested decisions, exploring tradeoff spaces, stress-testing assumptions.
+
+### ⚠️ COST WARNING — THIS ONE IS EXPENSIVE
+
+- **Per Round**: ~$0.10-$0.30 per agent (5 agents = $0.50-$1.50/round)
+- **Typical Run**: 3-5 rounds = $1.50-$7.50
+- **Worst Case**: 5 agents × 10 rounds = **$5-15** easily
+- **Exponential Risk**: Each extra round doubles cost. Going from 3 to 5 rounds = +$1.50-$3.00
+- **How to Avoid**: Start with `max_rounds: 3`, increase only if needed; set `convergence_threshold: 0.70` (looser = fewer rounds)
+
+### Runtime Expectations
+
+- **Fast debate (2-3 rounds)**: 3-5 minutes
+- **Medium debate (4-5 rounds)**: 6-10 minutes
+- **Long debate (6+ rounds)**: 12+ minutes, **$10+ cost**
+
+### Example: Carbon Pricing Debate (5 Positions)
+
+```rust
+use cloudllm::{
+    Agent,
+    orchestration::{Orchestration, OrchestrationMode},
+    clients::openai::OpenAIClient,
+    clients::claude::{ClaudeClient, Model},
+    clients::gemini::GeminiClient,
+};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("═══════════════════════════════════════════════════════");
+    println!("   Carbon Pricing Debate — Debate Mode");
+    println!("═══════════════════════════════════════════════════════\n");
+
+    println!("⚠️  COST WARNING (THIS IS EXPENSIVE!):");
+    println!("  - 5 agents × 3 rounds minimum = 15 LLM calls");
+    println!("  - Per-call cost: $0.03-0.10");
+    println!("  - Estimated total: $0.45-$1.50");
+    println!("  - But if agents don't converge, can go to 5 rounds = $0.75-$2.50");
+    println!("  - Worst case (no convergence, 10 rounds): $1.50-$5.00\n");
+
+    println!("⏱️  ESTIMATED TIME: 4-10 minutes (watch the clock!)\n");
+
+    // Create agents with distinct perspectives
+    let openai_key = std::env::var("OPENAI_API_KEY")?;
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY")?;
+    let gemini_key = std::env::var("GEMINI_API_KEY")?;
+
+    let optimist = Agent::new(
+        "market-optimist",
+        "Dr. Chen (Market Optimist)",
+        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o")),
+    )
+    .with_expertise("Market mechanisms, technology cost curves, innovation economics")
+    .with_personality(
+        "Believes technology curves will make carbon capture cost-effective. \
+         Advocates low carbon price ($25-50/ton) with strong R&D support.",
+    );
+
+    let hawk = Agent::new(
+        "climate-hawk",
+        "Dr. Andersson (Climate Emergency Advocate)",
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeSonnet45)),
+    )
+    .with_expertise("Climate science, tipping points, social cost of carbon")
+    .with_personality(
+        "Emphasizes climate urgency and intergenerational justice. \
+         Advocates high carbon price ($150-200/ton) to reflect true social cost.",
+    );
+
+    let pragmatist = Agent::new(
+        "pragmatist",
+        "Dr. Patel (Economic Pragmatist)",
+        Arc::new(GeminiClient::new_with_model_string(&gemini_key, "gemini-1.5-pro")),
+    )
+    .with_expertise("Development economics, political feasibility, policy design")
+    .with_personality(
+        "Balances climate urgency with political reality. \
+         Advocates moderate, escalating carbon price ($50-100/ton, rising $5/year).",
+    );
+
+    let industry = Agent::new(
+        "industry-realist",
+        "Dr. Mueller (Industrial Engineer)",
+        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini")),
+    )
+    .with_expertise("Industrial capital investment, competitiveness, carbon leakage")
+    .with_personality(
+        "Represents industry constraints. Warns high prices cause carbon leakage. \
+         Advocates $30-60/ton with competitiveness safeguards.",
+    );
+
+    let analyst = Agent::new(
+        "systems-analyst",
+        "Dr. Okonkwo (Systems Analyst)",
+        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Policy modeling, feedback loops, unintended consequences")
+    .with_personality(
+        "Analyzes second- and third-order effects. Seeks price that optimizes \
+         multiple objectives: climate action, economic efficiency, equity.",
+    );
+
+    // Create orchestration
+    let mut orchestration = Orchestration::new("carbon-pricing-debate", "Carbon Pricing Policy Debate")
+        .with_mode(OrchestrationMode::Debate {
+            max_rounds: 4,                      // ⚠️ CRITICAL: Cap at 4, not 10!
+            convergence_threshold: Some(0.70), // Higher threshold = earlier convergence = lower cost
+        })
+        .with_system_context(
+            "You are a policy expert in a rigorous debate. Argue your position with evidence. \
+             Acknowledge valid points from others. Seek common ground where possible. \
+             Aim for robust consensus, not groupthink.",
+        )
+        .with_max_tokens(6144);
+
+    orchestration.add_agent(optimist)?;
+    orchestration.add_agent(hawk)?;
+    orchestration.add_agent(pragmatist)?;
+    orchestration.add_agent(industry)?;
+    orchestration.add_agent(analyst)?;
+
+    let prompt = "What carbon price ($/ton CO2) should be implemented globally? \
+                  Consider: CCS costs ($50-150/ton), social cost of carbon ($75-200/ton), \
+                  political feasibility, industrial competitiveness, climate urgency.";
+
+    println!("🎙️  Debate participants: 5 agents with distinct perspectives");
+    println!("📊 Max rounds: 4 (prevents runaway costs)");
+    println!("⏱️  Starting debate...\n");
+
+    let start = std::time::Instant::now();
+    let response = orchestration.run(prompt, 1).await?;
+    let elapsed = start.elapsed();
+
+    println!("\n✨ DEBATE RESULTS:");
+    println!("  ├─ Rounds completed: {}", response.round);
+    println!("  ├─ Converged: {}", response.is_complete);
+    if let Some(score) = response.convergence_score {
+        println!("  ├─ Convergence score: {:.1}%", score * 100.0);
+    }
+    println!("  ├─ Time: {:.1}s", elapsed.as_secs_f32());
+    println!("  ├─ Tokens: {}", response.total_tokens_used);
+    println!("  └─ Cost: ${:.2}", (response.total_tokens_used as f64) * 0.00002);
+
+    println!("\n💡 Interpretation:");
+    if response.is_complete {
+        println!("  ✅ Agents converged to consensus position");
+    } else {
+        println!("  ⚠️  Max rounds reached without full convergence (diverse views remain)");
+    }
+
+    // Show final positions
+    println!("\n📄 Final positions (last 2 messages):");
+    for msg in response.messages.iter().rev().take(2) {
         if let Some(name) = &msg.agent_name {
-            println!("✓ {}: {}\n", name, msg.content.chars().take(150).collect::<String>());
+            let preview = if msg.content.len() > 250 {
+                format!("{}...", &msg.content[..250])
+            } else {
+                msg.content.clone()
+            };
+            println!("\n  [{}]: {}", name, preview);
         }
     }
 
-    // STAGE 2: Debate to select optimal approach
-    println!("\n💬 STAGE 2: Technology Selection Debate (Debate Mode)\n");
+    Ok(())
+}
+```
 
-    let mut stage2_orchestration = Orchestration::new("stage2", "Selection Debate")
-        .with_mode(OrchestrationMode::Debate { max_rounds: 3, convergence_threshold: Some(0.70) });
+### Debate Convergence Tuning
 
-    stage2_orchestration.add_agent(Agent::new(
-        "advocate1", "DAC Advocate",
-        Arc::new(GeminiClient::new_with_model_string(&gemini_key, "gemini-1.5-pro"))
-    ))?;
+**The convergence_threshold parameter controls cost directly:**
 
-    stage2_orchestration.add_agent(Agent::new(
-        "advocate2", "Point Source Advocate",
-        Arc::new(GrokClient::new_with_model_str(&xai_key, "grok-beta"))
-    ))?;
+```rust
+// ❌ COSTS $5+: Requires high agreement to stop
+OrchestrationMode::Debate {
+    max_rounds: 10,
+    convergence_threshold: Some(0.95),  // Need 95% similarity = many rounds
+}
 
-    let stage2_result = stage2_orchestration.run(
-        "Based on the stage 1 assessment, argue for your preferred technology. \
-         Consider cost, scalability, and timeline to 2035.",
-        3
-    ).await?;
+// ✅ COSTS $1-2: Balanced
+OrchestrationMode::Debate {
+    max_rounds: 5,
+    convergence_threshold: Some(0.70),  // 70% similar = stops sooner
+}
 
-    println!("Debate completed in {} rounds", stage2_result.round);
-    if let Some(score) = stage2_result.convergence_score {
-        println!("Convergence: {:.1}%\n", score * 100.0);
-    }
+// ✅ COSTS $0.50: Loose consensus
+OrchestrationMode::Debate {
+    max_rounds: 3,
+    convergence_threshold: Some(0.60),  // 60% = stops very quickly
+}
+```
+
+---
+
+# MODE 4: Parallel — Independent Expert Analysis
+
+## Overview
+
+**Parallel** mode is the **cheapest and fastest** — all agents respond simultaneously to the same prompt, with no interaction.
+
+**Best For**: Independent opinions, quick polls, parallel processing.
+
+### Cost Profile
+
+- **Cost**: $0.05-$0.15 per agent, regardless of rounds
+- **Time**: 15-30 seconds for most responses
+- **Example**: 4 agents, 1 round = $0.20-$0.60, 30 seconds
+
+### Example
+
+```rust
+let mut orchestration = Orchestration::new("parallel-demo", "Parallel Analysis")
+    .with_mode(OrchestrationMode::Parallel);
+
+// Add agents...
+
+let response = orchestration.run(
+    "Analyze these three carbon capture technologies independently. \
+     1) Direct Air Capture, 2) Point Source Capture, 3) Ocean-based capture",
+    1
+).await?;
+
+println!("Completed in 30 seconds, cost $0.25");
+```
+
+---
+
+# MODE 5: Round-Robin — Sequential Deliberation
+
+## Overview
+
+Each agent speaks in turn, building on previous agents' responses.
+
+### Cost Profile
+
+- **Cost**: $0.10-$0.40 per round (4 agents × 2 rounds = $0.20-$0.80)
+- **Time**: 30-90 seconds per round
+
+---
+
+# MODE 6: Moderated — Expert Routing
+
+## Overview
+
+A moderator agent routes questions to the most qualified expert.
+
+### Cost Profile
+
+- **Cost**: $0.15-$0.60 per run
+- **Time**: 45-120 seconds
+- **Best for**: Q&A sessions, dynamic problem routing
+
+---
+
+# MODE 7: Hierarchical — Multi-Layer Decision Making
+
+## Overview
+
+Workers → Supervisors → Executives. Output of each layer feeds next.
+
+### Cost Profile
+
+- **Cost**: $0.25-$0.80 per run
+- **Time**: 1-3 minutes
+
+---
+
+## Cost Comparison Summary
+
+| Mode | 4 Agents, 1 Round | Notes |
+|------|------------------|-------|
+| Parallel | $0.20-$0.60 | Fastest, cheapest |
+| RoundRobin | $0.30-$0.80 | 2-3 rounds recommended |
+| Moderated | $0.25-$0.70 | Dynamic routing |
+| Hierarchical | $0.35-$0.90 | Multi-layer synthesis |
+| RALPH | $0.40-$1.20 | Per iteration |
+| Debate | $0.50-$2.00 | ⚠️ Varies by convergence |
+| AnthropicAgentTeams | $0.30-$1.00 | Per iteration |
+
+---
+
+## Avoiding Expensive Mistakes
+
+### ❌ Mistake #1: Infinite Debate
+
+```rust
+// BAD: No cap on rounds
+OrchestrationMode::Debate {
+    max_rounds: 1000,  // Agents keep arguing, $50+ cost
+    convergence_threshold: Some(0.99),  // Convergence never reached
+}
+```
+
+**Fix**: Cap at 3-5 rounds, set convergence to 0.65-0.75
+
+### ❌ Mistake #2: Too Many Iterations
+
+```rust
+// BAD: Excessive iterations for small task pool
+max_iterations: 100,   // 100 × 4 agents = 400+ calls
+tasks: vec![...],      // Only 5 tasks!
+```
+
+**Fix**: Use formula `ceil(task_count / agent_count) + buffer`
+
+### ❌ Mistake #3: Oversized Token Budget
+
+```rust
+// BAD: Allows 100KB responses per agent
+with_max_tokens(32768),  // 4 agents × 32K tokens = runaway costs
+```
+
+**Fix**: Use 4096-8192 for normal tasks
+
+### ✅ Best Practice: Always Monitor
+
+```rust
+let response = orchestration.run(prompt, rounds).await?;
+
+// Print cost before accepting results
+let estimated_cost = (response.total_tokens_used as f64) * 0.00002;
+println!("Cost: ${:.2}", estimated_cost);
+
+if estimated_cost > 5.0 {
+    eprintln!("⚠️  WARNING: High cost run. Review mode parameters.");
+}
+```
+
+---
+
+## Complete Multi-Mode Pipeline Example
+
+```rust
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("🚀 Multi-Stage Orchestration Pipeline");
+    println!("   Stage 1: Parallel analysis ($0.30)");
+    println!("   Stage 2: Debate for selection ($1.50)");
+    println!("   Stage 3: Hierarchical planning ($0.50)");
+    println!("   Total estimate: $2.30\n");
+
+    // STAGE 1: Parallel independent analysis
+    let mut stage1 = Orchestration::new("stage1", "Tech Assessment")
+        .with_mode(OrchestrationMode::Parallel);
+
+    stage1.add_agent(Agent::new("tech1", "DAC Expert", ...))?;
+    stage1.add_agent(Agent::new("tech2", "Point Source Expert", ...))?;
+
+    let result1 = stage1.run("Evaluate your assigned technology", 1).await?;
+    println!("Stage 1: ${:.2}", (result1.total_tokens_used as f64) * 0.00002);
+
+    // STAGE 2: Debate to select winner
+    let mut stage2 = Orchestration::new("stage2", "Technology Selection")
+        .with_mode(OrchestrationMode::Debate {
+            max_rounds: 3,
+            convergence_threshold: Some(0.70),
+        });
+
+    stage2.add_agent(Agent::new("advocate1", "DAC Advocate", ...))?;
+    stage2.add_agent(Agent::new("advocate2", "Point Source Advocate", ...))?;
+
+    let result2 = stage2.run("Argue for your preferred technology", 1).await?;
+    println!("Stage 2: ${:.2}", (result2.total_tokens_used as f64) * 0.00002);
 
     // STAGE 3: Hierarchical deployment planning
-    println!("🏗️  STAGE 3: Deployment Strategy (Hierarchical Mode)\n");
-
-    let mut stage3_orchestration = Orchestration::new("stage3", "Deployment Planning")
+    let mut stage3 = Orchestration::new("stage3", "Deployment Planning")
         .with_mode(OrchestrationMode::Hierarchical {
             layers: vec![
-                vec!["regional1".to_string(), "regional2".to_string()],
-                vec!["executive".to_string()],
+                vec!["regional1", "regional2"],
+                vec!["executive"],
             ],
         });
 
-    stage3_orchestration.add_agent(Agent::new(
-        "regional1", "Regional Planner US",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o-mini"))
-    ))?;
+    // Add agents...
 
-    stage3_orchestration.add_agent(Agent::new(
-        "regional2", "Regional Planner EU",
-        Arc::new(ClaudeClient::new_with_model_str(&anthropic_key, "claude-3-haiku-20240307"))
-    ))?;
+    let result3 = stage3.run("Create deployment strategy", 1).await?;
+    println!("Stage 3: ${:.2}", (result3.total_tokens_used as f64) * 0.00002);
 
-    stage3_orchestration.add_agent(Agent::new(
-        "executive", "Strategy Director",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o"))
-    ))?;
-
-    let stage3_result = stage3_orchestration.run(
-        "Create a 5-year deployment roadmap for the selected technology \
-         in US and EU markets. Executives synthesize into unified strategy.",
-        1
-    ).await?;
-
-    println!("✓ Deployment strategy completed\n");
-
-    // FINAL SUMMARY
-    println!("╔════════════════════════════════════════╗");
-    println!("║           PIPELINE COMPLETE             ║");
-    println!("╚════════════════════════════════════════╝\n");
-
-    let total_tokens = stage1_result.total_tokens_used
-        + stage2_result.total_tokens_used
-        + stage3_result.total_tokens_used;
-
-    println!("Total tokens used: {}", total_tokens);
-    println!("Estimated cost (GPT-4o): ${:.2}", (total_tokens as f64) * 0.00001);
+    let total = result1.total_tokens_used + result2.total_tokens_used + result3.total_tokens_used;
+    println!("\nTotal tokens: {}", total);
+    println!("Total cost: ${:.2}", (total as f64) * 0.00002);
 
     Ok(())
 }
@@ -951,38 +866,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-## Troubleshooting
+## Key Takeaways
 
-### Problem: Agents give similar responses
-**Solution**: Increase personality/perspective differences, use different model providers, add expertise specificity
-
-### Problem: Debate doesn't converge
-**Solution**: Lower convergence threshold, increase max_rounds, or ensure agents have common ground
-
-### Problem: High token costs
-**Solution**: Use smaller models for workers, limit debate rounds, use parallel instead of round-robin for independent tasks
-
-### Problem: Agents ignore each other in Round-Robin
-**Solution**: Strengthen system context to emphasize building on previous responses, increase rounds
-
----
-
-## Conclusion
-
-You now have five powerful patterns for multi-agent collaboration:
-
-1. **Parallel**: Fast, independent analysis
-2. **RoundRobin**: Sequential, layered deliberation
-3. **Moderated**: Dynamic expert routing
-4. **Hierarchical**: Multi-level organizational decision-making
-5. **Debate**: Adversarial convergence on robust solutions
-
-Each mode excels in different scenarios. The carbon capture examples demonstrate how these patterns can tackle complex, real-world problems requiring multiple perspectives and deep domain expertise.
-
-**Next Steps**:
-- Experiment with agent personality variations
-- Add custom tools for domain-specific calculations
-- Combine modes in multi-stage pipelines
-- Try other pressing problems: pandemic response, space mission planning, economic policy, etc.
+1. **Parallel is cheapest** (~$0.30, 30 sec) — use when agents don't need to interact
+2. **RALPH is predictable** (~$0.50-$1.00/iteration) — use for fixed checklists
+3. **Debate is expensive** (~$1.50-$5.00) — always cap rounds and set convergence threshold
+4. **AnthropicAgentTeams is powerful but risks** — cap `max_iterations` strictly
+5. **Always monitor tokens** — $0.00002 per token means 50K tokens = $1, 100K tokens = $2
+6. **Start conservative** — begin with low iteration counts, increase only if needed
 
 Happy orchestrating! 🤖🤝🤖
