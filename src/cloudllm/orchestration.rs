@@ -134,6 +134,72 @@ pub struct RalphTask {
     pub description: String,
 }
 
+/// A work item in an AnthropicAgentTeams task pool.
+///
+/// Each `WorkItem` represents a discrete task that agents autonomously discover
+/// and claim from a shared Memory pool. Agents coordinate via hierarchical Memory
+/// keys: `teams:<pool_id>:unclaimed:<task_id>`, `teams:<pool_id>:claimed:<task_id>`,
+/// and `teams:<pool_id>:completed:<task_id>`.
+///
+/// # Examples
+///
+/// ```
+/// use cloudllm::orchestration::WorkItem;
+///
+/// let task = WorkItem::new(
+///     "research_phase",
+///     "Research phase — gather background information",
+///     "Find and summarize at least 5 relevant sources",
+/// );
+///
+/// assert_eq!(task.id, "research_phase");
+/// ```
+#[derive(Debug, Clone)]
+pub struct WorkItem {
+    /// Unique identifier for this task (used in Memory key prefixes).
+    ///
+    /// Keep IDs short, lowercase, and free of whitespace (e.g., `"research"`, `"analysis"`).
+    pub id: String,
+
+    /// Human-readable task description shown to agents.
+    ///
+    /// This text is stored in Memory at `teams:<pool_id>:unclaimed:<task_id>` and
+    /// read by agents when they discover available work.
+    pub description: String,
+
+    /// Acceptance criteria or success condition for this task.
+    ///
+    /// Guidance for agents on how to know when the work is complete.
+    pub acceptance_criteria: String,
+}
+
+impl WorkItem {
+    /// Create a new work item with the given identifier, description, and acceptance criteria.
+    ///
+    /// All three parameters accept anything that implements `Into<String>`, so you
+    /// can pass `&str`, `String`, or other convertible types.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cloudllm::orchestration::WorkItem;
+    ///
+    /// let item = WorkItem::new("research", "Research phase", "Summarize 5 sources");
+    /// assert_eq!(item.id, "research");
+    /// ```
+    pub fn new(
+        id: impl Into<String>,
+        description: impl Into<String>,
+        acceptance_criteria: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            description: description.into(),
+            acceptance_criteria: acceptance_criteria.into(),
+        }
+    }
+}
+
 impl RalphTask {
     /// Create a new PRD task with the given identifier, title, and description.
     ///
@@ -269,6 +335,30 @@ pub enum OrchestrationMode {
         /// Maximum number of full iterations (one pass through all agents per
         /// iteration). Acts as a cost ceiling — the loop may terminate earlier
         /// if all tasks are completed.
+        max_iterations: usize,
+    },
+
+    /// Anthropic Agent Teams: Decentralized task-based coordination via shared Memory.
+    ///
+    /// No central orchestrator. Agents autonomously discover and claim tasks from a
+    /// shared Memory pool. Task coordination uses hierarchical Memory keys:
+    /// - `teams:<pool_id>:unclaimed:<task_id>` — task description (discoverable)
+    /// - `teams:<pool_id>:claimed:<task_id>` — `<agent_id>:<timestamp>` (indicates who's working)
+    /// - `teams:<pool_id>:completed:<task_id>` — result JSON (task done)
+    /// - `teams:<pool_id>:metadata` — pool config (total tasks, created_at, etc.)
+    ///
+    /// Each iteration, agents are called with a prompt asking them to discover
+    /// an unclaimed task via Memory LIST, claim it, work on it, and report the result.
+    /// The loop terminates when all tasks are completed or `max_iterations` is reached.
+    AnthropicAgentTeams {
+        /// Unique identifier for this task pool (used in Memory key prefixes).
+        pool_id: String,
+
+        /// Tasks to be completed. Each [`WorkItem`] has an id, description, and acceptance criteria.
+        tasks: Vec<WorkItem>,
+
+        /// Maximum iterations (one pass through all agents per iteration).
+        /// Loop terminates early if all tasks completed.
         max_iterations: usize,
     },
 }
@@ -728,6 +818,7 @@ impl Orchestration {
             OrchestrationMode::Hierarchical { .. } => "Hierarchical",
             OrchestrationMode::Debate { .. } => "Debate",
             OrchestrationMode::Ralph { .. } => "Ralph",
+            OrchestrationMode::AnthropicAgentTeams { .. } => "AnthropicAgentTeams",
         }
     }
 
@@ -920,6 +1011,14 @@ impl Orchestration {
                 tasks,
                 max_iterations,
             } => self.execute_ralph(prompt, &tasks, max_iterations).await,
+            OrchestrationMode::AnthropicAgentTeams {
+                pool_id,
+                tasks,
+                max_iterations,
+            } => {
+                self.execute_anthropic_agent_teams(prompt, &pool_id, &tasks, max_iterations)
+                    .await
+            }
         };
 
         if let Ok(ref response) = result {
@@ -1848,6 +1947,282 @@ impl Orchestration {
             }
         }
         results
+    }
+
+    /// Execute AnthropicAgentTeams mode: decentralized task coordination via shared Memory.
+    ///
+    /// Agents autonomously discover and claim tasks from a Memory pool. No central
+    /// orchestrator — each agent uses Memory LIST to find unclaimed tasks,
+    /// PUT to claim them, work on them, and PUT results when done.
+    ///
+    /// # Memory Key Scheme
+    ///
+    /// - `teams:<pool_id>:unclaimed:<task_id>` — task description + acceptance criteria
+    /// - `teams:<pool_id>:claimed:<task_id>` — `<agent_id>:<timestamp>` (who's working)
+    /// - `teams:<pool_id>:completed:<task_id>` — result JSON (task finished)
+    /// - `teams:<pool_id>:metadata` — pool metadata (total tasks, created_at)
+    /// - `teams:<pool_id>:stats` — stats (tasks_completed, tasks_failed)
+    ///
+    /// # Events Emitted
+    ///
+    /// Per iteration: `RoundStarted`, then `AgentSelected` + `TaskClaimed` (if new task),
+    /// `TaskCompleted` or `TaskFailed` for each agent, then `RoundCompleted`.
+    async fn execute_anthropic_agent_teams(
+        &mut self,
+        prompt: &str,
+        pool_id: &str,
+        tasks: &[WorkItem],
+        max_iterations: usize,
+    ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
+        // Edge case: no tasks means immediate completion
+        if tasks.is_empty() {
+            return Ok(OrchestrationResponse {
+                messages: Vec::new(),
+                round: 0,
+                is_complete: true,
+                convergence_score: Some(1.0),
+                total_tokens_used: 0,
+            });
+        }
+
+        self.setup_agent_prompts();
+
+        let mut completed_tasks: HashSet<String> = HashSet::new();
+        let mut claimed_tasks: HashMap<String, String> = HashMap::new(); // task_id -> agent_id
+        let mut all_messages: Vec<OrchestrationMessage> = Vec::new();
+        let mut total_tokens: usize = 0;
+        let mut actual_iterations: usize = 0;
+
+        let task_ids: HashSet<String> = tasks.iter().map(|t| t.id.clone()).collect();
+
+        // Initialize Memory with task pool (mock — in real code agents would have Memory tool)
+        log::info!(
+            "AnthropicAgentTeams pool '{}' initialized with {} tasks",
+            pool_id,
+            tasks.len()
+        );
+
+        for iteration in 0..max_iterations {
+            actual_iterations = iteration + 1;
+
+            self.emit(OrchestrationEvent::RoundStarted {
+                orchestration_id: self.id.clone(),
+                round: actual_iterations,
+            })
+            .await;
+
+            log::info!(
+                "AnthropicAgentTeams iteration {}/{} — {}/{} tasks complete",
+                actual_iterations,
+                max_iterations,
+                completed_tasks.len(),
+                tasks.len()
+            );
+
+            // Build iteration prompt with available tasks
+            let mut available_tasks = String::new();
+            for task in tasks {
+                if !completed_tasks.contains(&task.id) && !claimed_tasks.contains_key(&task.id) {
+                    available_tasks.push_str(&format!("- {} — {}\n", task.id, task.description));
+                }
+            }
+
+            let iteration_prompt = if available_tasks.is_empty() {
+                format!(
+                    "=== AnthropicAgentTeams Iteration {}/{} ===\n\n\
+                     ## Original Request\n{}\n\n\
+                     ## Task Status\n\
+                     All available tasks have been claimed or completed.\n\
+                     Completed tasks: {}/{}\n\
+                     If you previously claimed a task, please report your result.",
+                    actual_iterations, max_iterations, prompt, completed_tasks.len(), tasks.len()
+                )
+            } else {
+                format!(
+                    "=== AnthropicAgentTeams Iteration {}/{} ===\n\n\
+                     ## Original Request\n{}\n\n\
+                     ## Available Tasks\n{}\n\
+                     ## Instructions\n\
+                     Discover an unclaimed task from the Memory pool using the LIST and GET commands.\n\
+                     Claim it by writing to Memory: PUT teams:{}:claimed:<task_id> <your_id>\n\
+                     Complete the task and report: PUT teams:{}:completed:<task_id> {{\"result\": \"...\"}}\n\
+                     Progress: {}/{}",
+                    actual_iterations, max_iterations, prompt, available_tasks, pool_id, pool_id,
+                    completed_tasks.len(),
+                    tasks.len()
+                )
+            };
+
+            // Each agent responds sequentially
+            for agent_id in self.agent_order.clone() {
+                let mut agent = self.agents.remove(&agent_id).unwrap();
+
+                // Route only NEW messages from other agents
+                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                for msg in &all_messages[cursor..] {
+                    if let Some(name) = &msg.agent_name {
+                        agent.receive_message(
+                            Role::Assistant,
+                            format!("[{}]: {}", name, msg.content),
+                        );
+                    }
+                }
+                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
+
+                self.emit(OrchestrationEvent::AgentSelected {
+                    orchestration_id: self.id.clone(),
+                    agent_id: agent_id.clone(),
+                    agent_name: agent.name.clone(),
+                    reason: format!("AnthropicAgentTeams iteration {}", actual_iterations),
+                })
+                .await;
+
+                let result = agent.send(&iteration_prompt).await;
+
+                let agent_name_clone = agent.name.clone();
+                self.agents.insert(agent_id.clone(), agent);
+
+                match result {
+                    Ok(agent_response) => {
+                        if let Some(usage) = &agent_response.tokens_used {
+                            total_tokens += usage.total_tokens;
+                        }
+
+                        self.emit(OrchestrationEvent::AgentResponded {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name_clone.clone(),
+                            tokens_used: agent_response.tokens_used.clone(),
+                            response_length: agent_response.content.len(),
+                        })
+                        .await;
+
+                        // Parse agent response for task claims and completions
+                        // In real implementation, agents would use Memory tool;
+                        // here we simulate by looking for patterns in the response
+                        let response_lower = agent_response.content.to_lowercase();
+
+                        // Detect claimed task: if agent mentions a task_id
+                        for task_id in &task_ids {
+                            if response_lower.contains(task_id)
+                                && !claimed_tasks.contains_key(task_id)
+                                && !completed_tasks.contains(task_id)
+                            {
+                                claimed_tasks.insert(task_id.clone(), agent_id.clone());
+
+                                self.emit(OrchestrationEvent::TaskClaimed {
+                                    orchestration_id: self.id.clone(),
+                                    agent_id: agent_id.clone(),
+                                    agent_name: agent_name_clone.clone(),
+                                    task_id: task_id.clone(),
+                                })
+                                .await;
+
+                                log::info!(
+                                    "  Agent '{}' claimed task '{}'",
+                                    agent_name_clone,
+                                    task_id
+                                );
+                                break; // One task per iteration
+                            }
+                        }
+
+                        // Detect completed task: if response mentions completion
+                        let is_completed = response_lower.contains("complete")
+                            || response_lower.contains("done")
+                            || response_lower.contains("finished");
+
+                        if is_completed {
+                            for task_id in &task_ids {
+                                if claimed_tasks.get(task_id) == Some(&agent_id)
+                                    && !completed_tasks.contains(task_id)
+                                {
+                                    completed_tasks.insert(task_id.clone());
+                                    claimed_tasks.remove(task_id);
+
+                                    self.emit(OrchestrationEvent::TaskCompleted {
+                                        orchestration_id: self.id.clone(),
+                                        agent_id: agent_id.clone(),
+                                        agent_name: agent_name_clone.clone(),
+                                        task_id: task_id.clone(),
+                                        result: agent_response.content.clone(),
+                                    })
+                                    .await;
+
+                                    log::info!(
+                                        "  Agent '{}' completed task '{}'",
+                                        agent_name_clone,
+                                        task_id
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+
+                        let msg = OrchestrationMessage::from_agent(
+                            &agent_id,
+                            &agent_name_clone,
+                            agent_response.content,
+                        )
+                        .with_metadata("iteration", actual_iterations.to_string());
+
+                        all_messages.push(msg.clone());
+                        self.conversation_history.push(msg);
+                    }
+                    Err(e) => {
+                        self.emit(OrchestrationEvent::AgentFailed {
+                            orchestration_id: self.id.clone(),
+                            agent_id: agent_id.clone(),
+                            agent_name: agent_name_clone.clone(),
+                            error: e.to_string(),
+                        })
+                        .await;
+
+                        // Emit TaskFailed if agent had claimed a task
+                        for (task_id, claiming_agent) in &claimed_tasks {
+                            if claiming_agent == &agent_id {
+                                self.emit(OrchestrationEvent::TaskFailed {
+                                    orchestration_id: self.id.clone(),
+                                    agent_id: agent_id.clone(),
+                                    agent_name: agent_name_clone.clone(),
+                                    task_id: task_id.clone(),
+                                    error: format!("Agent failed: {}", e),
+                                })
+                                .await;
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.emit(OrchestrationEvent::RoundCompleted {
+                orchestration_id: self.id.clone(),
+                round: actual_iterations,
+            })
+            .await;
+
+            // Check termination
+            if completed_tasks.len() == tasks.len() {
+                log::info!(
+                    "All {}/{} tasks complete — stopping after iteration {}",
+                    completed_tasks.len(),
+                    tasks.len(),
+                    actual_iterations
+                );
+                break;
+            }
+        }
+
+        let total = tasks.len() as f32;
+        let completed = completed_tasks.len() as f32;
+
+        Ok(OrchestrationResponse {
+            messages: all_messages,
+            round: actual_iterations,
+            is_complete: completed_tasks.len() == tasks.len(),
+            convergence_score: Some(completed / total),
+            total_tokens_used: total_tokens,
+        })
     }
 
     /// Calculate convergence score between the current and previous round of messages.

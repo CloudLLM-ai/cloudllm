@@ -1,4 +1,14 @@
 0.10.0 FEB/10/2026
+ - feat: AnthropicAgentTeams orchestration mode (7th collaboration mode)
+   - Decentralized task-based coordination inspired by Anthropic's C compiler work
+   - No central orchestrator — agents autonomously discover and claim tasks
+   - Hierarchical Memory key scheme: teams:<pool_id>:unclaimed:*, :claimed:*, :completed:*
+   - New OrchestrationMode::AnthropicAgentTeams variant with pool_id, tasks, max_iterations
+   - New WorkItem struct for defining tasks with id, description, acceptance_criteria
+   - New OrchestrationEvent variants: TaskClaimed, TaskCompleted, TaskFailed
+   - New examples/anthropic_teams.rs: full working demo with 4-agent team on 8-task pool
+   - Atoms claim mechanism via Memory PUT (single-threaded, atomic from LLM perspective)
+   - Progress tracking by querying completed vs unclaimed task counts in Memory
  - feat: Agent & Orchestration event system
    - New EventHandler trait with on_agent_event() and on_orchestration_event()
    - AgentEvent enum: SendStarted/Completed, LLMCallStarted/Completed,

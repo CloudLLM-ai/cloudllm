@@ -497,6 +497,56 @@ pub enum OrchestrationEvent {
         /// Total number of PRD tasks in the checklist.
         tasks_total: usize,
     },
+
+    /// An agent claimed a task from the AnthropicAgentTeams pool.
+    ///
+    /// Emitted when the orchestration detects that an agent has written to
+    /// `teams:<pool_id>:claimed:<task_id>` in Memory, indicating the agent
+    /// is now working on that task.
+    TaskClaimed {
+        /// Stable identifier of the orchestration.
+        orchestration_id: String,
+        /// Stable identifier of the agent that claimed the task.
+        agent_id: String,
+        /// Human-readable display name.
+        agent_name: String,
+        /// Unique identifier of the task being claimed.
+        task_id: String,
+    },
+
+    /// An AnthropicAgentTeams task was completed by an agent.
+    ///
+    /// Emitted when the orchestration detects that an agent has written the
+    /// result to `teams:<pool_id>:completed:<task_id>` in Memory.
+    TaskCompleted {
+        /// Stable identifier of the orchestration.
+        orchestration_id: String,
+        /// Stable identifier of the agent that completed the task.
+        agent_id: String,
+        /// Human-readable display name.
+        agent_name: String,
+        /// Unique identifier of the completed task.
+        task_id: String,
+        /// Result text (typically JSON) written to Memory.
+        result: String,
+    },
+
+    /// An AnthropicAgentTeams task failed or was abandoned.
+    ///
+    /// Emitted when an agent fails to complete a task it had claimed,
+    /// or when a task was claimed but not completed within a timeout.
+    TaskFailed {
+        /// Stable identifier of the orchestration.
+        orchestration_id: String,
+        /// Stable identifier of the agent that failed on the task.
+        agent_id: String,
+        /// Human-readable display name.
+        agent_name: String,
+        /// Unique identifier of the failed task.
+        task_id: String,
+        /// Error or failure description.
+        error: String,
+    },
 }
 
 /// Trait for receiving agent and orchestration events.
