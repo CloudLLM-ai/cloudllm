@@ -4,7 +4,7 @@ Runnable demonstrations of CloudLLM patterns, tools, and multi-agent orchestrati
 
 All examples use `cargo run --example <name>` and can run with placeholder API keys (no actual API calls made).
 
-**Total Examples**: 22 | **Updated**: v0.10.0
+**Total Examples**: 22 | **Updated**: v0.10.1
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
@@ -562,6 +562,6 @@ cargo clippy --example <name>  # Lint check
 
 ---
 
-**Last Updated**: v0.10.0 (February 2026)
+**Last Updated**: v0.10.1 (February 2026)
 **Total Examples**: 22
 **Prerequisite Knowledge**: Rust async/await, tokio, serde_json, basic LLM API concepts

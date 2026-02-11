@@ -1,3 +1,12 @@
+0.10.1 FEB/11/2026
+ - fix: Correct Memory protocol documentation in agent examples
+   - Fixed "Unknown Command" errors in breakout game examples
+   - Memory tool protocol uses single-letter commands (P, G, L, D, C, SPEC)
+   - Updated system context in RALPH and AnthropicAgentTeams examples
+   - Agents now receive correct instructions for Memory tool usage
+   - Commands should be space-separated strings in 'command' parameter, not separate JSON fields
+   - Example: {"command": "P key value"} instead of {"command":"PUT","key":"...","value":"..."}
+
 0.10.0 FEB/10/2026
  - feat: HttpClientProtocol — dedicated protocol for HTTP requests
    - New HttpClientProtocol struct wrapping HttpClient
