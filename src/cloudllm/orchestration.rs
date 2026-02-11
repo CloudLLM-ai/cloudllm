@@ -1522,7 +1522,11 @@ impl Orchestration {
                 let mut agent = self.agents.remove(&agent_id).unwrap();
 
                 // Route only NEW messages this agent hasn't seen yet
-                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                let cursor = self
+                    .agent_message_cursors
+                    .get(&agent_id)
+                    .copied()
+                    .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
                     if let Some(name) = &msg.agent_name {
                         agent.receive_message(
@@ -1531,7 +1535,8 @@ impl Orchestration {
                         );
                     }
                 }
-                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
+                self.agent_message_cursors
+                    .insert(agent_id.clone(), all_messages.len());
 
                 self.emit(OrchestrationEvent::AgentSelected {
                     orchestration_id: self.id.clone(),
@@ -1616,7 +1621,9 @@ impl Orchestration {
         moderator_id: &str,
     ) -> Result<OrchestrationResponse, Box<dyn Error + Send + Sync>> {
         if !self.agents.contains_key(moderator_id) {
-            return Err(Box::new(OrchestrationError::AgentNotFound(moderator_id.to_string())));
+            return Err(Box::new(OrchestrationError::AgentNotFound(
+                moderator_id.to_string(),
+            )));
         }
 
         self.setup_agent_prompts();
@@ -1660,16 +1667,19 @@ impl Orchestration {
 
             // Remove moderator, route new messages, call send, re-insert
             let mut moderator = self.agents.remove(moderator_id).unwrap();
-            let mod_cursor = self.agent_message_cursors.get(moderator_id).copied().unwrap_or(0);
+            let mod_cursor = self
+                .agent_message_cursors
+                .get(moderator_id)
+                .copied()
+                .unwrap_or(0);
             for msg in &all_messages[mod_cursor..] {
                 if let Some(name) = &msg.agent_name {
-                    moderator.receive_message(
-                        Role::Assistant,
-                        format!("[{}]: {}", name, msg.content),
-                    );
+                    moderator
+                        .receive_message(Role::Assistant, format!("[{}]: {}", name, msg.content));
                 }
             }
-            self.agent_message_cursors.insert(moderator_id.to_string(), all_messages.len());
+            self.agent_message_cursors
+                .insert(moderator_id.to_string(), all_messages.len());
 
             let moderator_result = moderator.send(&moderator_prompt).await?;
             let selection = moderator_result.content.clone();
@@ -1698,7 +1708,11 @@ impl Orchestration {
                 let mut agent = self.agents.remove(&agent_id).unwrap();
 
                 // Route new messages to this expert
-                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                let cursor = self
+                    .agent_message_cursors
+                    .get(&agent_id)
+                    .copied()
+                    .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
                     if let Some(name) = &msg.agent_name {
                         agent.receive_message(
@@ -1707,7 +1721,8 @@ impl Orchestration {
                         );
                     }
                 }
-                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
+                self.agent_message_cursors
+                    .insert(agent_id.clone(), all_messages.len());
 
                 let agent_result = agent.send(prompt).await?;
                 let agent_name = agent.name.clone();
@@ -1717,13 +1732,10 @@ impl Orchestration {
                     total_tokens += usage.total_tokens;
                 }
 
-                let msg = OrchestrationMessage::from_agent(
-                    &agent_id,
-                    &agent_name,
-                    agent_result.content,
-                )
-                .with_metadata("moderator", moderator_id.to_string())
-                .with_metadata("round", round_num.to_string());
+                let msg =
+                    OrchestrationMessage::from_agent(&agent_id, &agent_name, agent_result.content)
+                        .with_metadata("moderator", moderator_id.to_string())
+                        .with_metadata("round", round_num.to_string());
 
                 all_messages.push(msg.clone());
                 self.conversation_history.push(msg);
@@ -1914,7 +1926,11 @@ impl Orchestration {
                 let mut agent = self.agents.remove(&agent_id).unwrap();
 
                 // Route only NEW messages this agent hasn't seen
-                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                let cursor = self
+                    .agent_message_cursors
+                    .get(&agent_id)
+                    .copied()
+                    .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
                     if let Some(name) = &msg.agent_name {
                         agent.receive_message(
@@ -1923,7 +1939,8 @@ impl Orchestration {
                         );
                     }
                 }
-                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len() + round_messages.len());
+                self.agent_message_cursors
+                    .insert(agent_id.clone(), all_messages.len() + round_messages.len());
 
                 let debate_prompt = format!(
                     "Round {} of debate: {}\n\n\
@@ -2096,15 +2113,9 @@ impl Orchestration {
             let mut checklist = String::new();
             for task in tasks {
                 if completed_tasks.contains(&task.id) {
-                    checklist.push_str(&format!(
-                        "- [x] {} — {}\n",
-                        task.title, task.description
-                    ));
+                    checklist.push_str(&format!("- [x] {} — {}\n", task.title, task.description));
                 } else {
-                    checklist.push_str(&format!(
-                        "- [ ] {} — {}\n",
-                        task.title, task.description
-                    ));
+                    checklist.push_str(&format!("- [ ] {} — {}\n", task.title, task.description));
                 }
             }
 
@@ -2125,7 +2136,11 @@ impl Orchestration {
                 log::info!("  Calling agent '{}' ({})...", agent.name, agent.id);
 
                 // Route only NEW messages from other agents
-                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                let cursor = self
+                    .agent_message_cursors
+                    .get(&agent_id)
+                    .copied()
+                    .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
                     if let Some(name) = &msg.agent_name {
                         agent.receive_message(
@@ -2134,7 +2149,8 @@ impl Orchestration {
                         );
                     }
                 }
-                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
+                self.agent_message_cursors
+                    .insert(agent_id.clone(), all_messages.len());
 
                 let result = agent.send(&iteration_prompt).await;
 
@@ -2208,10 +2224,7 @@ impl Orchestration {
                         .with_metadata("iteration", actual_iterations.to_string());
 
                         if !valid_completions.is_empty() {
-                            msg = msg.with_metadata(
-                                "tasks_completed",
-                                valid_completions.join(","),
-                            );
+                            msg = msg.with_metadata("tasks_completed", valid_completions.join(","));
                         }
 
                         all_messages.push(msg.clone());
@@ -2375,7 +2388,11 @@ impl Orchestration {
                      All available tasks have been claimed or completed.\n\
                      Completed tasks: {}/{}\n\
                      If you previously claimed a task, please report your result.",
-                    actual_iterations, max_iterations, prompt, completed_tasks.len(), tasks.len()
+                    actual_iterations,
+                    max_iterations,
+                    prompt,
+                    completed_tasks.len(),
+                    tasks.len()
                 )
             } else {
                 format!(
@@ -2398,7 +2415,11 @@ impl Orchestration {
                 let mut agent = self.agents.remove(&agent_id).unwrap();
 
                 // Route only NEW messages from other agents
-                let cursor = self.agent_message_cursors.get(&agent_id).copied().unwrap_or(0);
+                let cursor = self
+                    .agent_message_cursors
+                    .get(&agent_id)
+                    .copied()
+                    .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
                     if let Some(name) = &msg.agent_name {
                         agent.receive_message(
@@ -2407,7 +2428,8 @@ impl Orchestration {
                         );
                     }
                 }
-                self.agent_message_cursors.insert(agent_id.clone(), all_messages.len());
+                self.agent_message_cursors
+                    .insert(agent_id.clone(), all_messages.len());
 
                 self.emit(OrchestrationEvent::AgentSelected {
                     orchestration_id: self.id.clone(),
@@ -2699,4 +2721,3 @@ impl Orchestration {
         self.agent_message_cursors.clear();
     }
 }
-

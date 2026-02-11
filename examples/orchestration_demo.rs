@@ -224,14 +224,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_expertise("System integration, architectural decisions");
 
-    let mut hierarchical_orchestration = Orchestration::new("project-team", "Project Team Hierarchy")
-        .with_mode(OrchestrationMode::Hierarchical {
-            layers: vec![
-                vec!["db-analyst".to_string(), "api-analyst".to_string()],
-                vec!["tech-lead".to_string()],
-            ],
-        })
-        .with_system_context("Analyze the problem from your perspective. Be concise.");
+    let mut hierarchical_orchestration =
+        Orchestration::new("project-team", "Project Team Hierarchy")
+            .with_mode(OrchestrationMode::Hierarchical {
+                layers: vec![
+                    vec!["db-analyst".to_string(), "api-analyst".to_string()],
+                    vec!["tech-lead".to_string()],
+                ],
+            })
+            .with_system_context("Analyze the problem from your perspective. Be concise.");
 
     hierarchical_orchestration.add_agent(worker1)?;
     hierarchical_orchestration.add_agent(worker2)?;

@@ -6,9 +6,7 @@ static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn unique_chain_dir() -> PathBuf {
     let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let dir = std::env::temp_dir().join(format!(
-        "cloudllm_tc_test_{}_{}", std::process::id(), n
-    ));
+    let dir = std::env::temp_dir().join(format!("cloudllm_tc_test_{}_{}", std::process::id(), n));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
@@ -16,8 +14,7 @@ fn unique_chain_dir() -> PathBuf {
 #[test]
 fn test_thought_chain_create_and_append() {
     let dir = unique_chain_dir();
-    let mut chain =
-        ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Found pattern A")
@@ -43,8 +40,14 @@ fn test_thought_chain_disk_persistence() {
 
     // Write and drop
     {
-        let mut chain =
-            ThoughtChain::open(&dir, "persist_agent", "Persist Analyst", Some("persist_data"), None).unwrap();
+        let mut chain = ThoughtChain::open(
+            &dir,
+            "persist_agent",
+            "Persist Analyst",
+            Some("persist_data"),
+            None,
+        )
+        .unwrap();
         chain
             .append("persist_agent", ThoughtType::Finding, "Persisted finding")
             .unwrap();
@@ -54,8 +57,14 @@ fn test_thought_chain_disk_persistence() {
     }
 
     // Reopen
-    let chain =
-        ThoughtChain::open(&dir, "persist_agent", "Persist Analyst", Some("persist_data"), None).unwrap();
+    let chain = ThoughtChain::open(
+        &dir,
+        "persist_agent",
+        "Persist Analyst",
+        Some("persist_data"),
+        None,
+    )
+    .unwrap();
     assert_eq!(chain.thoughts().len(), 2);
     assert_eq!(chain.thoughts()[0].content, "Persisted finding");
     assert_eq!(chain.thoughts()[1].content, "Checkpoint 1");
@@ -66,8 +75,7 @@ fn test_thought_chain_disk_persistence() {
 #[test]
 fn test_thought_chain_hash_integrity() {
     let dir = unique_chain_dir();
-    let mut chain =
-        ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Entry 1")
@@ -87,8 +95,7 @@ fn test_thought_chain_hash_integrity() {
 #[test]
 fn test_thought_chain_resolve_context() {
     let dir = unique_chain_dir();
-    let mut chain =
-        ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     // #0: Finding
     chain
@@ -142,8 +149,7 @@ fn test_thought_chain_filename_determinism() {
 #[test]
 fn test_thought_chain_bootstrap_prompt() {
     let dir = unique_chain_dir();
-    let mut chain =
-        ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Key insight")

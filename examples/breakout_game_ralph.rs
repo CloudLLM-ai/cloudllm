@@ -22,18 +22,35 @@
 //! - **sound-designer**: Implements Atari 2600-style background music and SFX (Web Audio API)
 //! - **powerup-engineer**: Implements all powerup systems
 //!
-//! ## PRD Tasks (10)
+//! ## PRD Tasks (18)
 //!
-//! 1. HTML boilerplate, canvas element, CSS styling
-//! 2. requestAnimationFrame game loop, game state management
-//! 3. Player paddle with keyboard input
-//! 4. Ball movement, wall bouncing, paddle collision
-//! 5. Brick grid with multi-hit bricks (different colors per HP)
-//! 6. Ball-brick collision with brick destruction
-//! 7. Atari 2600-style chiptune background music (Web Audio API oscillators)
-//! 8. Sound effects on collisions
-//! 9. Powerups: paddle length +10%, speed +10%, projectile shooting
-//! 10. Spawn 2 extra balls powerup
+//! **Core Mechanics (1-6)**
+//! 1. HTML boilerplate, canvas element, CSS styling, responsive sizing
+//! 2. requestAnimationFrame game loop, game state management (MENU, PLAYING, PAUSED, GAME_OVER, LEVEL_COMPLETE)
+//! 3. Player paddle with keyboard input (arrow keys), left/right bounds checking
+//! 4. Ball movement, velocity vectors, wall bouncing (top, left, right), paddle collision with angle reflection
+//! 5. Brick grid with multi-hit HP system (1-5 HP, color-coded: yellow=1, green=2, blue=3, orange=4, red=5)
+//! 6. Ball-brick collision detection, brick HP damage system, score tracking, powerup drops
+//!
+//! **Audio System (7-8)**
+//! 7. Atari 2600-style chiptune background music (Web Audio API oscillators), loop and mute controls
+//! 8. Collision sound effects (brick, paddle, wall) with different pitches, powerup pickup sound, life earned sound
+//!
+//! **Powerup System (9-11)**
+//! 9. Basic Powerups: paddle extension, speed boost (slow), projectile shooting (100 shots)
+//! 10. Advanced Powerups: lava balls (destroy on impact), bomb mode (5 impacts), growth (50% size), mushroom (1UP)
+//! 11. Multiball powerup: spawns 10 new balls from paddle position
+//!
+//! **Visual Effects (12-14)**
+//! 12. Particle effects: fire particles (brick destruction), paddle jet particles (level complete animation), 1UP text displays
+//! 13. Paddle 3D animation (screw effect with wing rotation) on level complete, with upward motion
+//! 14. Level complete celebration animation with animated paddle and particle bursts
+//!
+//! **Advanced Mechanics (15-18)**
+//! 15. Level progression system with 10+ procedural brick patterns (pyramid, diamond, checkerboard, wave, spiral, etc.)
+//! 16. Dynamic brick HP and powerup scaling based on level difficulty
+//! 17. Mobile touch/swipe controls with responsive canvas resizing on window change
+//! 18. Score milestones for automatic 1UP awards, lives system, level persistence
 //!
 //! ## Running
 //!
@@ -120,10 +137,7 @@ impl EventHandler for BreakoutEventHandler {
                 tool_calls_made,
                 ..
             } => {
-                let tokens = tokens_used
-                    .as_ref()
-                    .map(|u| u.total_tokens)
-                    .unwrap_or(0);
+                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
                 println!(
                     "  [{}] << {} responded ({} chars, {} tokens, {} tool calls)",
                     self.elapsed_str(),
@@ -395,70 +409,130 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tasks = vec![
         RalphTask::new(
             "html_structure",
-            "HTML Structure",
-            "Create the HTML boilerplate with a <canvas> element, CSS styling (centered canvas, \
-             dark background, retro font), and all necessary <script> tags. Everything must be in \
-             a single self-contained index.html.",
+            "HTML Structure & Canvas Setup",
+            "Create HTML boilerplate with <canvas> element (800x600), responsive CSS styling \
+             (dark background #000000, retro font), centered game container, and touch control \
+             buttons (left, right, fire). Implement canvas resizing on window resize.",
         ),
         RalphTask::new(
             "game_loop",
-            "Game Loop",
-            "Implement the requestAnimationFrame game loop with game state management \
-             (menu, playing, paused, game_over). Include score tracking and lives display.",
+            "Game Loop & State Management",
+            "Implement requestAnimationFrame game loop with 5 game states: MENU, PLAYING, PAUSED, \
+             GAME_OVER, LEVEL_COMPLETE. Include score tracking, lives display (HUD), current level display, \
+             powerup status indicator, and frame rate stability.",
         ),
         RalphTask::new(
             "paddle_control",
-            "Paddle Control",
-            "Implement the player paddle with left/right arrow key and A/D key input. \
-             Paddle should be constrained to the canvas bounds.",
+            "Paddle Control & Input",
+            "Implement paddle movement with keyboard input (arrow keys, A/D) and mouse tracking. \
+             Paddle constrained to canvas bounds. Implement pause/unpause with spacebar. Display paddle \
+             width scaling visually.",
         ),
         RalphTask::new(
             "ball_physics",
-            "Ball Physics",
-            "Implement ball movement with velocity, wall bouncing (top, left, right), \
-             paddle collision with angle reflection based on hit position, and bottom-of-screen \
-             life loss.",
+            "Ball Physics & Collision",
+            "Implement ball velocity vector, wall bouncing (top, left, right with perfect reflection), \
+             paddle collision with angle reflection based on hit position (center vs edge), bottom-of-screen \
+             life loss, ball speed clamping (min 3, max 8).",
         ),
         RalphTask::new(
             "brick_layout",
-            "Brick Layout",
-            "Create a brick grid with multiple rows. Bricks have HP (1-3 hits) with different \
-             colors per HP level (e.g., green=1HP, yellow=2HP, red=3HP). Display remaining HP visually.",
+            "Brick Grid & HP System",
+            "Create brick grid (11 columns x 5 rows) with multi-hit HP system (1-5 HP). Color-code by HP: \
+             yellow=1HP, green=2HP, blue=3HP, orange=4HP, red=5HP. Display HP visually via text or color. \
+             Support random powerup loot from bricks.",
         ),
         RalphTask::new(
             "collision_detection",
-            "Collision Detection",
-            "Implement ball-brick collision detection. When a brick is hit, decrease its HP. \
-             When HP reaches 0, destroy the brick and add score. Handle ball deflection on brick hit.",
+            "Ball-Brick Collision Detection",
+            "Implement precise ball-brick collision detection with spatial hashing. On hit: decrease brick HP, \
+             handle ball deflection (top/bottom vs left/right), award points (10 * maxHP), trigger destruction \
+             when HP=0, spawn powerup drops with random type selection.",
         ),
         RalphTask::new(
             "background_music",
-            "Background Music",
-            "Implement Atari 2600-style chiptune background music using Web Audio API oscillators. \
-             Use square and triangle waves to create a looping retro melody. Music should start on \
-             game start and loop continuously.",
+            "Background Music & Audio System",
+            "Implement Atari 2600-style chiptune background music using Web Audio API oscillators (square & triangle waves). \
+             Create looping melody that starts on game start, loops continuously, supports pause/resume, \
+             mute button control, and volume slider.",
         ),
         RalphTask::new(
             "collision_sfx",
-            "Collision Sound Effects",
-            "Implement distinct sound effects for: ball-brick hit (high pitched blip), \
-             ball-paddle hit (medium thud), ball-wall bounce (low click). Use Web Audio API \
-             oscillators with short duration envelopes.",
+            "Sound Effects System",
+            "Implement distinct Web Audio API sound effects: ball-brick collision (high pitched blip, 100-200ms), \
+             ball-paddle collision (medium thud, 150-250ms), ball-wall bounce (low click, 50-100ms), \
+             powerup pickup sound, life earned sound, and level complete fanfare.",
         ),
         RalphTask::new(
             "powerups_basic",
-            "Basic Powerups",
-            "Implement powerups that drop from destroyed bricks (random chance): \
-             paddle length +10% (green powerup), ball speed +10% (blue powerup), \
-             projectile shooting with space bar (red powerup — fires 2 projectiles that deal \
-             1 damage each to bricks). Powerups fall downward and are caught by the paddle.",
+            "Basic Powerups System",
+            "Implement 3 basic powerups dropping from destroyed bricks: paddle extension (extends width 20%), \
+             speed boost (slows all balls to 50% speed for 30 seconds), projectile system (activates missile \
+             firing with 100 shots, 4 damage per hit). Powerups fall, have collision detection with paddle.",
         ),
         RalphTask::new(
-            "powerup_multiball",
+            "advanced_powerups",
+            "Advanced Powerups",
+            "Implement 4 advanced powerups: lava balls (balls destroy bricks on contact for 30 seconds, \
+             yellow/orange trail), bomb mode (balls become bombs, destroy bricks in 5 impacts, black with \
+             impact counter), growth (balls grow 50% larger, white border), mushroom (1UP award, red, triggers \
+             life earned animation).",
+        ),
+        RalphTask::new(
+            "projectile_missiles",
+            "Projectile & Missile System",
+            "Implement projectile firing from paddle (space bar while projectile powerup active). Projectiles \
+             travel upward, have smoke trail particle effects, deal 1 damage per brick hit, can penetrate \
+             multiple bricks. Draw missile cannons on paddle when active. Support up to 100 shots per powerup.",
+        ),
+        RalphTask::new(
+            "multiball_powerup",
             "Multiball Powerup",
-            "Implement a multiball powerup (purple) that spawns 2 extra balls when collected. \
-             Extra balls behave identically to the main ball. Game continues as long as at least \
-             one ball remains. All balls interact with bricks and the paddle.",
+            "Implement multiball powerup (purple) that spawns 10 new balls at paddle position with varied angles. \
+             New balls have 50% speed of current balls, behave identically to main ball (physics, collision, powerups). \
+             Game continues with all active balls until all lost.",
+        ),
+        RalphTask::new(
+            "particle_effects",
+            "Particle Effects System",
+            "Implement 3 particle systems: fire particles (brick destruction bursts, radial spread, decay over time), \
+             paddle jet particles (level complete animation, upward spray from paddle wings), 1UP text displays \
+             (floating score notifications with fade-out). Support particle physics (velocity, gravity, color, alpha).",
+        ),
+        RalphTask::new(
+            "paddle_animation",
+            "Paddle 3D Animation & Level Complete",
+            "Implement 3D paddle screw effect animation on level complete: paddle flies upward with rotating \
+             wings (4 full rotations), squash/stretch effect, glowing blue appearance. Add wing cannons visual \
+             when projectiles active. Smooth animation over 3 seconds.",
+        ),
+        RalphTask::new(
+            "level_system",
+            "Level Progression & Patterns",
+            "Implement level system with 10+ procedural brick patterns: level 1=classic grid, level 2+=pyramid, \
+             diamond, checkerboard, stripe, wave, spiral, hourglass, cross, rings, random patterns. Use seeded \
+             RNG for deterministic layouts. Increment level on all bricks cleared, award 1UP on level complete.",
+        ),
+        RalphTask::new(
+            "brick_difficulty_scaling",
+            "Brick HP & Difficulty Scaling",
+            "Implement dynamic brick HP scaling by level (max HP increases with level, variable 1-5). Scale \
+             brick HP based on row position (top=harder). Adjust powerup drop chances by level (reduce at high \
+             levels). Increase brick density with level. Support seeded random for reproducible difficulty curves.",
+        ),
+        RalphTask::new(
+            "mobile_controls",
+            "Mobile Touch & Responsive Design",
+            "Implement touch/swipe controls for mobile: touch-to-aim paddle movement, swipe for rapid movement, \
+             buttons for fire (spacebar equivalent). Detect mobile device and show touch UI. Implement responsive \
+             canvas resizing on window change. Support both portrait and landscape orientations.",
+        ),
+        RalphTask::new(
+            "scoring_lives_persistence",
+            "Scoring, Lives System & Level Persistence",
+            "Implement score tracking with point awards (brick=10*HP, powerup=100-500). Implement lives system \
+             (start with 3, lose 1 on ball lost). Automatic 1UP awards at score milestones (every 2500 points). \
+             Persist level progress across lives. Display all stats in HUD (score, level, lives, powerup status).",
         ),
     ];
 
@@ -486,7 +560,7 @@ You have access to shared Memory and a write_game_file tool:\n\
         Orchestration::new("breakout-builder", "Breakout Game RALPH Orchestration")
             .with_mode(OrchestrationMode::Ralph {
                 tasks,
-                max_iterations: 5,
+                max_iterations: 8,
             })
             .with_system_context(system_context)
             .with_max_tokens(180_000)
@@ -500,14 +574,19 @@ You have access to shared Memory and a write_game_file tool:\n\
     // ── Run ─────────────────────────────────────────────────────────────────
 
     let prompt = "\
-Build a complete Atari Breakout game in a single self-contained index.html. \
-The game should feature: an HTML5 Canvas, a game loop with state management, \
-keyboard-controlled paddle, ball physics with angle reflection, multi-hit bricks \
-with color-coded HP, collision detection, Atari 2600-style chiptune background music, \
-collision sound effects, powerups (paddle size, speed boost, projectile shooting), \
-and a multiball powerup. Everything must work in a modern browser with no external dependencies.";
+Build a complete, feature-rich Atari Breakout game in a single self-contained index.html. \
+The game should feature: 800x600 responsive Canvas with 5 game states (MENU, PLAYING, PAUSED, \
+GAME_OVER, LEVEL_COMPLETE), paddle with keyboard/mouse/touch input, realistic ball physics with \
+angle reflection, multi-hit bricks (1-5 HP, color-coded) with HP scaling by level and position, \
+comprehensive collision detection, Atari 2600-style chiptune background music with mute/volume, \
+distinct collision sound effects and powerup sounds, 8 powerup types (paddle, speed, projectile, \
+lava, bomb, growth, mushroom, multiball), projectile system with smoke trails, particle effects \
+(fire, jets, 1UP displays), 3D paddle animation on level complete, 10+ procedural brick patterns \
+for 15+ levels, dynamic difficulty scaling, mobile touch controls, responsive canvas resizing, \
+score milestones for automatic 1UP awards, and lives system. Everything must work in a modern \
+browser with no external dependencies.";
 
-    println!("Starting RALPH orchestration with 4 agents and 10 PRD tasks...\n");
+    println!("Starting RALPH orchestration with 4 agents and 18 PRD tasks...\n");
 
     let start = Instant::now();
     let response = orchestration.run(prompt, 1).await?;

@@ -38,9 +38,9 @@
 //! .context_collapse_strategy(Box::new(SelfCompressionStrategy::default()));
 //! ```
 
+use crate::client_wrapper::Role;
 use crate::cloudllm::llm_session::LLMSession;
 use crate::cloudllm::thought_chain::{ThoughtChain, ThoughtType};
-use crate::client_wrapper::Role;
 use async_trait::async_trait;
 use std::collections::HashSet;
 use std::error::Error;
@@ -276,12 +276,7 @@ If you reference prior thought indices, include a line: REFS: 150, 200\n\
 Be concise but preserve all critical information.";
 
         let response = session
-            .send_message(
-                Role::User,
-                compression_prompt.to_string(),
-                None,
-                None,
-            )
+            .send_message(Role::User, compression_prompt.to_string(), None, None)
             .await
             .map_err(|e| -> Box<dyn Error + Send + Sync> {
                 Box::new(std::io::Error::other(e.to_string()))
@@ -383,12 +378,7 @@ impl NoveltyAwareStrategy {
     /// - `high`: token pressure ratio above which compression always fires.
     /// - `moderate`: token pressure ratio above which novelty is checked.
     /// - `novelty`: bigram novelty ratio below which compression fires at moderate pressure.
-    pub fn with_thresholds(
-        mut self,
-        high: f64,
-        moderate: f64,
-        novelty: f64,
-    ) -> Self {
+    pub fn with_thresholds(mut self, high: f64, moderate: f64, novelty: f64) -> Self {
         self.high_threshold = high;
         self.moderate_threshold = moderate;
         self.novelty_threshold = novelty;
@@ -500,14 +490,16 @@ pub fn parse_refs(content: &str) -> Vec<u64> {
 ///
 /// All words are lowercased before forming bigrams to make the comparison
 /// case-insensitive.  Used by [`NoveltyAwareStrategy::estimate_novelty`].
-fn extract_bigrams_from_messages(
-    messages: &[crate::client_wrapper::Message],
-) -> HashSet<String> {
+fn extract_bigrams_from_messages(messages: &[crate::client_wrapper::Message]) -> HashSet<String> {
     let mut bigrams = HashSet::new();
     for msg in messages {
         let words: Vec<&str> = msg.content.split_whitespace().collect();
         for pair in words.windows(2) {
-            bigrams.insert(format!("{} {}", pair[0].to_lowercase(), pair[1].to_lowercase()));
+            bigrams.insert(format!(
+                "{} {}",
+                pair[0].to_lowercase(),
+                pair[1].to_lowercase()
+            ));
         }
     }
     bigrams

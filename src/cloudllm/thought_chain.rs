@@ -360,11 +360,8 @@ impl ThoughtChain {
                 .create(true)
                 .append(true)
                 .open(&self.file_path)?;
-            let json = serde_json::to_string(&thought).map_err(|e| {
-                io::Error::other(
-                    format!("Failed to serialize thought: {}", e),
-                )
-            })?;
+            let json = serde_json::to_string(&thought)
+                .map_err(|e| io::Error::other(format!("Failed to serialize thought: {}", e)))?;
             writeln!(file, "{}", json)?;
         }
 
@@ -514,8 +511,7 @@ impl ThoughtChain {
             return String::new();
         }
 
-        let mut prompt =
-            String::from("=== RESTORED CONTEXT (from ThoughtChain) ===\n\n");
+        let mut prompt = String::from("=== RESTORED CONTEXT (from ThoughtChain) ===\n\n");
         for thought in &resolved {
             prompt.push_str(&format!(
                 "[#{}] {:?} ({}): {}\n",
@@ -680,7 +676,13 @@ pub fn chain_filename(
     // Sanitize agent_id for filesystem safety
     let safe_id: String = agent_id
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
     format!("{}-{}.jsonl", safe_id, fingerprint)

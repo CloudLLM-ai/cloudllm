@@ -22,6 +22,17 @@
    - Orchestration::with_event_handler() auto-propagates to agents via add_agent()
    - New src/cloudllm/event.rs module with full re-exports in lib.rs
    - Replaces bare eprintln!() in orchestration error paths with AgentFailed events
+ - enhance: Breakout game examples with expanded feature set (18 tasks)
+   - Updated examples/breakout_game_ralph.rs: expanded from 10 to 18 PRD tasks
+     - Core Mechanics (6): HTML structure, game loop, paddle control, ball physics, brick layout, collision
+     - Audio System (2): Background music with muting, collision/powerup/life sounds
+     - Powerup System (3): Basic (paddle/speed/projectile), Advanced (lava/bomb/growth/mushroom), Multiball
+     - Visual Effects (3): Particle systems, paddle 3D animation, level complete animations
+     - Advanced Mechanics (4): Level progression with 10+ patterns, difficulty scaling, mobile controls, scoring
+   - New examples/breakout_game_agent_teams.rs: same 18-task game using AnthropicAgentTeams mode
+     - Decentralized coordination: 4 Claude Haiku 4.5 agents autonomously discover and claim tasks
+     - Supports mobile touch/swipe, responsive canvas, score milestones, 15+ procedural levels
+   - Updated max_iterations from 5→8 (RALPH) to support larger task lists
  - enhance: breakout_game_ralph example with BreakoutEventHandler,
    shared Memory tool, and write_game_file custom tool
    - BreakoutEventHandler: real-time pretty-printed event output with elapsed time

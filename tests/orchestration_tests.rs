@@ -69,8 +69,8 @@ async fn test_orchestration_parallel_mode() {
         }),
     );
 
-    let mut orchestration =
-        Orchestration::new("test-orchestration", "Test Orchestration").with_mode(OrchestrationMode::Parallel);
+    let mut orchestration = Orchestration::new("test-orchestration", "Test Orchestration")
+        .with_mode(OrchestrationMode::Parallel);
 
     orchestration.add_agent(agent1).unwrap();
     orchestration.add_agent(agent2).unwrap();
@@ -101,8 +101,8 @@ async fn test_orchestration_round_robin_mode() {
         }),
     );
 
-    let mut orchestration =
-        Orchestration::new("test-orchestration", "Test Orchestration").with_mode(OrchestrationMode::RoundRobin);
+    let mut orchestration = Orchestration::new("test-orchestration", "Test Orchestration")
+        .with_mode(OrchestrationMode::RoundRobin);
 
     orchestration.add_agent(agent1).unwrap();
     orchestration.add_agent(agent2).unwrap();
@@ -115,7 +115,9 @@ async fn test_orchestration_round_robin_mode() {
 
 #[tokio::test]
 async fn test_agent_with_tool_execution() {
-    use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult, ToolRegistry};
+    use cloudllm::tool_protocol::{
+        ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult,
+    };
     use cloudllm::tool_protocols::CustomToolProtocol;
     use tokio::sync::Mutex as TokioMutex;
 
@@ -163,9 +165,7 @@ async fn test_agent_with_tool_execution() {
                 let system_msg = &messages[0];
                 // The system message should contain the tool name and description
                 let system_content = system_msg.content.as_ref();
-                if !system_content.contains("add")
-                    || !system_content.contains("Adds two numbers")
-                {
+                if !system_content.contains("add") || !system_content.contains("Adds two numbers") {
                     panic!(
                         "System message doesn't contain tool information. Content:\n{}",
                         system_content
@@ -291,8 +291,8 @@ async fn test_debate_mode_convergence() {
         }),
     );
 
-    let mut orchestration =
-        Orchestration::new("debate-orchestration", "Debate Orchestration").with_mode(OrchestrationMode::Debate {
+    let mut orchestration = Orchestration::new("debate-orchestration", "Debate Orchestration")
+        .with_mode(OrchestrationMode::Debate {
             max_rounds: 5,
             convergence_threshold: Some(0.6), // 60% similarity threshold
         });
@@ -368,19 +368,15 @@ async fn test_ralph_mode_completion() {
         RalphTask::new("task2", "Game Loop", "Implement the game loop"),
     ];
 
-    let mut orchestration = Orchestration::new("ralph-test", "Ralph Test").with_mode(
-        OrchestrationMode::Ralph {
+    let mut orchestration =
+        Orchestration::new("ralph-test", "Ralph Test").with_mode(OrchestrationMode::Ralph {
             tasks,
             max_iterations: 5,
-        },
-    );
+        });
 
     orchestration.add_agent(agent).unwrap();
 
-    let response = orchestration
-        .run("Build a breakout game", 1)
-        .await
-        .unwrap();
+    let response = orchestration.run("Build a breakout game", 1).await.unwrap();
 
     assert!(response.is_complete);
     assert_eq!(response.convergence_score, Some(1.0));
@@ -415,10 +411,7 @@ async fn test_ralph_mode_max_iterations() {
 
     orchestration.add_agent(agent).unwrap();
 
-    let response = orchestration
-        .run("Do the tasks", 1)
-        .await
-        .unwrap();
+    let response = orchestration.run("Do the tasks", 1).await.unwrap();
 
     assert!(!response.is_complete);
     assert_eq!(response.round, max_iterations);
@@ -436,19 +429,15 @@ async fn test_ralph_mode_empty_tasks() {
         }),
     );
 
-    let mut orchestration = Orchestration::new("ralph-empty", "Ralph Empty").with_mode(
-        OrchestrationMode::Ralph {
+    let mut orchestration =
+        Orchestration::new("ralph-empty", "Ralph Empty").with_mode(OrchestrationMode::Ralph {
             tasks: vec![],
             max_iterations: 5,
-        },
-    );
+        });
 
     orchestration.add_agent(agent).unwrap();
 
-    let response = orchestration
-        .run("Do nothing", 1)
-        .await
-        .unwrap();
+    let response = orchestration.run("Do nothing", 1).await.unwrap();
 
     assert!(response.is_complete);
     assert_eq!(response.convergence_score, Some(1.0));
@@ -543,8 +532,8 @@ async fn test_hub_routing_no_duplication() {
         }),
     );
 
-    let mut orchestration = Orchestration::new("test", "Test")
-        .with_mode(OrchestrationMode::RoundRobin);
+    let mut orchestration =
+        Orchestration::new("test", "Test").with_mode(OrchestrationMode::RoundRobin);
 
     orchestration.add_agent(agent1).unwrap();
     orchestration.add_agent(agent2).unwrap();
@@ -563,18 +552,32 @@ async fn test_hub_routing_no_duplication() {
     //
     // Key assertion: agent2's first call should NOT receive the entire
     // conversation_history duplicated (which would be much larger)
-    assert!(c1.len() >= 2, "Agent 1 should have been called at least 2 times");
-    assert!(c2.len() >= 2, "Agent 2 should have been called at least 2 times");
+    assert!(
+        c1.len() >= 2,
+        "Agent 1 should have been called at least 2 times"
+    );
+    assert!(
+        c2.len() >= 2,
+        "Agent 2 should have been called at least 2 times"
+    );
 
     // In the old broadcast mode, agent2's second call would receive ALL messages
     // from ALL prior rounds plus the full conversation_history. With hub-routing,
     // each call receives only the session's accumulated messages.
     // Verify the message count is reasonable (not exploding)
     for &count in c1.iter() {
-        assert!(count < 20, "Agent 1 message count {} should be reasonable", count);
+        assert!(
+            count < 20,
+            "Agent 1 message count {} should be reasonable",
+            count
+        );
     }
     for &count in c2.iter() {
-        assert!(count < 20, "Agent 2 message count {} should be reasonable", count);
+        assert!(
+            count < 20,
+            "Agent 2 message count {} should be reasonable",
+            count
+        );
     }
 }
 

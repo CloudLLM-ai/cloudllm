@@ -115,15 +115,16 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     );
 
     // Create orchestration in Moderated mode
-    let mut orchestration = Orchestration::new("anime-debate", "The Great Digimon vs Pokemon Debate")
-        .with_mode(OrchestrationMode::Moderated {
-            moderator_id: "moderator".to_string(),
-        })
-        .with_system_context(
-            "This is a friendly but spirited debate about two beloved anime franchises. \
+    let mut orchestration =
+        Orchestration::new("anime-debate", "The Great Digimon vs Pokemon Debate")
+            .with_mode(OrchestrationMode::Moderated {
+                moderator_id: "moderator".to_string(),
+            })
+            .with_system_context(
+                "This is a friendly but spirited debate about two beloved anime franchises. \
              Be respectful, enthusiastic, and back up your arguments with specific examples. \
              The goal is to have a fun, informative discussion that fans of both sides can enjoy.",
-        );
+            );
 
     // Add all agents
     orchestration.add_agent(moderator)?;

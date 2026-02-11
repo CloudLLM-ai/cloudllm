@@ -33,12 +33,12 @@
 //! - `OPENAI_MODEL` — OpenAI model (optional, defaults to "gpt-4o-mini")
 //! - `ANTHROPIC_API_KEY` — API key for Claude (optional, defaults to "demo-key")
 
-use cloudllm::clients::openai::OpenAIClient;
+use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
+use cloudllm::clients::openai::OpenAIClient;
 use cloudllm::event::{EventHandler, OrchestrationEvent};
 use cloudllm::orchestration::{Orchestration, OrchestrationMode, WorkItem};
 use cloudllm::Agent;
-use async_trait::async_trait;
 use std::sync::Arc;
 
 /// Simple event handler that logs orchestration events to stdout
@@ -196,47 +196,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let agent1 = Agent::new(
         "researcher",
         "Research Agent (GPT)",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, &openai_model)),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            &openai_model,
+        )),
     );
 
     // Agent 2: Analysis Agent (Claude Haiku 4.5)
     let agent2 = Agent::new(
         "analyst",
         "Analysis Agent (Claude Haiku 4.5)",
-        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+        Arc::new(ClaudeClient::new_with_model_enum(
+            &claude_key,
+            Model::ClaudeHaiku45,
+        )),
     );
 
     // Agent 3: Writing Agent (OpenAI)
     let agent3 = Agent::new(
         "writer",
         "Writing Agent (GPT)",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, &openai_model)),
+        Arc::new(OpenAIClient::new_with_model_string(
+            &openai_key,
+            &openai_model,
+        )),
     );
 
     // Agent 4: Review Agent (Claude Haiku 4.5)
     let agent4 = Agent::new(
         "reviewer",
         "Review Agent (Claude Haiku 4.5)",
-        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+        Arc::new(ClaudeClient::new_with_model_enum(
+            &claude_key,
+            Model::ClaudeHaiku45,
+        )),
     );
 
     // Create orchestration
-    let mut orchestration = Orchestration::new(
-        "teams-demo",
-        "AnthropicAgentTeams Demo: 4 Agents, 8 Tasks",
-    )
-    .with_mode(OrchestrationMode::AnthropicAgentTeams {
-        pool_id: "demo-pool-1".to_string(),
-        tasks: tasks.clone(),
-        max_iterations: 4,
-    })
-    .with_system_context(
-        "You are a specialized agent in a coordinated team. \
+    let mut orchestration =
+        Orchestration::new("teams-demo", "AnthropicAgentTeams Demo: 4 Agents, 8 Tasks")
+            .with_mode(OrchestrationMode::AnthropicAgentTeams {
+                pool_id: "demo-pool-1".to_string(),
+                tasks: tasks.clone(),
+                max_iterations: 4,
+            })
+            .with_system_context(
+                "You are a specialized agent in a coordinated team. \
          Your role is to claim unclaimed tasks from a shared task pool and complete them. \
-         Work autonomously and collaboratively. Focus on quality and clear communication."
-    )
-    .with_max_tokens(4096)
-    .with_event_handler(Arc::new(TeamsEventHandler));
+         Work autonomously and collaboratively. Focus on quality and clear communication.",
+            )
+            .with_max_tokens(4096)
+            .with_event_handler(Arc::new(TeamsEventHandler));
 
     // Register agents
     orchestration.add_agent(agent1)?;
@@ -268,10 +278,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n📊 Orchestration Results:");
     println!("  Iterations: {}", response.round);
     println!("  Is Complete: {}", response.is_complete);
-    println!("  Convergence Score: {:.0}%", response.convergence_score.unwrap_or(0.0) * 100.0);
+    println!(
+        "  Convergence Score: {:.0}%",
+        response.convergence_score.unwrap_or(0.0) * 100.0
+    );
     println!("  Total Tokens: {}", response.total_tokens_used);
 
-    println!("\n💬 Conversation History ({} messages):", response.messages.len());
+    println!(
+        "\n💬 Conversation History ({} messages):",
+        response.messages.len()
+    );
     for msg in response.messages.iter().take(5) {
         let source = msg.agent_name.as_deref().unwrap_or("system");
         let preview = if msg.content.len() > 100 {

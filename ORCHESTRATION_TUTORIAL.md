@@ -709,12 +709,60 @@ println!("Completed in 30 seconds, cost $0.25");
 
 ## Overview
 
-Each agent speaks in turn, building on previous agents' responses.
+Each agent speaks in turn, building on previous agents' responses. Useful for brainstorming, iterative refinement, and getting sequential perspectives.
+
+**Best For**: Creative collaboration, iterative problem-solving, building consensus gradually.
 
 ### Cost Profile
 
 - **Cost**: $0.10-$0.40 per round (4 agents × 2 rounds = $0.20-$0.80)
 - **Time**: 30-90 seconds per round
+
+### Example
+
+```rust
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let claude_key = std::env::var("ANTHROPIC_API_KEY")?;
+
+    let analyst1 = Agent::new(
+        "analyst1",
+        "Data Analyst",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    );
+
+    let analyst2 = Agent::new(
+        "analyst2",
+        "Business Strategist",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    );
+
+    let analyst3 = Agent::new(
+        "analyst3",
+        "Risk Manager",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    );
+
+    let mut orchestration = Orchestration::new("roundrobin-demo", "Market Analysis Round-Robin")
+        .with_mode(OrchestrationMode::RoundRobin { max_rounds: 3 });
+
+    orchestration.add_agent(analyst1)?;
+    orchestration.add_agent(analyst2)?;
+    orchestration.add_agent(analyst3)?;
+
+    let response = orchestration.run(
+        "Analyze the investment potential of electric vehicle manufacturers. \
+         Analyst1: Present market data and trends. \
+         Analyst2: Build on that with strategic insights. \
+         Analyst3: Then address risks and mitigations.",
+        1
+    ).await?;
+
+    println!("Round-Robin completed in {} rounds, {} tokens", response.round, response.total_tokens_used);
+
+    Ok(())
+}
+```
 
 ---
 
@@ -722,13 +770,66 @@ Each agent speaks in turn, building on previous agents' responses.
 
 ## Overview
 
-A moderator agent routes questions to the most qualified expert.
+A moderator agent receives the prompt and decides which experts to consult. Experts only respond when asked by the moderator, optimizing token usage.
+
+**Best For**: Complex questions requiring selective expert consultation, reducing unnecessary API calls.
 
 ### Cost Profile
 
-- **Cost**: $0.15-$0.60 per run
+- **Cost**: $0.15-$0.60 per run (moderator + selected experts only)
 - **Time**: 45-120 seconds
 - **Best for**: Q&A sessions, dynamic problem routing
+
+### Example
+
+```rust
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let claude_key = std::env::var("ANTHROPIC_API_KEY")?;
+
+    let moderator = Agent::new(
+        "moderator",
+        "Interview Moderator",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Directing technical interviews and routing questions to specialists");
+
+    let systems_expert = Agent::new(
+        "systems_expert",
+        "Systems Design Expert",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Large-scale systems architecture, scalability, distributed systems");
+
+    let algo_expert = Agent::new(
+        "algo_expert",
+        "Algorithms Expert",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Algorithm design, time/space complexity, advanced data structures");
+
+    let mut orchestration = Orchestration::new("moderated-demo", "Technical Interview")
+        .with_mode(OrchestrationMode::Moderated {
+            moderator_id: "moderator".to_string(),
+            respondent_ids: vec!["systems_expert".to_string(), "algo_expert".to_string()],
+        });
+
+    orchestration.add_agent(moderator)?;
+    orchestration.add_agent(systems_expert)?;
+    orchestration.add_agent(algo_expert)?;
+
+    let response = orchestration.run(
+        "We're building a real-time recommendation system. \
+         Question 1: How should we design the system architecture? \
+         Question 2: What algorithms would optimize matching speed?",
+        1
+    ).await?;
+
+    println!("Moderated run: {} tokens (only moderator + selected experts called)", response.total_tokens_used);
+
+    Ok(())
+}
+```
 
 ---
 
@@ -736,12 +837,80 @@ A moderator agent routes questions to the most qualified expert.
 
 ## Overview
 
-Workers → Supervisors → Executives. Output of each layer feeds next.
+Multi-layer processing: Workers generate initial analysis, Supervisors review and synthesize, Executives make final decisions. Each layer's output feeds into the next.
+
+**Best For**: Complex organizational decisions, multi-stage refinement, hierarchical problem decomposition.
 
 ### Cost Profile
 
 - **Cost**: $0.25-$0.80 per run
 - **Time**: 1-3 minutes
+
+### Example
+
+```rust
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let claude_key = std::env::var("ANTHROPIC_API_KEY")?;
+
+    // Layer 1: Workers (specialists gather information)
+    let researcher1 = Agent::new(
+        "researcher1",
+        "Market Researcher",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Market analysis, customer trends, competitive landscape");
+
+    let researcher2 = Agent::new(
+        "researcher2",
+        "Technical Researcher",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Technology feasibility, implementation challenges, engineering effort");
+
+    // Layer 2: Supervisors (synthesize and prioritize)
+    let product_lead = Agent::new(
+        "product_lead",
+        "Product Manager",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Product strategy, feature prioritization, user impact");
+
+    // Layer 3: Executive (final decision)
+    let ceo = Agent::new(
+        "ceo",
+        "CEO",
+        Arc::new(ClaudeClient::new_with_model_enum(&claude_key, Model::ClaudeHaiku45)),
+    )
+    .with_expertise("Business strategy, resource allocation, long-term vision");
+
+    let mut orchestration = Orchestration::new("hierarchical-demo", "Product Feature Decision")
+        .with_mode(OrchestrationMode::Hierarchical {
+            layers: vec![
+                vec!["researcher1".to_string(), "researcher2".to_string()],  // Layer 1: Workers
+                vec!["product_lead".to_string()],                             // Layer 2: Supervisor
+                vec!["ceo".to_string()],                                      // Layer 3: Executive
+            ],
+        });
+
+    orchestration.add_agent(researcher1)?;
+    orchestration.add_agent(researcher2)?;
+    orchestration.add_agent(product_lead)?;
+    orchestration.add_agent(ceo)?;
+
+    let response = orchestration.run(
+        "Should we invest in building an AI-powered personalization engine? \
+         Workers: Analyze market demand, technical complexity, implementation timeline. \
+         Product: Synthesize findings, prioritize requirements, estimate ROI. \
+         CEO: Make final strategic decision with full context.",
+        1
+    ).await?;
+
+    println!("Hierarchical decision: {} tokens over {} rounds", response.total_tokens_used, response.round);
+
+    Ok(())
+}
+```
 
 ---
 

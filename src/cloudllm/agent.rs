@@ -103,7 +103,6 @@ pub struct AgentResponse {
 /// - Be orchestrated by [`Orchestration`](crate::orchestration::Orchestration) or used independently
 pub struct Agent {
     // ---- Identity (public, unchanged) ----
-
     /// Stable identifier referenced inside orchestration coordination.
     pub id: String,
     /// Human-readable display name for logging and UI surfaces.
@@ -116,17 +115,14 @@ pub struct Agent {
     pub metadata: HashMap<String, String>,
 
     // ---- Session (replaces raw Arc<dyn ClientWrapper>) ----
-
     session: LLMSession,
 
     // ---- Tools (now behind Arc<RwLock<_>> for runtime mutation) ----
-
     tool_registry: Arc<RwLock<ToolRegistry>>,
     grok_tools: Vec<GrokTool>,
     openai_tools: Vec<OpenAITool>,
 
     // ---- Context management (new) ----
-
     context_strategy: Box<dyn ContextStrategy>,
     thought_chain: Option<Arc<RwLock<ThoughtChain>>>,
 
@@ -634,9 +630,7 @@ impl Agent {
 
         // We need to block briefly to read the chain — this runs during construction
         let chain_guard = chain.try_read().map_err(|_| {
-            Box::new(io::Error::other(
-                "ThoughtChain is locked",
-            )) as Box<dyn Error + Send + Sync>
+            Box::new(io::Error::other("ThoughtChain is locked")) as Box<dyn Error + Send + Sync>
         })?;
         let bootstrap = chain_guard.to_bootstrap_prompt(thought_index);
         drop(chain_guard);
@@ -698,9 +692,7 @@ impl Agent {
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let last_index = {
             let guard = chain.try_read().map_err(|_| {
-                Box::new(io::Error::other(
-                    "ThoughtChain is locked",
-                )) as Box<dyn Error + Send + Sync>
+                Box::new(io::Error::other("ThoughtChain is locked")) as Box<dyn Error + Send + Sync>
             })?;
             guard.thoughts().last().map(|t| t.index).unwrap_or(0)
         };
@@ -963,7 +955,11 @@ impl Agent {
             agent_name: self.name.clone(),
             iteration: 1,
             tokens_used: if total_tokens > 0 {
-                Some(TokenUsage { input_tokens: total_input_tokens, output_tokens: total_output_tokens, total_tokens })
+                Some(TokenUsage {
+                    input_tokens: total_input_tokens,
+                    output_tokens: total_output_tokens,
+                    total_tokens,
+                })
             } else {
                 None
             },
@@ -1023,7 +1019,10 @@ impl Agent {
                                 None,
                             )
                         } else {
-                            let err = result.error.clone().unwrap_or_else(|| "Unknown error".to_string());
+                            let err = result
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| "Unknown error".to_string());
                             (
                                 format!("Tool '{}' failed. Error: {}", tool_call.name, err),
                                 false,
@@ -1083,7 +1082,11 @@ impl Agent {
                     agent_name: self.name.clone(),
                     iteration: tool_iteration + 1,
                     tokens_used: if total_tokens > 0 {
-                        Some(TokenUsage { input_tokens: total_input_tokens, output_tokens: total_output_tokens, total_tokens })
+                        Some(TokenUsage {
+                            input_tokens: total_input_tokens,
+                            output_tokens: total_output_tokens,
+                            total_tokens,
+                        })
                     } else {
                         None
                     },
@@ -1328,7 +1331,11 @@ impl Agent {
                 agent_name: self.name.clone(),
                 iteration: gwt_llm_iteration,
                 tokens_used: if total_tokens > 0 {
-                    Some(TokenUsage { input_tokens: total_input_tokens, output_tokens: total_output_tokens, total_tokens })
+                    Some(TokenUsage {
+                        input_tokens: total_input_tokens,
+                        output_tokens: total_output_tokens,
+                        total_tokens,
+                    })
                 } else {
                     None
                 },
@@ -1395,7 +1402,10 @@ impl Agent {
                                 None,
                             )
                         } else {
-                            let err = result.error.clone().unwrap_or_else(|| "Unknown error".to_string());
+                            let err = result
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| "Unknown error".to_string());
                             (
                                 format!("Tool '{}' failed. Error: {}", tool_call.name, err),
                                 false,

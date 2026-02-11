@@ -103,7 +103,8 @@ async fn test_memory_tool_put_via_agent() {
     registry.discover_tools_from_primary().await.unwrap();
 
     // Mock LLM returns a tool_call to store "hello" under key "greeting"
-    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "P greeting hello"}}}"#;
+    let tool_call =
+        r#"{"tool_call": {"name": "memory", "parameters": {"command": "P greeting hello"}}}"#;
     let final_answer = "I stored the greeting in memory.";
 
     let mut agent = build_agent_with_registry("mem_agent", registry, tool_call, final_answer).await;
@@ -113,7 +114,9 @@ async fn test_memory_tool_put_via_agent() {
     assert_eq!(response.content, final_answer);
 
     // Verify the memory actually has the value
-    let (value, _) = memory.get("greeting", false).expect("Key 'greeting' should exist");
+    let (value, _) = memory
+        .get("greeting", false)
+        .expect("Key 'greeting' should exist");
     assert_eq!(value, "hello");
 }
 
@@ -127,11 +130,11 @@ async fn test_memory_tool_get_via_agent() {
     let mut registry = ToolRegistry::new(protocol);
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "memory", "parameters": {"command": "G city"}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "G city"}}}"#;
     let final_answer = "The stored city is Berlin.";
 
-    let mut agent = build_agent_with_registry("mem_get_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("mem_get_agent", registry, tool_call, final_answer).await;
     let response = agent.send("What city is stored in memory?").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -147,11 +150,11 @@ async fn test_memory_tool_list_via_agent() {
     let mut registry = ToolRegistry::new(protocol);
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "memory", "parameters": {"command": "L"}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "L"}}}"#;
     let final_answer = "Memory contains keys: k1, k2.";
 
-    let mut agent = build_agent_with_registry("mem_list_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("mem_list_agent", registry, tool_call, final_answer).await;
     let response = agent.send("List all keys in memory").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -166,11 +169,11 @@ async fn test_memory_tool_delete_via_agent() {
     let mut registry = ToolRegistry::new(protocol);
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "memory", "parameters": {"command": "D temp"}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "D temp"}}}"#;
     let final_answer = "Deleted temp from memory.";
 
-    let mut agent = build_agent_with_registry("mem_del_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("mem_del_agent", registry, tool_call, final_answer).await;
     let response = agent.send("Delete temp from memory").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -189,11 +192,14 @@ async fn test_memory_tool_put_with_ttl_via_agent() {
     let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "P session token123 3600"}}}"#;
     let final_answer = "Session token stored with 1h TTL.";
 
-    let mut agent = build_agent_with_registry("mem_ttl_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("mem_ttl_agent", registry, tool_call, final_answer).await;
     let response = agent.send("Store session token with 1h TTL").await.unwrap();
 
     assert_eq!(response.content, final_answer);
-    let (value, _) = memory.get("session", false).expect("Key 'session' should exist");
+    let (value, _) = memory
+        .get("session", false)
+        .expect("Key 'session' should exist");
     assert_eq!(value, "token123");
 }
 
@@ -207,15 +213,18 @@ async fn test_memory_tool_clear_via_agent() {
     let mut registry = ToolRegistry::new(protocol);
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "memory", "parameters": {"command": "C"}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "C"}}}"#;
     let final_answer = "Memory cleared.";
 
-    let mut agent = build_agent_with_registry("mem_clear_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("mem_clear_agent", registry, tool_call, final_answer).await;
     let response = agent.send("Clear all memory").await.unwrap();
 
     assert_eq!(response.content, final_answer);
-    assert!(memory.list_keys().is_empty(), "Memory should be empty after clear");
+    assert!(
+        memory.list_keys().is_empty(),
+        "Memory should be empty after clear"
+    );
 }
 
 #[tokio::test]
@@ -227,11 +236,11 @@ async fn test_memory_tool_total_bytes_via_agent() {
     let mut registry = ToolRegistry::new(protocol);
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "memory", "parameters": {"command": "T A"}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "T A"}}}"#;
     let final_answer = "Total memory usage: 8 bytes.";
 
-    let mut agent = build_agent_with_registry("mem_total_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("mem_total_agent", registry, tool_call, final_answer).await;
     let response = agent.send("How much memory is being used?").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -245,12 +254,15 @@ async fn test_memory_tool_spec_via_agent() {
     let mut registry = ToolRegistry::new(protocol);
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "memory", "parameters": {"command": "SPEC"}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "SPEC"}}}"#;
     let final_answer = "Here is the memory protocol specification.";
 
-    let mut agent = build_agent_with_registry("mem_spec_agent", registry, tool_call, final_answer).await;
-    let response = agent.send("Show me the memory protocol spec").await.unwrap();
+    let mut agent =
+        build_agent_with_registry("mem_spec_agent", registry, tool_call, final_answer).await;
+    let response = agent
+        .send("Show me the memory protocol spec")
+        .await
+        .unwrap();
 
     assert_eq!(response.content, final_answer);
 }
@@ -265,10 +277,12 @@ async fn test_memory_tool_invalid_command_via_agent() {
     registry.discover_tools_from_primary().await.unwrap();
 
     // This simulates the "ERR:Unknown Command" bug — agent sends wrong format
-    let tool_call = r#"{"tool_call": {"name": "memory", "parameters": {"command": "PUT greeting hello"}}}"#;
+    let tool_call =
+        r#"{"tool_call": {"name": "memory", "parameters": {"command": "PUT greeting hello"}}}"#;
     let final_answer = "The memory tool returned an error, let me try differently.";
 
-    let mut agent = build_agent_with_registry("mem_bad_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("mem_bad_agent", registry, tool_call, final_answer).await;
     let response = agent.send("Store greeting=hello").await.unwrap();
 
     // The agent should still return (the second LLM call gives the final answer)
@@ -287,10 +301,12 @@ async fn test_bash_tool_echo_via_agent() {
     let mut registry = ToolRegistry::new(protocol);
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call = r#"{"tool_call": {"name": "bash", "parameters": {"command": "echo hello_from_agent"}}}"#;
+    let tool_call =
+        r#"{"tool_call": {"name": "bash", "parameters": {"command": "echo hello_from_agent"}}}"#;
     let final_answer = "The command echoed: hello_from_agent";
 
-    let mut agent = build_agent_with_registry("bash_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("bash_agent", registry, tool_call, final_answer).await;
     let response = agent.send("Run echo hello_from_agent").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -307,7 +323,8 @@ async fn test_bash_tool_pwd_via_agent() {
     let tool_call = r#"{"tool_call": {"name": "bash", "parameters": {"command": "pwd"}}}"#;
     let final_answer = "Current directory retrieved.";
 
-    let mut agent = build_agent_with_registry("bash_pwd_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("bash_pwd_agent", registry, tool_call, final_answer).await;
     let response = agent.send("What is the current directory?").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -329,7 +346,8 @@ async fn test_bash_tool_denied_command_via_agent() {
     let tool_call = r#"{"tool_call": {"name": "bash", "parameters": {"command": "rm -rf /"}}}"#;
     let final_answer = "The command was blocked for security.";
 
-    let mut agent = build_agent_with_registry("bash_deny_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("bash_deny_agent", registry, tool_call, final_answer).await;
     let response = agent.send("Delete everything").await.unwrap();
 
     // Agent still gets a response (BashProtocol returns failure, agent gets error message, second LLM call)
@@ -389,10 +407,12 @@ async fn test_calculator_basic_arithmetic_via_agent() {
     let mut registry = ToolRegistry::new(Arc::new(adapter));
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call = r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "2 + 3 * 4"}}}"#;
+    let tool_call =
+        r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "2 + 3 * 4"}}}"#;
     let final_answer = "The result is 14.";
 
-    let mut agent = build_agent_with_registry("calc_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("calc_agent", registry, tool_call, final_answer).await;
     let response = agent.send("What is 2 + 3 * 4?").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -409,7 +429,8 @@ async fn test_calculator_sqrt_via_agent() {
         r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "sqrt(144)"}}}"#;
     let final_answer = "The square root of 144 is 12.";
 
-    let mut agent = build_agent_with_registry("calc_sqrt_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("calc_sqrt_agent", registry, tool_call, final_answer).await;
     let response = agent.send("What is the square root of 144?").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -426,7 +447,8 @@ async fn test_calculator_trig_via_agent() {
         r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "sin(0)"}}}"#;
     let final_answer = "sin(0) = 0.";
 
-    let mut agent = build_agent_with_registry("calc_trig_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("calc_trig_agent", registry, tool_call, final_answer).await;
     let response = agent.send("What is sin(0)?").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -442,7 +464,8 @@ async fn test_calculator_statistics_via_agent() {
     let tool_call = r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "mean([1, 2, 3, 4, 5])"}}}"#;
     let final_answer = "The mean of [1,2,3,4,5] is 3.0.";
 
-    let mut agent = build_agent_with_registry("calc_stats_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("calc_stats_agent", registry, tool_call, final_answer).await;
     let response = agent.send("Calculate the mean of 1,2,3,4,5").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -459,7 +482,8 @@ async fn test_calculator_log_via_agent() {
         r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "log(100)"}}}"#;
     let final_answer = "log10(100) = 2.";
 
-    let mut agent = build_agent_with_registry("calc_log_agent", registry, tool_call, final_answer).await;
+    let mut agent =
+        build_agent_with_registry("calc_log_agent", registry, tool_call, final_answer).await;
     let response = agent.send("What is log base 10 of 100?").await.unwrap();
 
     assert_eq!(response.content, final_answer);
@@ -477,21 +501,19 @@ async fn build_filesystem_protocol(root: std::path::PathBuf) -> CustomToolProtoc
     let fs_read = fs_tool.clone();
     adapter
         .register_async_tool(
-            ToolMetadata::new("read_file", "Read the contents of a file")
-                .with_parameter(
-                    ToolParameter::new("path", ToolParameterType::String)
-                        .with_description("Relative path to the file")
-                        .required(),
-                ),
+            ToolMetadata::new("read_file", "Read the contents of a file").with_parameter(
+                ToolParameter::new("path", ToolParameterType::String)
+                    .with_description("Relative path to the file")
+                    .required(),
+            ),
             Arc::new(move |params| {
                 let fs = fs_read.clone();
                 Box::pin(async move {
-                    let path = params
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                    let path = params.get("path").and_then(|v| v.as_str()).ok_or_else(
+                        || -> Box<dyn std::error::Error + Send + Sync> {
                             "Missing 'path' parameter".into()
-                        })?;
+                        },
+                    )?;
                     match fs.read_file(path).await {
                         Ok(content) => {
                             Ok(ToolResult::success(serde_json::json!({"content": content})))
@@ -521,18 +543,16 @@ async fn build_filesystem_protocol(root: std::path::PathBuf) -> CustomToolProtoc
             Arc::new(move |params| {
                 let fs = fs_write.clone();
                 Box::pin(async move {
-                    let path = params
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                    let path = params.get("path").and_then(|v| v.as_str()).ok_or_else(
+                        || -> Box<dyn std::error::Error + Send + Sync> {
                             "Missing 'path' parameter".into()
-                        })?;
-                    let content = params
-                        .get("content")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                        },
+                    )?;
+                    let content = params.get("content").and_then(|v| v.as_str()).ok_or_else(
+                        || -> Box<dyn std::error::Error + Send + Sync> {
                             "Missing 'content' parameter".into()
-                        })?;
+                        },
+                    )?;
                     match fs.write_file(path, content).await {
                         Ok(()) => Ok(ToolResult::success(serde_json::json!({"status": "OK"}))),
                         Err(e) => Ok(ToolResult::failure(e.to_string())),
@@ -546,21 +566,19 @@ async fn build_filesystem_protocol(root: std::path::PathBuf) -> CustomToolProtoc
     let fs_list = fs_tool.clone();
     adapter
         .register_async_tool(
-            ToolMetadata::new("list_directory", "List contents of a directory")
-                .with_parameter(
-                    ToolParameter::new("path", ToolParameterType::String)
-                        .with_description("Relative path to the directory")
-                        .required(),
-                ),
+            ToolMetadata::new("list_directory", "List contents of a directory").with_parameter(
+                ToolParameter::new("path", ToolParameterType::String)
+                    .with_description("Relative path to the directory")
+                    .required(),
+            ),
             Arc::new(move |params| {
                 let fs = fs_list.clone();
                 Box::pin(async move {
-                    let path = params
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                    let path = params.get("path").and_then(|v| v.as_str()).ok_or_else(
+                        || -> Box<dyn std::error::Error + Send + Sync> {
                             "Missing 'path' parameter".into()
-                        })?;
+                        },
+                    )?;
                     match fs.read_directory(path, false).await {
                         Ok(entries) => {
                             let names: Vec<String> =
@@ -591,7 +609,10 @@ async fn test_filesystem_write_and_read_via_agent() {
 
     let mut agent =
         build_agent_with_registry("fs_write_agent", registry, tool_call, final_answer).await;
-    let response = agent.send("Write 'Hello from agent!' to test.txt").await.unwrap();
+    let response = agent
+        .send("Write 'Hello from agent!' to test.txt")
+        .await
+        .unwrap();
     assert_eq!(response.content, final_answer);
 
     // Verify the file was actually written
@@ -609,8 +630,7 @@ async fn test_filesystem_read_via_agent() {
     let mut registry = ToolRegistry::new(Arc::new(adapter));
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "read_file", "parameters": {"path": "data.txt"}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "read_file", "parameters": {"path": "data.txt"}}}"#;
     let final_answer = "The file contains: pre-existing content";
 
     let mut agent =
@@ -630,8 +650,7 @@ async fn test_filesystem_list_directory_via_agent() {
     let mut registry = ToolRegistry::new(Arc::new(adapter));
     registry.discover_tools_from_primary().await.unwrap();
 
-    let tool_call =
-        r#"{"tool_call": {"name": "list_directory", "parameters": {"path": "."}}}"#;
+    let tool_call = r#"{"tool_call": {"name": "list_directory", "parameters": {"path": "."}}}"#;
     let final_answer = "Directory contains 3 entries.";
 
     let mut agent =
@@ -648,7 +667,8 @@ async fn test_filesystem_path_traversal_blocked_via_agent() {
     registry.discover_tools_from_primary().await.unwrap();
 
     // Agent tries to read /etc/passwd via path traversal — should fail
-    let tool_call = r#"{"tool_call": {"name": "read_file", "parameters": {"path": "../../../etc/passwd"}}}"#;
+    let tool_call =
+        r#"{"tool_call": {"name": "read_file", "parameters": {"path": "../../../etc/passwd"}}}"#;
     let final_answer = "Access denied.";
 
     let mut agent =
@@ -666,20 +686,18 @@ async fn build_http_protocol() -> CustomToolProtocol {
 
     adapter
         .register_async_tool(
-            ToolMetadata::new("http_get", "Make an HTTP GET request to a URL")
-                .with_parameter(
-                    ToolParameter::new("url", ToolParameterType::String)
-                        .with_description("The URL to fetch")
-                        .required(),
-                ),
+            ToolMetadata::new("http_get", "Make an HTTP GET request to a URL").with_parameter(
+                ToolParameter::new("url", ToolParameterType::String)
+                    .with_description("The URL to fetch")
+                    .required(),
+            ),
             Arc::new(move |params| {
                 Box::pin(async move {
-                    let url = params
-                        .get("url")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                    let url = params.get("url").and_then(|v| v.as_str()).ok_or_else(
+                        || -> Box<dyn std::error::Error + Send + Sync> {
                             "Missing 'url' parameter".into()
-                        })?;
+                        },
+                    )?;
 
                     let client = HttpClient::new();
                     match client.get(url).await {
@@ -741,10 +759,7 @@ async fn test_multi_protocol_agent_memory_and_calculator() {
     let calc_protocol = Arc::new(build_calculator_protocol().await);
 
     let mut registry = ToolRegistry::empty();
-    registry
-        .add_protocol("memory", mem_protocol)
-        .await
-        .unwrap();
+    registry.add_protocol("memory", mem_protocol).await.unwrap();
     registry
         .add_protocol("calculator", calc_protocol)
         .await
@@ -753,14 +768,18 @@ async fn test_multi_protocol_agent_memory_and_calculator() {
     // Verify both tools are available
     let tools = registry.list_tools();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-    assert!(tool_names.contains(&"memory"), "memory tool should be registered");
+    assert!(
+        tool_names.contains(&"memory"),
+        "memory tool should be registered"
+    );
     assert!(
         tool_names.contains(&"calculator"),
         "calculator tool should be registered"
     );
 
     // Agent uses the calculator tool
-    let tool_call = r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "7 * 8"}}}"#;
+    let tool_call =
+        r#"{"tool_call": {"name": "calculator", "parameters": {"expression": "7 * 8"}}}"#;
     let final_answer = "7 * 8 = 56.";
 
     let mut agent =
@@ -777,10 +796,7 @@ async fn test_multi_protocol_agent_uses_memory() {
     let calc_protocol = Arc::new(build_calculator_protocol().await);
 
     let mut registry = ToolRegistry::empty();
-    registry
-        .add_protocol("memory", mem_protocol)
-        .await
-        .unwrap();
+    registry.add_protocol("memory", mem_protocol).await.unwrap();
     registry
         .add_protocol("calculator", calc_protocol)
         .await
@@ -796,7 +812,9 @@ async fn test_multi_protocol_agent_uses_memory() {
     let response = agent.send("Store result=56 in memory").await.unwrap();
     assert_eq!(response.content, final_answer);
 
-    let (value, _) = memory.get("result", false).expect("Key 'result' should exist");
+    let (value, _) = memory
+        .get("result", false)
+        .expect("Key 'result' should exist");
     assert_eq!(value, "56");
 }
 
@@ -840,11 +858,7 @@ async fn test_memory_protocol_direct_unknown_command() {
 
     assert!(!result.success, "Unknown command should fail");
     assert!(
-        result
-            .error
-            .as_ref()
-            .unwrap()
-            .contains("Unknown Command"),
+        result.error.as_ref().unwrap().contains("Unknown Command"),
         "Error should mention unknown command, got: {:?}",
         result.error
     );
@@ -875,10 +889,7 @@ async fn test_calculator_protocol_direct() {
     let adapter = build_calculator_protocol().await;
 
     let result = adapter
-        .execute(
-            "calculator",
-            serde_json::json!({"expression": "sqrt(25)"}),
-        )
+        .execute("calculator", serde_json::json!({"expression": "sqrt(25)"}))
         .await
         .unwrap();
 
@@ -964,7 +975,11 @@ async fn test_filesystem_tool_metadata_parameters() {
     // write_file should have both path and content parameters
     let write_meta = adapter.get_tool_metadata("write_file").await.unwrap();
     assert_eq!(write_meta.parameters.len(), 2);
-    let param_names: Vec<&str> = write_meta.parameters.iter().map(|p| p.name.as_str()).collect();
+    let param_names: Vec<&str> = write_meta
+        .parameters
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
     assert!(param_names.contains(&"path"));
     assert!(param_names.contains(&"content"));
 }

@@ -81,7 +81,6 @@ use async_trait::async_trait;
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
     // ── Generation lifecycle ──────────────────────────────────────────────
-
     /// Fired at the start of [`Agent::send`](crate::Agent::send) or
     /// [`Agent::generate_with_tokens`](crate::Agent::generate_with_tokens).
     ///
@@ -149,7 +148,6 @@ pub enum AgentEvent {
     },
 
     // ── Tool operations ──────────────────────────────────────────────────
-
     /// A tool call was parsed from the LLM response.
     ///
     /// Emitted after the agent's `parse_tool_call()` successfully extracts
@@ -205,7 +203,6 @@ pub enum AgentEvent {
     },
 
     // ── ThoughtChain ─────────────────────────────────────────────────────
-
     /// A thought was appended to the agent's [`ThoughtChain`](crate::thought_chain::ThoughtChain).
     ///
     /// Emitted after a successful [`Agent::commit`](crate::Agent::commit) call.
@@ -219,7 +216,6 @@ pub enum AgentEvent {
     },
 
     // ── Tool mutations ───────────────────────────────────────────────────
-
     /// A new protocol was added to the agent's tool registry at runtime.
     ///
     /// Emitted after a successful [`Agent::add_protocol`](crate::Agent::add_protocol) call.
@@ -245,7 +241,6 @@ pub enum AgentEvent {
     },
 
     // ── Session / Hub-routing ────────────────────────────────────────────
-
     /// The agent's system prompt was set or replaced.
     ///
     /// Emitted from [`Agent::set_system_prompt`](crate::Agent::set_system_prompt).
@@ -271,7 +266,6 @@ pub enum AgentEvent {
     },
 
     // ── Lifecycle ────────────────────────────────────────────────────────
-
     /// The agent was forked via [`Agent::fork`](crate::Agent::fork).
     ///
     /// The forked agent shares tools and thought chain via `Arc` but has a

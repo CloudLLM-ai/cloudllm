@@ -51,10 +51,7 @@ fn test_agent_fork() {
     assert_eq!(forked.name, "Original Agent");
     assert_eq!(forked.expertise, Some("Testing".to_string()));
     assert_eq!(forked.personality, Some("Friendly".to_string()));
-    assert_eq!(
-        forked.metadata.get("key"),
-        Some(&"value".to_string())
-    );
+    assert_eq!(forked.metadata.get("key"), Some(&"value".to_string()));
 }
 
 #[tokio::test]
@@ -85,10 +82,7 @@ async fn test_agent_runtime_tool_mutation() {
     assert!(tools.is_empty());
 
     // Add protocol
-    agent
-        .add_protocol("custom", protocol)
-        .await
-        .unwrap();
+    agent.add_protocol("custom", protocol).await.unwrap();
     let tools = agent.list_tools().await;
     assert_eq!(tools, vec!["test_tool"]);
 
@@ -100,10 +94,7 @@ async fn test_agent_runtime_tool_mutation() {
 
 #[tokio::test]
 async fn test_agent_with_thought_chain() {
-    let dir = std::env::temp_dir().join(format!(
-        "cloudllm_agent_tc_test_{}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("cloudllm_agent_tc_test_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
 
     let chain = ThoughtChain::open(&dir, "agent1", "Agent", None, None).unwrap();

@@ -148,17 +148,20 @@ async fn main() -> Result<(), Box<dyn StdError>> {
 
     // Create orchestration in Debate mode with convergence detection
     // Using fewer rounds (3) for faster execution - increase to 5+ for deeper analysis
-    let mut orchestration = Orchestration::new("venezuela-orchestration", "Venezuela Strategy Orchestration")
-        .with_mode(OrchestrationMode::Debate {
-            max_rounds: 3,                     // Reduced from 5 for faster testing
-            convergence_threshold: Some(0.65), // 65% similarity to converge
-        })
-        .with_system_context(
-            "You are participating in a high-level strategic discussion about addressing \
+    let mut orchestration = Orchestration::new(
+        "venezuela-orchestration",
+        "Venezuela Strategy Orchestration",
+    )
+    .with_mode(OrchestrationMode::Debate {
+        max_rounds: 3,                     // Reduced from 5 for faster testing
+        convergence_threshold: Some(0.65), // 65% similarity to converge
+    })
+    .with_system_context(
+        "You are participating in a high-level strategic discussion about addressing \
              the Venezuelan political crisis. Be professional, analytical, and evidence-based. \
              Consider both ethical implications and practical realities. Engage constructively \
              with other experts' perspectives.",
-        );
+    );
 
     // Add all agents
     orchestration.add_agent(military_strategist)?;
