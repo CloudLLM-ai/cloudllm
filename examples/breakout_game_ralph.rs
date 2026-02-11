@@ -573,8 +573,13 @@ You are collaborating with other specialized agents to build a complete Atari Br
 in a single self-contained index.html file. All HTML, CSS, and JavaScript must be inline. \
 Do NOT use external dependencies. Use the HTML5 Canvas API for rendering and the Web Audio API \
 for sound. \n\n\
-When you work on a task, output the COMPLETE updated index.html incorporating ALL previous work \
-plus your additions. Never output partial snippets — always output the full file. \n\n\
+CRITICAL REQUIREMENT: After each task, you MUST include the COMPLETE updated game HTML in your \
+response. This means the full <html>...</html> document with all features from this iteration \
+and all previous iterations combined. This is essential for preserving work across agent turns.\n\n\
+Your response format should be:\n\
+1. Brief explanation of what you implemented\n\
+2. The COMPLETE game code (full HTML/CSS/JS)\n\
+3. Task completion markers like [TASK_COMPLETE:task_id]\n\n\
 When a task is fully implemented, include the marker [TASK_COMPLETE:task_id] at the end of your \
 response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks at once.\n\n\
 You have access to a comprehensive toolkit for coordination and development:\n\
@@ -702,11 +707,19 @@ browser with no external dependencies.";
 
     // ── Extract HTML ───────────────────────────────────────────────────────
 
-    // Extract the last message's content as the final HTML (the last agent output
-    // should contain the most complete version of the file).
-    if let Some(last_msg) = response.messages.last() {
-        // Try to extract just the HTML from the response
-        let html = extract_html(&last_msg.content);
+    // Search through messages to find one that contains valid HTML game code
+    let mut game_html: Option<String> = None;
+
+    for msg in response.messages.iter().rev() {
+        let html = extract_html(&msg.content);
+        if html.len() > 1000 && (html.contains("<canvas") || html.contains("canvas")) {
+            // Found a message with substantial HTML containing canvas
+            game_html = Some(html);
+            break;
+        }
+    }
+
+    if let Some(html) = game_html {
         std::fs::write("breakout_game_ralph.html", &html)?;
         println!(
             "\nGame written to breakout_game_ralph.html ({} bytes)",
@@ -714,7 +727,11 @@ browser with no external dependencies.";
         );
         println!("Open it in a browser to play!");
     } else {
-        println!("\nNo messages were generated. Check your API key and try again.");
+        println!("\nWarning: Could not find valid HTML game code in agent responses.");
+        println!("Searched through all {} messages but found no canvas-based HTML.", response.messages.len());
+        if let Some(last_msg) = response.messages.last() {
+            eprintln!("\nLast message was: {}", &last_msg.content[..last_msg.content.len().min(200)]);
+        }
     }
 
     Ok(())
