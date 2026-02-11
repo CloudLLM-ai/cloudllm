@@ -81,7 +81,9 @@ use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::event::{EventHandler, OrchestrationEvent};
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
-use cloudllm::tool_protocols::{BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol};
+use cloudllm::tool_protocols::{
+    BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
+};
 use cloudllm::tools::{BashTool, HttpClient, Memory, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, WorkItem},
@@ -353,12 +355,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .register_tool(
             ToolMetadata::new("write_game_file", "Write the complete game HTML to disk")
                 .with_parameter(
-                    ToolParameter::new("filename", ToolParameterType::String)
-                        .with_description("The output filename (e.g., 'breakout_game_agent_teams.html')"),
+                    ToolParameter::new("filename", ToolParameterType::String).with_description(
+                        "The output filename (e.g., 'breakout_game_agent_teams.html')",
+                    ),
                 )
                 .with_parameter(
-                    ToolParameter::new("content", ToolParameterType::String)
-                        .with_description("The complete HTML document with inline CSS and JavaScript"),
+                    ToolParameter::new("content", ToolParameterType::String).with_description(
+                        "The complete HTML document with inline CSS and JavaScript",
+                    ),
                 ),
             Arc::new(|params| {
                 let filename = params["filename"]
@@ -397,12 +401,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     shared_registry
         .add_protocol("custom", custom_protocol)
         .await?;
-    shared_registry
-        .add_protocol("bash", bash_protocol)
-        .await?;
-    shared_registry
-        .add_protocol("http", http_protocol)
-        .await?;
+    shared_registry.add_protocol("bash", bash_protocol).await?;
+    shared_registry.add_protocol("http", http_protocol).await?;
 
     let shared_registry = Arc::new(RwLock::new(shared_registry));
 
@@ -410,7 +410,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let claude_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_else(|_| {
         eprintln!("\n❌ Error: ANTHROPIC_API_KEY environment variable is not set.");
-        eprintln!("\nThis example requires a valid Anthropic API key to run Claude Haiku 4.5 agents.");
+        eprintln!(
+            "\nThis example requires a valid Anthropic API key to run Claude Haiku 4.5 agents."
+        );
         eprintln!("\nTo fix this:");
         eprintln!("  1. Get your API key from https://console.anthropic.com/");
         eprintln!("  2. Set the environment variable:");
@@ -431,14 +433,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
 
     // All agents use Claude Haiku 4.5 with shared access to all tools
-    let architect = Agent::new(
-        "architect",
-        "Architect (Claude Haiku 4.5)",
-        make_client(),
-    )
-    .with_expertise("HTML5 structure, CSS layout, Canvas setup, responsive design")
-    .with_personality("Meticulous front-end architect who produces clean, well-structured HTML/CSS.")
-    .with_shared_tools(shared_registry.clone());
+    let architect = Agent::new("architect", "Architect (Claude Haiku 4.5)", make_client())
+        .with_expertise("HTML5 structure, CSS layout, Canvas setup, responsive design")
+        .with_personality(
+            "Meticulous front-end architect who produces clean, well-structured HTML/CSS.",
+        )
+        .with_shared_tools(shared_registry.clone());
 
     let core_engineer = Agent::new(
         "core-engineer",
@@ -477,16 +477,21 @@ Your role is to autonomously discover and claim tasks from a shared task pool, w
 report completion. You have access to a shared Memory tool that stores the task pool and your team's \
 coordination state.\n\n\
 TASK DISCOVERY & CLAIMING PROCESS:\n\
-1. Use Memory LIST teams:<pool_id>:unclaimed:* to discover available unclaimed tasks\n\
-2. For each task, use GET teams:<pool_id>:unclaimed:<task_id> to read the full description\n\
-3. Select a task that matches your specialty and claim it via PUT teams:<pool_id>:claimed:<task_id> <your_agent_id>\n\
+1. Use Memory L command to discover available unclaimed tasks: {\"command\": \"L\"}\n\
+2. For each task, use G command to read the full description: {\"command\": \"G teams:<pool_id>:unclaimed:<task_id>\"}\n\
+3. Select a task matching your specialty and claim it: {\"command\": \"P teams:<pool_id>:claimed:<task_id> <your_agent_id>\"}\n\
 4. Work on the task autonomously (e.g., generate code, design patterns, or implementations)\n\
-5. When complete, PUT the result to teams:<pool_id>:completed:<task_id> with your work\n\n\
+5. When complete, store result: {\"command\": \"P teams:<pool_id>:completed:<task_id> <work_result>\"}\n\n\
 IMPORTANT: Always output the COMPLETE updated index.html incorporating ALL previous work from \
-other agents (retrieved via Memory GET) plus your additions. Never output partial snippets — \
+other agents (retrieved via Memory G command) plus your additions. Never output partial snippets — \
 always output the full file.\n\n\
 You have access to a comprehensive toolkit for coordination and development:\n\
-- Memory (memory:*): Use PUT/GET/LIST to discover tasks, claim work, store designs, coordinate\n\
+- Memory Tool (memory): Store/retrieve shared state with single-letter commands:\n\
+  • P key value: Store a value\n\
+  • G key: Retrieve a value\n\
+  • L: List all stored keys\n\
+  • D key: Delete a key\n\
+  • C: Clear all keys\n\
 - Bash (bash:*): Execute shell commands for file operations, git, testing, debugging\n\
 - HTTP Client (http:*): Make web requests (http_get, http_post, http_put, http_delete, http_patch)\n\
 - Custom Tools (custom:write_game_file): Write the final game HTML to disk when complete\n\

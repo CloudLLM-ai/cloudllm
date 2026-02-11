@@ -65,7 +65,9 @@ use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
-use cloudllm::tool_protocols::{BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol};
+use cloudllm::tool_protocols::{
+    BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
+};
 use cloudllm::tools::{BashTool, HttpClient, Memory, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
@@ -346,8 +348,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .register_tool(
             ToolMetadata::new("write_game_file", "Write content to a file on disk")
                 .with_parameter(
-                    ToolParameter::new("filename", ToolParameterType::String)
-                        .with_description("The filename to write (e.g. 'breakout_game_ralph.html')"),
+                    ToolParameter::new("filename", ToolParameterType::String).with_description(
+                        "The filename to write (e.g. 'breakout_game_ralph.html')",
+                    ),
                 )
                 .with_parameter(
                     ToolParameter::new("content", ToolParameterType::String)
@@ -390,12 +393,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     shared_registry
         .add_protocol("custom", custom_protocol)
         .await?;
-    shared_registry
-        .add_protocol("bash", bash_protocol)
-        .await?;
-    shared_registry
-        .add_protocol("http", http_protocol)
-        .await?;
+    shared_registry.add_protocol("bash", bash_protocol).await?;
+    shared_registry.add_protocol("http", http_protocol).await?;
     let shared_registry = Arc::new(RwLock::new(shared_registry));
 
     // ── Agents ──────────────────────────────────────────────────────────────
@@ -579,7 +578,14 @@ plus your additions. Never output partial snippets — always output the full fi
 When a task is fully implemented, include the marker [TASK_COMPLETE:task_id] at the end of your \
 response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks at once.\n\n\
 You have access to a comprehensive toolkit for coordination and development:\n\
-- Memory (memory:*): Use PUT/GET/LIST commands to coordinate (e.g., store design decisions)\n\
+- Memory Tool (memory): Store/retrieve shared state with single-letter commands:\n\
+  • P key value [ttl]: Store a value (ttl optional, in seconds)\n\
+  • G key: Retrieve a value\n\
+  • L: List all stored keys\n\
+  • D key: Delete a key\n\
+  • C: Clear all keys\n\
+  • SPEC: Get protocol specification\n\
+  Example: {\"command\": \"P design_state HTML structure completed\"}\n\
 - Bash (bash:*): Execute shell commands for file operations, git, testing, debugging\n\
 - HTTP Client (http:*): Make web requests (http_get, http_post, http_put, http_delete, http_patch)\n\
 - Custom Tools (custom:write_game_file): Write the game HTML to a file (filename + content parameters)";
