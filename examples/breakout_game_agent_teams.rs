@@ -354,7 +354,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ToolMetadata::new("write_game_file", "Write the complete game HTML to disk")
                 .with_parameter(
                     ToolParameter::new("filename", ToolParameterType::String)
-                        .with_description("The output filename (e.g., 'breakout_game.html')"),
+                        .with_description("The output filename (e.g., 'breakout_game_agent_teams.html')"),
                 )
                 .with_parameter(
                     ToolParameter::new("content", ToolParameterType::String)
@@ -363,7 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Arc::new(|params| {
                 let filename = params["filename"]
                     .as_str()
-                    .unwrap_or("breakout_game.html")
+                    .unwrap_or("breakout_game_agent_teams.html")
                     .to_string();
                 let content = params["content"].as_str().unwrap_or("").to_string();
                 std::fs::write(&filename, &content)?;
@@ -545,7 +545,7 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
         println!("  ... ({} more messages)", response.messages.len() - 10);
     }
 
-    println!("\n✅ Build complete! Check breakout_game.html in current directory.");
+    println!("\n✅ Build complete! Check breakout_game_agent_teams.html in current directory.");
 
     Ok(())
 }

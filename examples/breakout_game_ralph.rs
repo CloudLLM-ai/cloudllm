@@ -55,11 +55,11 @@
 //! ## Running
 //!
 //! ```bash
-//! export ANTHROPIC_KEY=your_key
+//! export ANTHROPIC_API_KEY=your_key
 //! cargo run --example breakout_game_ralph
 //! ```
 //!
-//! The example writes the assembled game to `breakout_game.html` in the current directory.
+//! The example writes the assembled game to `breakout_game_ralph.html` in the current directory.
 
 use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
@@ -338,7 +338,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ToolMetadata::new("write_game_file", "Write content to a file on disk")
                 .with_parameter(
                     ToolParameter::new("filename", ToolParameterType::String)
-                        .with_description("The filename to write (e.g. 'breakout_game.html')"),
+                        .with_description("The filename to write (e.g. 'breakout_game_ralph.html')"),
                 )
                 .with_parameter(
                     ToolParameter::new("content", ToolParameterType::String)
@@ -347,7 +347,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Arc::new(|params| {
                 let filename = params["filename"]
                     .as_str()
-                    .unwrap_or("output.html")
+                    .unwrap_or("breakout_game_ralph.html")
                     .to_string();
                 let content = params["content"].as_str().unwrap_or("").to_string();
                 std::fs::write(&filename, &content)?;
@@ -668,9 +668,9 @@ browser with no external dependencies.";
     if let Some(last_msg) = response.messages.last() {
         // Try to extract just the HTML from the response
         let html = extract_html(&last_msg.content);
-        std::fs::write("breakout_game.html", &html)?;
+        std::fs::write("breakout_game_ralph.html", &html)?;
         println!(
-            "\nGame written to breakout_game.html ({} bytes)",
+            "\nGame written to breakout_game_ralph.html ({} bytes)",
             html.len()
         );
         println!("Open it in a browser to play!");
