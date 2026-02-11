@@ -72,8 +72,8 @@
 //! cargo run --example breakout_game_agent_teams
 //! ```
 //!
-//! Expected runtime: 10-15 minutes (depending on LLM response times)
-//! Expected cost: $2.00-$4.00 (Claude Haiku 4.5 is cost-effective)
+//! Expected runtime: 45-75 minutes (12 iterations × 4 agents × 2-3 min per LLM call)
+//! Expected cost: $6.00-$10.00 (Claude Haiku 4.5 is cost-effective for this workload)
 //!
 //! The example writes the assembled game to `breakout_game.html` in the current directory.
 
@@ -528,8 +528,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         eprintln!("     export ANTHROPIC_API_KEY=your-actual-key-here");
         eprintln!("  3. Run the example again:");
         eprintln!("     cargo run --example breakout_game_agent_teams");
-        eprintln!("\nExpected runtime: 10-15 minutes");
-        eprintln!("Expected cost: $2.00-$4.00 (Claude Haiku 4.5 is cost-effective)\n");
+        eprintln!("\nExpected runtime: 45-75 minutes (12 iterations with 4 agents)");
+        eprintln!("Expected cost: $6.00-$10.00 (Claude Haiku 4.5 is cost-effective)\n");
         std::process::exit(1);
     });
 
@@ -620,10 +620,12 @@ Memory Task Pool Keys:\n\
     .with_mode(OrchestrationMode::AnthropicAgentTeams {
         pool_id: "breakout-pool-1".to_string(),
         tasks: tasks.clone(),
-        max_iterations: 6,
+        // 12 iterations: 18 tasks / 4 agents = 4.5 tasks/agent, 2-3 rounds per task for claim+work+verify
+        max_iterations: 12,
     })
     .with_system_context(system_context)
-    .with_max_tokens(200_000)
+    // 300k tokens per call allows full context + large HTML responses per agent
+    .with_max_tokens(300_000)
     .with_event_handler(event_handler);
 
     orchestration.add_agent(architect)?;

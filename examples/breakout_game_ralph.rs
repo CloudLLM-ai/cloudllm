@@ -324,8 +324,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             eprintln!("     export ANTHROPIC_API_KEY=your-actual-key-here");
             eprintln!("  3. Run the example again:");
             eprintln!("     cargo run --example breakout_game_ralph");
-            eprintln!("\nExpected runtime: 5-8 minutes");
-            eprintln!("Expected cost: $1.00-$2.00 (Claude Haiku 4.5 is cost-effective)\n");
+            eprintln!("\nExpected runtime: 30-50 minutes (10 iterations × 4 agents × 2-3 min per LLM call)");
+            eprintln!("Expected cost: $5.00-$8.00 (Claude Haiku 4.5 is cost-effective)\n");
             std::process::exit(1);
         }
     };
@@ -604,10 +604,13 @@ You have access to a comprehensive toolkit for coordination and development:\n\
         Orchestration::new("breakout-builder", "Breakout Game RALPH Orchestration")
             .with_mode(OrchestrationMode::Ralph {
                 tasks,
-                max_iterations: 8,
+                // 10 iterations: Each iteration all 4 agents get a turn. With RALPH's sequential model
+                // and shared context, 10 rounds allows agents to build incrementally on each other's work
+                max_iterations: 10,
             })
             .with_system_context(system_context)
-            .with_max_tokens(180_000)
+            // 250k tokens per call allows full HTML output + agent reasoning with accumulated history
+            .with_max_tokens(250_000)
             .with_event_handler(event_handler);
 
     orchestration.add_agent(architect)?;
