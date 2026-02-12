@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Atari Breakout - RALPH Edition</title>
+    <title>Atari Breakout</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: 'Courier New', monospace; color: #fff; }
@@ -51,16 +51,20 @@
         // === GAME LOOP ===
         function update() {
             if (gameState !== STATES.PLAYING) return;
+            // Paddle movement
             if (keys['ArrowLeft'] || keys['a']) paddle.x = Math.max(0, paddle.x - paddle.speed);
             if (keys['ArrowRight'] || keys['d']) paddle.x = Math.min(canvas.width - paddle.width, paddle.x + paddle.speed);
+            // Ball movement
             for (let ball of balls) {
                 ball.x += ball.dx; ball.y += ball.dy;
                 if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) ball.dx *= -1;
                 if (ball.y - ball.radius < 0) ball.dy *= -1;
                 if (ball.y + ball.radius > canvas.height) { lives--; ball.x = 400; ball.y = 300; ball.dy = -4; if (lives <= 0) gameState = STATES.GAME_OVER; }
+                // Paddle collision
                 if (ball.dy > 0 && ball.y + ball.radius >= paddle.y && ball.x >= paddle.x && ball.x <= paddle.x + paddle.width) {
                     ball.dy *= -1; let hitPos = (ball.x - paddle.x) / paddle.width; ball.dx = 8 * (hitPos - 0.5);
                 }
+                // Brick collision
                 for (let brick of bricks) {
                     if (!brick.alive) continue;
                     if (ball.x + ball.radius > brick.x && ball.x - ball.radius < brick.x + brick.width &&
@@ -79,12 +83,17 @@
             if (gameState === STATES.MENU) { ctx.fillStyle = '#fff'; ctx.font = '36px Courier New'; ctx.fillText('ATARI BREAKOUT', 240, 280); ctx.font = '18px Courier New'; ctx.fillText('Click or press SPACE to start', 230, 330); return; }
             if (gameState === STATES.GAME_OVER) { ctx.fillStyle = '#f00'; ctx.font = '48px Courier New'; ctx.fillText('GAME OVER', 240, 300); ctx.font = '18px Courier New'; ctx.fillStyle = '#fff'; ctx.fillText(`Final Score: ${score}`, 310, 350); return; }
             if (gameState === STATES.LEVEL_COMPLETE) { ctx.fillStyle = '#0f0'; ctx.font = '36px Courier New'; ctx.fillText(`LEVEL ${level} COMPLETE!`, 220, 300); ctx.font = '18px Courier New'; ctx.fillStyle = '#fff'; ctx.fillText('Click or press SPACE to continue', 220, 350); return; }
+            // Draw paddle
             ctx.fillStyle = paddle.color; ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+            // Draw balls
             for (let ball of balls) { ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2); ctx.fillStyle = ball.color; ctx.fill(); }
+            // Draw bricks
             for (let brick of bricks) { if (!brick.alive) continue; ctx.fillStyle = BRICK_COLORS[brick.hp] || '#fff'; ctx.fillRect(brick.x, brick.y, brick.width, brick.height); ctx.strokeStyle = '#333'; ctx.strokeRect(brick.x, brick.y, brick.width, brick.height); }
         }
 
         function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+
+        // Start on click/space
         document.addEventListener('click', () => { if (gameState === STATES.MENU || gameState === STATES.LEVEL_COMPLETE) gameState = STATES.PLAYING; });
         document.addEventListener('keydown', e => { if (e.code === 'Space') { if (gameState === STATES.MENU || gameState === STATES.LEVEL_COMPLETE) gameState = STATES.PLAYING; else if (gameState === STATES.PLAYING) gameState = STATES.PAUSED; else if (gameState === STATES.PAUSED) gameState = STATES.PLAYING; }});
         gameLoop();
