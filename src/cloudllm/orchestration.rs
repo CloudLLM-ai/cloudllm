@@ -2109,13 +2109,19 @@ impl Orchestration {
                 tasks.len()
             );
 
-            // Build task status checklist
+            // Build task status checklist (includes task ID for [TASK_COMPLETE:id] markers)
             let mut checklist = String::new();
             for task in tasks {
                 if completed_tasks.contains(&task.id) {
-                    checklist.push_str(&format!("- [x] {} — {}\n", task.title, task.description));
+                    checklist.push_str(&format!(
+                        "- [x] {} (id: {}) — {}\n",
+                        task.title, task.id, task.description
+                    ));
                 } else {
-                    checklist.push_str(&format!("- [ ] {} — {}\n", task.title, task.description));
+                    checklist.push_str(&format!(
+                        "- [ ] {} (id: {}) — {}\n",
+                        task.title, task.id, task.description
+                    ));
                 }
             }
 

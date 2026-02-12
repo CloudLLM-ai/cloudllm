@@ -167,8 +167,8 @@ impl EventHandler for TeamsEventHandler {
                     self.elapsed_str(),
                     agent_name,
                     tool_name,
-                    if params_str.len() > 80 {
-                        format!("{}...", &params_str[..80])
+                    if params_str.len() > 300 {
+                        format!("{}...", &params_str[..300])
                     } else {
                         params_str
                     }
@@ -177,24 +177,40 @@ impl EventHandler for TeamsEventHandler {
             AgentEvent::ToolExecutionCompleted {
                 agent_name,
                 tool_name,
+                parameters,
                 success,
                 error,
+                result,
                 ..
             } => {
                 if *success {
+                    let result_preview = result
+                        .as_ref()
+                        .map(|r| {
+                            let s = serde_json::to_string(r).unwrap_or_default();
+                            if s.len() > 200 {
+                                format!("{}...", &s[..200])
+                            } else {
+                                s
+                            }
+                        })
+                        .unwrap_or_default();
                     println!(
-                        "  [{}]      └─ {} tool '{}' ✓",
-                        self.elapsed_str(),
-                        agent_name,
-                        tool_name
-                    );
-                } else {
-                    println!(
-                        "  [{}]      └─ {} tool '{}' ✗ {}",
+                        "  [{}]      └─ {} tool '{}' ✓ → {}",
                         self.elapsed_str(),
                         agent_name,
                         tool_name,
-                        error.as_deref().unwrap_or("unknown error")
+                        result_preview
+                    );
+                } else {
+                    let params_str = serde_json::to_string(parameters).unwrap_or_default();
+                    println!(
+                        "  [{}]      └─ {} tool '{}' ✗ {} | params={}",
+                        self.elapsed_str(),
+                        agent_name,
+                        tool_name,
+                        error.as_deref().unwrap_or("unknown error"),
+                        params_str
                     );
                 }
             }
@@ -611,6 +627,21 @@ Memory Task Pool Keys:\n\
   teams:<pool_id>:claimed:<task_id> - Mark task as claimed\n\
   teams:<pool_id>:completed:<task_id> - Record completed work";
 
+    // ── Pre-populate Memory with task pool ─────────────────────────────────
+    // The orchestration expects agents to discover tasks via Memory LIST/GET.
+    // We must actually populate Memory with the task data before starting.
+    let pool_id = "breakout-pool-1";
+    for task in &tasks {
+        let key = format!("teams:{}:unclaimed:{}", pool_id, task.id);
+        let value = format!("{} — {}", task.description, task.acceptance_criteria);
+        memory.put(key, value, None);
+    }
+    println!(
+        "📦 Pre-populated Memory with {} tasks (pool: {})\n",
+        tasks.len(),
+        pool_id
+    );
+
     let event_handler = Arc::new(TeamsEventHandler::new());
 
     let mut orchestration = Orchestration::new(
@@ -618,7 +649,7 @@ Memory Task Pool Keys:\n\
         "Breakout Game AnthropicAgentTeams",
     )
     .with_mode(OrchestrationMode::AnthropicAgentTeams {
-        pool_id: "breakout-pool-1".to_string(),
+        pool_id: pool_id.to_string(),
         tasks: tasks.clone(),
         // 12 iterations: 18 tasks / 4 agents = 4.5 tasks/agent, 2-3 rounds per task for claim+work+verify
         max_iterations: 12,
@@ -697,6 +728,27 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
         println!("  ... ({} more messages)", response.messages.len() - 10);
     }
 
+    // ── Memory Dump ────────────────────────────────────────────────────────
+    let keys = memory.list_keys();
+    if !keys.is_empty() {
+        println!("\n{}", "-".repeat(80));
+        println!("  Shared Memory ({} entries)", keys.len());
+        println!("{}", "-".repeat(80));
+        for key in &keys {
+            if let Some((value, _)) = memory.get(key, false) {
+                let preview_len = 120.min(value.len());
+                let preview_end = value
+                    .char_indices()
+                    .nth(preview_len)
+                    .map(|(i, _)| i)
+                    .unwrap_or(value.len());
+                println!("  {}: {}...", key, &value[..preview_end]);
+            }
+        }
+    } else {
+        println!("\n  Memory is empty (all tasks may have been cleared by agents).");
+    }
+
     // ── Extract HTML ───────────────────────────────────────────────────────
 
     // Search through messages to find one that contains valid HTML game code
@@ -720,9 +772,15 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
         println!("Open it in a browser to play!");
     } else {
         println!("\n⚠️  Warning: Could not find valid HTML game code in agent responses.");
-        println!("Searched through all {} messages but found no canvas-based HTML.", response.messages.len());
+        println!(
+            "Searched through all {} messages but found no canvas-based HTML.",
+            response.messages.len()
+        );
         if let Some(last_msg) = response.messages.last() {
-            eprintln!("\nLast message was: {}", &last_msg.content[..last_msg.content.len().min(200)]);
+            eprintln!(
+                "\nLast message was: {}",
+                &last_msg.content[..last_msg.content.len().min(200)]
+            );
         }
     }
 

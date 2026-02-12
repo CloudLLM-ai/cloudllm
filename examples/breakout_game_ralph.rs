@@ -172,14 +172,27 @@ impl EventHandler for BreakoutEventHandler {
                 parameters,
                 success,
                 error,
+                result,
                 ..
             } => {
                 if *success {
+                    let result_preview = result
+                        .as_ref()
+                        .map(|r| {
+                            let s = serde_json::to_string(r).unwrap_or_default();
+                            if s.len() > 200 {
+                                format!("{}...", &s[..200])
+                            } else {
+                                s
+                            }
+                        })
+                        .unwrap_or_default();
                     println!(
-                        "  [{}]    {} tool '{}' succeeded",
+                        "  [{}]    {} tool '{}' succeeded → {}",
                         self.elapsed_str(),
                         agent_name,
-                        tool_name
+                        tool_name,
+                        result_preview
                     );
                 } else {
                     let params_str = serde_json::to_string(parameters).unwrap_or_default();
@@ -731,9 +744,15 @@ browser with no external dependencies.";
         println!("Open it in a browser to play!");
     } else {
         println!("\nWarning: Could not find valid HTML game code in agent responses.");
-        println!("Searched through all {} messages but found no canvas-based HTML.", response.messages.len());
+        println!(
+            "Searched through all {} messages but found no canvas-based HTML.",
+            response.messages.len()
+        );
         if let Some(last_msg) = response.messages.last() {
-            eprintln!("\nLast message was: {}", &last_msg.content[..last_msg.content.len().min(200)]);
+            eprintln!(
+                "\nLast message was: {}",
+                &last_msg.content[..last_msg.content.len().min(200)]
+            );
         }
     }
 

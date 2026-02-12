@@ -185,6 +185,8 @@ pub enum AgentEvent {
         success: bool,
         /// Error message if the tool failed, `None` on success.
         error: Option<String>,
+        /// The tool's output value on success, `None` on error.
+        result: Option<serde_json::Value>,
         /// 1-based tool iteration matching the corresponding `ToolCallDetected`.
         iteration: usize,
     },

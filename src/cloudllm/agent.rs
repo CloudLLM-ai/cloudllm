@@ -1005,37 +1005,41 @@ impl Agent {
                         .await
                 };
 
-                let (tool_result_message, tool_success, tool_error) = match &tool_result {
-                    Ok(result) => {
-                        if result.success {
-                            (
-                                format!(
-                                    "Tool '{}' executed successfully. Result: {}",
-                                    tool_call.name,
-                                    serde_json::to_string_pretty(&result.output)
-                                        .unwrap_or_else(|_| format!("{:?}", result.output))
-                                ),
-                                true,
-                                None,
-                            )
-                        } else {
-                            let err = result
-                                .error
-                                .clone()
-                                .unwrap_or_else(|| "Unknown error".to_string());
-                            (
-                                format!("Tool '{}' failed. Error: {}", tool_call.name, err),
-                                false,
-                                Some(err),
-                            )
+                let (tool_result_message, tool_success, tool_error, tool_output) =
+                    match &tool_result {
+                        Ok(result) => {
+                            if result.success {
+                                (
+                                    format!(
+                                        "Tool '{}' executed successfully. Result: {}",
+                                        tool_call.name,
+                                        serde_json::to_string_pretty(&result.output)
+                                            .unwrap_or_else(|_| format!("{:?}", result.output))
+                                    ),
+                                    true,
+                                    None,
+                                    Some(result.output.clone()),
+                                )
+                            } else {
+                                let err = result
+                                    .error
+                                    .clone()
+                                    .unwrap_or_else(|| "Unknown error".to_string());
+                                (
+                                    format!("Tool '{}' failed. Error: {}", tool_call.name, err),
+                                    false,
+                                    Some(err),
+                                    None,
+                                )
+                            }
                         }
-                    }
-                    Err(e) => (
-                        format!("Tool execution error: {}", e),
-                        false,
-                        Some(e.to_string()),
-                    ),
-                };
+                        Err(e) => (
+                            format!("Tool execution error: {}", e),
+                            false,
+                            Some(e.to_string()),
+                            None,
+                        ),
+                    };
 
                 self.emit(AgentEvent::ToolExecutionCompleted {
                     agent_id: self.id.clone(),
@@ -1044,6 +1048,7 @@ impl Agent {
                     parameters: tool_params_snapshot,
                     success: tool_success,
                     error: tool_error,
+                    result: tool_output,
                     iteration: tool_iteration,
                 })
                 .await;
@@ -1388,37 +1393,41 @@ impl Agent {
                 });
 
                 // Add tool result to messages
-                let (tool_result_message, gwt_tool_success, gwt_tool_error) = match &tool_result {
-                    Ok(result) => {
-                        if result.success {
-                            (
-                                format!(
-                                    "Tool '{}' executed successfully. Result: {}",
-                                    tool_call.name,
-                                    serde_json::to_string_pretty(&result.output)
-                                        .unwrap_or_else(|_| format!("{:?}", result.output))
-                                ),
-                                true,
-                                None,
-                            )
-                        } else {
-                            let err = result
-                                .error
-                                .clone()
-                                .unwrap_or_else(|| "Unknown error".to_string());
-                            (
-                                format!("Tool '{}' failed. Error: {}", tool_call.name, err),
-                                false,
-                                Some(err),
-                            )
+                let (tool_result_message, gwt_tool_success, gwt_tool_error, gwt_tool_output) =
+                    match &tool_result {
+                        Ok(result) => {
+                            if result.success {
+                                (
+                                    format!(
+                                        "Tool '{}' executed successfully. Result: {}",
+                                        tool_call.name,
+                                        serde_json::to_string_pretty(&result.output)
+                                            .unwrap_or_else(|_| format!("{:?}", result.output))
+                                    ),
+                                    true,
+                                    None,
+                                    Some(result.output.clone()),
+                                )
+                            } else {
+                                let err = result
+                                    .error
+                                    .clone()
+                                    .unwrap_or_else(|| "Unknown error".to_string());
+                                (
+                                    format!("Tool '{}' failed. Error: {}", tool_call.name, err),
+                                    false,
+                                    Some(err),
+                                    None,
+                                )
+                            }
                         }
-                    }
-                    Err(e) => (
-                        format!("Tool execution error: {}", e),
-                        false,
-                        Some(e.to_string()),
-                    ),
-                };
+                        Err(e) => (
+                            format!("Tool execution error: {}", e),
+                            false,
+                            Some(e.to_string()),
+                            None,
+                        ),
+                    };
 
                 self.emit(AgentEvent::ToolExecutionCompleted {
                     agent_id: self.id.clone(),
@@ -1427,6 +1436,7 @@ impl Agent {
                     parameters: gwt_params_snapshot,
                     success: gwt_tool_success,
                     error: gwt_tool_error,
+                    result: gwt_tool_output,
                     iteration: tool_iteration,
                 })
                 .await;
