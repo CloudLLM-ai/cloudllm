@@ -16,6 +16,7 @@ Complete 18-task game development orchestrated via RALPH (checklist-based) mode.
 **Demonstrates**:
 - RALPH orchestration with task completion markers
 - 4 specialized agents (architect, programmer, sound designer, powerup engineer)
+- **Starter HTML + Read-Modify-Write pattern**: A working breakout game skeleton (~4KB) is seeded to disk and Memory (`current_game_html` key) before orchestration begins. Each agent reads the current HTML from Memory, modifies it, and writes it back via the `write_game_file` tool (persists to both disk and Memory). This ensures incremental, cumulative development.
 - Tool ecosystem: Shared Memory for coordination, Bash for command execution, HTTP Client for research
 - Complex real-world game features: HTML5 Canvas, physics, collision, audio, 8 powerups, particle effects, mobile controls
 - 18 work items: core mechanics, audio system, powerup system, visual effects, advanced mechanics
@@ -55,6 +56,7 @@ Same 18-task game built with decentralized task coordination (AnthropicAgentTeam
 **Demonstrates**:
 - AnthropicAgentTeams orchestration (no central orchestrator)
 - 4 autonomous agents discovering and claiming tasks from shared task pool
+- **Starter HTML + Read-Modify-Write pattern**: Same as RALPH — a working game skeleton is seeded to disk and Memory (`current_game_html` key). Agents READ from Memory, MODIFY, and WRITE back via `write_game_file`. This ensures agents always build on each other's work.
 - Memory-based task coordination: `teams:<pool_id>:unclaimed/claimed/completed:*`
 - Real-time progress tracking via TeamsEventHandler
 - All 18 game features implemented identically to RALPH version

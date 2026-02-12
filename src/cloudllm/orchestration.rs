@@ -485,6 +485,14 @@ pub enum OrchestrationMode {
     /// completion by including `[TASK_COMPLETE:task_id]` in their response.
     /// The `convergence_score` in the response reflects the fraction of tasks
     /// completed (`0.0..=1.0`).
+    ///
+    /// **Best Practice — Starter Content + Read-Modify-Write**: For file-producing
+    /// orchestrations (e.g., building an HTML game), seed a working starter file to
+    /// disk and Memory (`current_game_html` key) before calling `run()`. Instruct
+    /// agents to READ the current content from Memory, MODIFY it, and WRITE back
+    /// via a custom tool that persists to both disk and Memory. This ensures
+    /// incremental, cumulative work and a usable artifact on disk at all times.
+    /// See `examples/breakout_game_ralph.rs` for a full implementation.
     Ralph {
         /// The PRD checklist. Each [`RalphTask`] has an `id` that agents
         /// reference in their `[TASK_COMPLETE:id]` markers.
@@ -568,6 +576,13 @@ pub enum OrchestrationMode {
     /// - Attach an EventHandler to track TaskClaimed, TaskCompleted, TaskFailed events
     /// - Watch the convergence_score (0.0 = no progress, 1.0 = all tasks done)
     /// - Log iteration boundaries to diagnose bottlenecks
+    ///
+    /// **Starter Content + Read-Modify-Write (for file-producing orchestrations):**
+    /// - Seed a working starter file to disk and Memory (`current_game_html` key) before `run()`
+    /// - Instruct agents to READ current content from Memory, MODIFY it, WRITE back via a
+    ///   custom tool that persists to both disk and Memory
+    /// - This ensures cumulative work and a usable artifact on disk at all times
+    /// - See `examples/breakout_game_agent_teams.rs` for a full implementation
     ///
     /// # Example: Research Team with 4 Agents and 8 Tasks
     ///

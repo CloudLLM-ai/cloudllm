@@ -13,7 +13,7 @@ This tutorial demonstrates how to build multi-agent AI systems using CloudLLM's 
 | Mode | Complexity | Est. Runtime | Est. Cost (4 agents) | Best For | ⚠️ Cost Risk |
 |------|-----------|--------------|---------------------|----------|-------------|
 | **AnthropicAgentTeams** | ★★★★★ | 2-5 min | $0.30-$1.00 | Large task pools | HIGH if max_iterations too high |
-| **RALPH** | ★★★☆☆ | 3-8 min | $0.40-$1.50 | Checklist completion | MEDIUM (controlled iterations) |
+| **RALPH** | ★★★☆☆ | 3-20 min | $0.40-$9.00 | Checklist completion | MEDIUM (controlled iterations) |
 | **Debate** | ★★★★☆ | 5-15 min | $0.60-$2.00 | Consensus building | **VERY HIGH** (exponential with rounds) |
 | **Parallel** | ★☆☆☆☆ | 10-20 sec | $0.10-$0.30 | Independent opinions | LOW |
 | **RoundRobin** | ★★☆☆☆ | 20-60 sec | $0.15-$0.50 | Sequential refinement | LOW-MEDIUM |
@@ -264,6 +264,7 @@ with_max_tokens(32768),      // Allows 100KB responses per agent
 3. **Agent Count**: 3-6 agents per 8-15 tasks (more agents = more parallelism but higher cost)
 4. **Monitoring**: Use event handler to detect stuck agents (same task claimed repeatedly)
 5. **Early Exit**: If convergence_score reaches 1.0 before max_iterations, orchestration stops automatically
+6. **Starter Content + Read-Modify-Write**: For file-producing tasks (e.g., building an HTML game), seed a working starter to disk and Memory (`current_game_html` key) before `run()`. Instruct agents to READ from Memory, MODIFY, and WRITE back via a custom tool that saves to both disk and Memory. See `examples/breakout_game_agent_teams.rs`.
 
 ### ⚠️ When AnthropicAgentTeams Gets Expensive
 
@@ -313,13 +314,20 @@ with_max_tokens(4096),   // Reasonable response length
 - **Medium checklist (10 items, 4 agents)**: 10-20 minutes, $3-9
 - **Complex checklist (15+ items)**: 30-80 minutes, $5-10+
 
-### Example: Breakout Game Implementation (10 Tasks)
+### Example: Breakout Game Implementation (18 Tasks)
+
+The full breakout game examples use a **starter HTML + read-modify-write** pattern:
+
+1. **Seed a working starter**: Before orchestration starts, a ~4KB working breakout game skeleton (paddle, ball, bricks, game loop) is written to disk and stored in Memory under `current_game_html`.
+2. **Read-Modify-Write loop**: Each agent reads the current HTML from Memory (`G current_game_html`), modifies it to implement their assigned feature, then writes the updated HTML back via the `write_game_file` tool (which persists to both disk and Memory).
+3. **Post-run recovery**: After orchestration completes, the code checks Memory first for the latest HTML, falls back to message extraction, then to the starter on disk.
+
+This ensures every agent builds incrementally on the team's cumulative work and there is always a playable game on disk.
 
 ```rust
 use cloudllm::{
     Agent,
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
-    clients::openai::OpenAIClient,
     clients::claude::{ClaudeClient, Model},
 };
 use std::sync::Arc;
@@ -331,129 +339,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("═══════════════════════════════════════════════════════\n");
 
     println!("⚠️  COST ESTIMATE:");
-    println!("  - 10 tasks × 3 iterations avg = 30 LLM calls");
-    println!("  - At $0.03-0.10/call = $0.90-$3.00 total");
-    println!("  - Runtime: ~4-7 minutes\n");
+    println!("  - 18 tasks × 4 agents × ~5 iterations = many LLM calls");
+    println!("  - At $0.05-0.15/call = $3-$9 total");
+    println!("  - Runtime: ~10-20 minutes\n");
 
-    // Define task checklist
+    // Define task checklist (18 tasks covering core mechanics, audio, powerups, etc.)
     let tasks = vec![
-        RalphTask::new(
-            "html_structure",
-            "HTML Structure",
-            "Create basic HTML with canvas element and game container div",
-        ),
-        RalphTask::new(
-            "canvas_setup",
-            "Canvas Setup",
-            "Initialize canvas, set width/height, get 2D context",
-        ),
-        RalphTask::new(
-            "game_objects",
-            "Game Objects",
-            "Define Ball, Paddle, Brick classes with position/velocity properties",
-        ),
-        RalphTask::new(
-            "paddle_control",
-            "Paddle Control",
-            "Implement keyboard controls (arrow keys) for paddle movement",
-        ),
-        RalphTask::new(
-            "ball_physics",
-            "Ball Physics",
-            "Implement ball movement with gravity and boundary collision",
-        ),
-        RalphTask::new(
-            "paddle_collision",
-            "Paddle Collision",
-            "Detect ball-paddle collision and bounce physics",
-        ),
-        RalphTask::new(
-            "brick_grid",
-            "Brick Grid",
-            "Create grid of bricks; detect ball-brick collision and brick removal",
-        ),
-        RalphTask::new(
-            "game_state",
-            "Game State",
-            "Implement lives, score, win/lose conditions, game reset",
-        ),
-        RalphTask::new(
-            "rendering",
-            "Rendering",
-            "Draw canvas each frame: paddle, ball, bricks, score, lives",
-        ),
-        RalphTask::new(
-            "game_loop",
-            "Game Loop",
-            "requestAnimationFrame loop; integrate physics, collisions, rendering",
-        ),
+        RalphTask::new("html_structure", "HTML Structure", "Canvas element and game container"),
+        RalphTask::new("game_states", "Game States", "MENU, PLAYING, PAUSED, GAME_OVER, LEVEL_COMPLETE"),
+        RalphTask::new("paddle_control", "Paddle Control", "Keyboard and touch controls for paddle"),
+        RalphTask::new("ball_physics", "Ball Physics", "Movement, angle reflection, boundary collision"),
+        RalphTask::new("brick_grid", "Brick Grid", "Multi-hit bricks (1-5 HP) with color coding"),
+        RalphTask::new("collision", "Collision Detection", "Ball-paddle, ball-brick, ball-wall"),
+        RalphTask::new("scoring", "Score System", "Points, lives, level progression"),
+        RalphTask::new("audio_engine", "Audio Engine", "Web Audio API chiptune music and SFX"),
+        RalphTask::new("powerup_system", "Powerup System", "8 powerup types: paddle, speed, lava, etc."),
+        RalphTask::new("particle_effects", "Particle Effects", "Fire bursts, paddle jets, 1UP displays"),
+        RalphTask::new("brick_patterns", "Brick Patterns", "10+ procedural patterns per level"),
+        RalphTask::new("difficulty", "Difficulty Scaling", "Dynamic difficulty by level"),
+        RalphTask::new("mobile_controls", "Mobile Controls", "Touch/swipe with responsive canvas"),
+        // ... (18 tasks total — see examples/breakout_game_ralph.rs for full list)
     ];
 
-    // Create agents
-    let openai_key = std::env::var("OPENAI_API_KEY")?;
     let anthropic_key = std::env::var("ANTHROPIC_API_KEY")?;
+    let make_client = || Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeSonnet45));
 
-    let architect = Agent::new(
-        "architect",
-        "Game Architect",
-        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeSonnet45)),
-    );
+    let architect = Agent::new("architect", "Game Architect", make_client());
+    let programmer = Agent::new("programmer", "Implementation Specialist", make_client());
+    let sound_dev = Agent::new("sound", "Sound Designer", make_client());
+    let powerup_dev = Agent::new("powerup", "Powerup Engineer", make_client());
 
-    let programmer = Agent::new(
-        "programmer",
-        "Implementation Specialist",
-        Arc::new(OpenAIClient::new_with_model_string(&openai_key, "gpt-4o")),
-    );
+    // Seed starter HTML to disk and Memory before orchestration
+    // (see breakout_game_ralph.rs for full starter HTML and Memory setup)
 
-    let qa_engineer = Agent::new(
-        "qa",
-        "QA Engineer",
-        Arc::new(ClaudeClient::new_with_model_enum(&anthropic_key, Model::ClaudeHaiku45)),
-    );
-
-    // Create orchestration
     let mut orchestration = Orchestration::new("breakout-game", "Atari Breakout Implementation")
         .with_mode(OrchestrationMode::Ralph {
             tasks: tasks.clone(),
-            max_iterations: 5,  // ⚠️ Safety cap
+            max_iterations: 10,  // ⚠️ Safety cap (18 tasks / 4 agents + buffer)
         })
         .with_system_context(
-            "You are implementing a classic Atari Breakout game in HTML5/Canvas. \
-             Work through the task checklist systematically. Each task shows its id in \
-             parentheses like (id: html_structure). When you complete a task, include \
-             [TASK_COMPLETE:task_id] in your response. Focus on clean, working code.",
+            "You are implementing an Atari Breakout game in a single HTML file. \
+             WORKFLOW: 1) READ current_game_html from Memory, 2) MODIFY it to \
+             implement your assigned task, 3) WRITE back via write_game_file. \
+             Mark done with [TASK_COMPLETE:task_id]. NEVER start from scratch.",
         )
-        .with_max_tokens(8192);
+        .with_max_tokens(180_000);
 
     orchestration.add_agent(architect)?;
     orchestration.add_agent(programmer)?;
-    orchestration.add_agent(qa_engineer)?;
+    orchestration.add_agent(sound_dev)?;
+    orchestration.add_agent(powerup_dev)?;
 
-    let prompt = "Implement a complete Atari Breakout game in HTML5/Canvas with: \
-                  - Paddle control via keyboard \
-                  - Ball physics with collision detection \
-                  - Brick grid that destroys on collision \
-                  - Score tracking and win/lose conditions";
+    let response = orchestration.run("Build an Atari Breakout game", 1).await?;
 
-    println!("👥 Team: Architect (Claude), Programmer (GPT-4), QA (Claude Haiku)");
-    println!("📋 Tasks: 10-item checklist");
-    println!("⏱️  Starting RALPH orchestration...\n");
+    println!("Iterations: {}", response.round);
+    println!("Progress: {:.0}%", response.convergence_score.unwrap_or(0.0) * 100.0);
 
-    let start = std::time::Instant::now();
-    let response = orchestration.run(prompt, 1).await?;
-    let elapsed = start.elapsed();
-
-    println!("\n✨ RESULTS:");
-    println!("  ├─ Iterations: {}", response.round);
-    println!("  ├─ Completion: {:.0}%", response.convergence_score.unwrap_or(0.0) * 100.0);
-    println!("  ├─ Time: {:.1}s", elapsed.as_secs_f32());
-    println!("  ├─ Tokens: {}", response.total_tokens_used);
-    println!("  └─ Est. cost: ${:.2}", (response.total_tokens_used as f64) * 0.00002);
-
-    // Show progress
-    let completed_count = (response.convergence_score.unwrap_or(0.0) * tasks.len() as f32) as usize;
-    println!("\n📊 Tasks completed: {}/{}", completed_count, tasks.len());
-
+    // Post-run: check Memory first for latest HTML, then messages, then starter on disk
     Ok(())
 }
 ```
@@ -468,7 +410,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Tasks are sequential | ✅ Yes | ✅ Yes (but looser) |
 | Need tight orchestration control | ✅ Yes | ❌ No |
 | Want agent autonomy | ❌ No | ✅ Yes |
-| Building a game/app | ✅ Yes | ❌ No |
+| Building a game/app | ✅ Yes | ✅ Yes (both work) |
 | Research/analysis project | ❌ No | ✅ Yes |
 
 ---

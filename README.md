@@ -317,9 +317,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 ```
 
+**Starter HTML + Read-Modify-Write Pattern**: Both breakout examples seed a working starter
+HTML skeleton to disk and Memory (`current_game_html` key) before orchestration begins. Agents
+follow a read-modify-write loop: READ the current HTML from Memory, MODIFY it to implement
+their assigned feature, then WRITE the updated HTML back via a custom `write_game_file` tool
+(which persists to both disk and Memory). This ensures every agent builds on the latest
+cumulative output and there is always a playable game on disk.
+
 See `examples/breakout_game_ralph.rs` for a full working example that orchestrates 4 agents
-through 10 PRD tasks to produce a complete Atari Breakout game with multi-hit bricks, powerups,
-chiptune music, and collision sound effects.
+through 18 PRD tasks to produce a complete Atari Breakout game with multi-hit bricks, powerups,
+chiptune music, particle effects, and mobile controls. Also see
+`examples/breakout_game_agent_teams.rs` for the same game built with decentralized
+AnthropicAgentTeams coordination.
 
 For a deep dive into all collaboration modes, read
 [`ORCHESTRATION_TUTORIAL.md`](./ORCHESTRATION_TUTORIAL.md).
