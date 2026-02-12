@@ -356,20 +356,133 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let memory = Arc::new(Memory::new());
     let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
 
+    // ── Seed starter HTML skeleton ─────────────────────────────────────────
+    let starter_html = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atari Breakout - RALPH Edition</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: 'Courier New', monospace; color: #fff; }
+        #gameContainer { text-align: center; }
+        canvas { border: 2px solid #333; display: block; margin: 0 auto; background: #111; }
+        #hud { margin-top: 10px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="hud">SCORE: 0 | LEVEL: 1 | LIVES: 3</div>
+    </div>
+    <script>
+        // === GAME STATE ===
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const STATES = { MENU: 0, PLAYING: 1, PAUSED: 2, GAME_OVER: 3, LEVEL_COMPLETE: 4 };
+        let gameState = STATES.MENU;
+        let score = 0, lives = 3, level = 1;
+
+        // === PADDLE ===
+        const paddle = { x: 350, y: 560, width: 100, height: 12, speed: 7, color: '#4488ff' };
+        let keys = {};
+        document.addEventListener('keydown', e => keys[e.key] = true);
+        document.addEventListener('keyup', e => keys[e.key] = false);
+
+        // === BALL ===
+        let balls = [{ x: 400, y: 300, dx: 4, dy: -4, radius: 6, color: '#fff' }];
+
+        // === BRICKS ===
+        const BRICK_COLORS = { 1: '#ffff00', 2: '#00ff00', 3: '#4488ff', 4: '#ff8800', 5: '#ff0000' };
+        let bricks = [];
+        function initBricks() {
+            bricks = [];
+            for (let r = 0; r < 5; r++) {
+                for (let c = 0; c < 11; c++) {
+                    let hp = Math.min(5, r + 1);
+                    bricks.push({ x: 10 + c * 71, y: 50 + r * 28, width: 65, height: 22, hp: hp, maxHp: hp, alive: true });
+                }
+            }
+        }
+        initBricks();
+
+        // === GAME LOOP ===
+        function update() {
+            if (gameState !== STATES.PLAYING) return;
+            if (keys['ArrowLeft'] || keys['a']) paddle.x = Math.max(0, paddle.x - paddle.speed);
+            if (keys['ArrowRight'] || keys['d']) paddle.x = Math.min(canvas.width - paddle.width, paddle.x + paddle.speed);
+            for (let ball of balls) {
+                ball.x += ball.dx; ball.y += ball.dy;
+                if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) ball.dx *= -1;
+                if (ball.y - ball.radius < 0) ball.dy *= -1;
+                if (ball.y + ball.radius > canvas.height) { lives--; ball.x = 400; ball.y = 300; ball.dy = -4; if (lives <= 0) gameState = STATES.GAME_OVER; }
+                if (ball.dy > 0 && ball.y + ball.radius >= paddle.y && ball.x >= paddle.x && ball.x <= paddle.x + paddle.width) {
+                    ball.dy *= -1; let hitPos = (ball.x - paddle.x) / paddle.width; ball.dx = 8 * (hitPos - 0.5);
+                }
+                for (let brick of bricks) {
+                    if (!brick.alive) continue;
+                    if (ball.x + ball.radius > brick.x && ball.x - ball.radius < brick.x + brick.width &&
+                        ball.y + ball.radius > brick.y && ball.y - ball.radius < brick.y + brick.height) {
+                        ball.dy *= -1; brick.hp--; score += 10;
+                        if (brick.hp <= 0) brick.alive = false;
+                    }
+                }
+            }
+            if (bricks.every(b => !b.alive)) { level++; initBricks(); gameState = STATES.LEVEL_COMPLETE; }
+            document.getElementById('hud').textContent = `SCORE: ${score} | LEVEL: ${level} | LIVES: ${lives}`;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (gameState === STATES.MENU) { ctx.fillStyle = '#fff'; ctx.font = '36px Courier New'; ctx.fillText('ATARI BREAKOUT', 240, 280); ctx.font = '18px Courier New'; ctx.fillText('Click or press SPACE to start', 230, 330); return; }
+            if (gameState === STATES.GAME_OVER) { ctx.fillStyle = '#f00'; ctx.font = '48px Courier New'; ctx.fillText('GAME OVER', 240, 300); ctx.font = '18px Courier New'; ctx.fillStyle = '#fff'; ctx.fillText(`Final Score: ${score}`, 310, 350); return; }
+            if (gameState === STATES.LEVEL_COMPLETE) { ctx.fillStyle = '#0f0'; ctx.font = '36px Courier New'; ctx.fillText(`LEVEL ${level} COMPLETE!`, 220, 300); ctx.font = '18px Courier New'; ctx.fillStyle = '#fff'; ctx.fillText('Click or press SPACE to continue', 220, 350); return; }
+            ctx.fillStyle = paddle.color; ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+            for (let ball of balls) { ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2); ctx.fillStyle = ball.color; ctx.fill(); }
+            for (let brick of bricks) { if (!brick.alive) continue; ctx.fillStyle = BRICK_COLORS[brick.hp] || '#fff'; ctx.fillRect(brick.x, brick.y, brick.width, brick.height); ctx.strokeStyle = '#333'; ctx.strokeRect(brick.x, brick.y, brick.width, brick.height); }
+        }
+
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+        document.addEventListener('click', () => { if (gameState === STATES.MENU || gameState === STATES.LEVEL_COMPLETE) gameState = STATES.PLAYING; });
+        document.addEventListener('keydown', e => { if (e.code === 'Space') { if (gameState === STATES.MENU || gameState === STATES.LEVEL_COMPLETE) gameState = STATES.PLAYING; else if (gameState === STATES.PLAYING) gameState = STATES.PAUSED; else if (gameState === STATES.PAUSED) gameState = STATES.PLAYING; }});
+        gameLoop();
+    </script>
+</body>
+</html>"#;
+
+    // Write starter to disk and Memory so agents can build on it
+    std::fs::write("breakout_game_ralph.html", starter_html)?;
+    memory.put(
+        "current_game_html".to_string(),
+        starter_html.to_string(),
+        None,
+    );
+    println!(
+        "📄 Starter HTML written to disk and Memory ({} bytes)\n",
+        starter_html.len()
+    );
+
+    let memory_for_tool = memory.clone();
     let custom_protocol = Arc::new(CustomToolProtocol::new());
     custom_protocol
         .register_tool(
-            ToolMetadata::new("write_game_file", "Write content to a file on disk")
-                .with_parameter(
-                    ToolParameter::new("filename", ToolParameterType::String).with_description(
-                        "The filename to write (e.g. 'breakout_game_ralph.html')",
-                    ),
-                )
-                .with_parameter(
-                    ToolParameter::new("content", ToolParameterType::String)
-                        .with_description("The file content to write"),
+            ToolMetadata::new(
+                "write_game_file",
+                "Write the COMPLETE updated game HTML to disk AND save it to Memory. \
+                 ALWAYS use this after making changes so other agents can build on your work.",
+            )
+            .with_parameter(
+                ToolParameter::new("filename", ToolParameterType::String).with_description(
+                    "The filename to write (e.g. 'breakout_game_ralph.html')",
                 ),
-            Arc::new(|params| {
+            )
+            .with_parameter(
+                ToolParameter::new("content", ToolParameterType::String).with_description(
+                    "The COMPLETE HTML document with ALL features implemented so far",
+                ),
+            ),
+            Arc::new(move |params| {
                 let filename = params["filename"]
                     .as_str()
                     .unwrap_or("breakout_game_ralph.html")
@@ -380,9 +493,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     .replace("\\n", "\n")
                     .replace("\\t", "\t")
                     .replace("\\\"", "\"");
+                let bytes = content.len();
                 std::fs::write(&filename, &content)?;
+                memory_for_tool.put("current_game_html".to_string(), content, None);
                 Ok(cloudllm::tool_protocol::ToolResult::success(
-                    serde_json::json!({"written": filename, "bytes": content.len()}),
+                    serde_json::json!({"written": filename, "bytes": bytes, "also_saved_to_memory": "current_game_html"}),
                 ))
             }),
         )
@@ -588,30 +703,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let system_context = "\
 You are collaborating with other specialized agents to build a complete Atari Breakout game \
-in a single self-contained index.html file. All HTML, CSS, and JavaScript must be inline. \
-Do NOT use external dependencies. Use the HTML5 Canvas API for rendering and the Web Audio API \
-for sound. \n\n\
-CRITICAL REQUIREMENT: After each task, you MUST include the COMPLETE updated game HTML in your \
-response. This means the full <html>...</html> document with all features from this iteration \
-and all previous iterations combined. This is essential for preserving work across agent turns.\n\n\
-Your response format should be:\n\
-1. Brief explanation of what you implemented\n\
-2. The COMPLETE game code (full HTML/CSS/JS)\n\
-3. Task completion markers like [TASK_COMPLETE:task_id]\n\n\
-When a task is fully implemented, include the marker [TASK_COMPLETE:task_id] at the end of your \
-response (e.g., [TASK_COMPLETE:html_structure]). You may complete multiple tasks at once.\n\n\
-You have access to a comprehensive toolkit for coordination and development:\n\
-- Memory Tool (memory): Store/retrieve shared state with single-letter commands:\n\
-  • P key value [ttl]: Store a value (ttl optional, in seconds)\n\
-  • G key: Retrieve a value\n\
-  • L: List all stored keys\n\
-  • D key: Delete a key\n\
-  • C: Clear all keys\n\
-  • SPEC: Get protocol specification\n\
-  Example: {\"command\": \"P design_state HTML structure completed\"}\n\
-- Bash (bash:*): Execute shell commands - recommend using cat <<'EOF' to write game to breakout_game_ralph.html\n\
-- HTTP Client (http:*): Make web requests (http_get, http_post, http_put, http_delete, http_patch)\n\
-- Custom Tools (custom:write_game_file): Write the game HTML to a file (filename + content parameters)";
+in a single self-contained HTML file. All HTML, CSS, and JavaScript must be inline. \
+Do NOT use external dependencies. Use the HTML5 Canvas API for rendering and the Web Audio API for sound.\n\n\
+\
+WORKFLOW — FOLLOW THESE STEPS EXACTLY:\n\
+1. READ the current game from Memory: {\"command\": \"G current_game_html\"}\n\
+2. MODIFY the HTML: add your feature implementation into the existing code\n\
+3. WRITE the updated file using write_game_file with the COMPLETE modified HTML\n\
+4. Include [TASK_COMPLETE:task_id] markers for completed tasks\n\n\
+\
+CRITICAL RULES:\n\
+- ALWAYS start by reading current_game_html from Memory — never start from scratch\n\
+- ALWAYS write back the COMPLETE file using write_game_file after your changes\n\
+- The write_game_file tool saves to BOTH disk and Memory so other agents get your changes\n\
+- NEVER output partial snippets. NEVER describe what you would do. Actually write the code.\n\
+- Add your code into the existing <script> block, do not replace existing features\n\
+- The game already has a working skeleton with paddle, ball, bricks, and game loop\n\n\
+\
+TOOLS AVAILABLE:\n\
+- Memory (memory): {\"command\": \"G key\"} to read, {\"command\": \"P key value\"} to write, {\"command\": \"L\"} to list\n\
+- write_game_file: {\"filename\": \"breakout_game_ralph.html\", \"content\": \"<!DOCTYPE html>...\"}\n\
+- Bash (bash:*): Shell commands if needed\n\n\
+\
+Key Memory entries:\n\
+  current_game_html — THE CURRENT COMPLETE GAME HTML (read this first, write back after changes)";
 
     // Register the event handler on the orchestration. It will be
     // auto-propagated to each agent added via add_agent(), giving us
@@ -726,40 +841,56 @@ browser with no external dependencies.";
         }
     }
 
-    // ── Extract HTML ───────────────────────────────────────────────────────
+    // ── Final HTML ─────────────────────────────────────────────────────────
+    // Agents write to disk incrementally via write_game_file.
+    // Check Memory for the latest version first, then fall back to messages.
 
-    // Search through messages to find one that contains valid HTML game code
-    let mut game_html: Option<String> = None;
-
-    for msg in response.messages.iter().rev() {
-        let html = extract_html(&msg.content);
-        if html.len() > 1000 && (html.contains("<canvas") || html.contains("canvas")) {
-            // Found a message with substantial HTML containing canvas
-            game_html = Some(html);
-            break;
+    let final_html = if let Some((mem_html, _)) = memory.get("current_game_html", false) {
+        if mem_html.len() > 1000 && mem_html.contains("<canvas") {
+            let unescaped = mem_html
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace("\\\"", "\"");
+            std::fs::write("breakout_game_ralph.html", &unescaped)?;
+            println!(
+                "\n✅ Game written from Memory to breakout_game_ralph.html ({} bytes)",
+                unescaped.len()
+            );
+            Some(unescaped)
+        } else {
+            None
         }
-    }
-
-    if let Some(html) = game_html {
-        std::fs::write("breakout_game_ralph.html", &html)?;
-        println!(
-            "\nGame written to breakout_game_ralph.html ({} bytes)",
-            html.len()
-        );
-        println!("Open it in a browser to play!");
     } else {
-        println!("\nWarning: Could not find valid HTML game code in agent responses.");
-        println!(
-            "Searched through all {} messages but found no canvas-based HTML.",
-            response.messages.len()
-        );
-        if let Some(last_msg) = response.messages.last() {
-            eprintln!(
-                "\nLast message was: {}",
-                &last_msg.content[..last_msg.content.len().min(200)]
+        None
+    };
+
+    if final_html.is_none() {
+        // Fallback: try extracting from agent messages
+        let mut game_html: Option<String> = None;
+        for msg in response.messages.iter().rev() {
+            let html = extract_html(&msg.content);
+            if html.len() > 1000 && (html.contains("<canvas") || html.contains("canvas")) {
+                game_html = Some(html);
+                break;
+            }
+        }
+        if let Some(html) = game_html {
+            std::fs::write("breakout_game_ralph.html", &html)?;
+            println!(
+                "\n✅ Game extracted from messages to breakout_game_ralph.html ({} bytes)",
+                html.len()
+            );
+        } else {
+            let disk_size = std::fs::metadata("breakout_game_ralph.html")
+                .map(|m| m.len())
+                .unwrap_or(0);
+            println!(
+                "\n⚠️  Agents didn't write updates via write_game_file. Starter HTML on disk ({} bytes).",
+                disk_size
             );
         }
     }
+    println!("Open breakout_game_ralph.html in a browser to play!");
 
     Ok(())
 }
