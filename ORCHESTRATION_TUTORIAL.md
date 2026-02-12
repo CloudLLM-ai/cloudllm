@@ -310,8 +310,8 @@ with_max_tokens(4096),   // Reasonable response length
 ### Runtime Expectations
 
 - **Simple checklist (5 items, 3 agents)**: 2-3 minutes, $0.30-$0.60
-- **Medium checklist (10 items, 4 agents)**: 4-7 minutes, $0.80-$1.50
-- **Complex checklist (15+ items)**: 8-15 minutes, $1.50-$3.00+
+- **Medium checklist (10 items, 4 agents)**: 10-20 minutes, $3-9
+- **Complex checklist (15+ items)**: 30-80 minutes, $5-10+
 
 ### Example: Breakout Game Implementation (10 Tasks)
 
@@ -419,8 +419,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .with_system_context(
             "You are implementing a classic Atari Breakout game in HTML5/Canvas. \
-             Work through the task checklist systematically. When you complete a task, \
-             include [TASK_COMPLETE:task_id] in your response. Focus on clean, working code.",
+             Work through the task checklist systematically. Each task shows its id in \
+             parentheses like (id: html_structure). When you complete a task, include \
+             [TASK_COMPLETE:task_id] in your response. Focus on clean, working code.",
         )
         .with_max_tokens(8192);
 

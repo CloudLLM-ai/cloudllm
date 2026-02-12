@@ -42,7 +42,7 @@ Each memory entry can have an expiration time:
 
 ```rust
 use cloudllm::tools::Memory;
-use cloudllm::tool_adapters::MemoryToolAdapter;
+use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tool_protocol::ToolRegistry;
 use std::sync::Arc;
 
@@ -50,7 +50,7 @@ use std::sync::Arc;
 let memory = Arc::new(Memory::new());
 
 // Create adapter for tool protocol
-let adapter = Arc::new(MemoryToolAdapter::new(memory));
+let adapter = Arc::new(MemoryProtocol::new(memory));
 
 // Create tool registry
 let registry = Arc::new(ToolRegistry::new(adapter));
@@ -75,7 +75,7 @@ let mut orchestration = Orchestration::new("orchestration", "Analysis Orchestrat
 
 // Create shared memory
 let shared_memory = Arc::new(Memory::new());
-let shared_adapter = Arc::new(MemoryToolAdapter::new(shared_memory));
+let shared_adapter = Arc::new(MemoryProtocol::new(shared_memory));
 let shared_registry = Arc::new(ToolRegistry::new(shared_adapter));
 
 // All agents get the same registry
@@ -297,7 +297,7 @@ registry.execute_tool("memory",
 ```rust
 // All agents share this memory
 let shared_memory = Arc::new(Memory::new());
-let shared_adapter = Arc::new(MemoryToolAdapter::new(shared_memory));
+let shared_adapter = Arc::new(MemoryProtocol::new(shared_memory));
 let shared_registry = Arc::new(ToolRegistry::new(shared_adapter));
 
 // Analyst stores findings
@@ -501,15 +501,14 @@ impl Memory {
 }
 ```
 
-### MemoryToolAdapter Struct
+### MemoryProtocol Struct (was MemoryToolAdapter before v0.5.0)
 
 ```rust
-impl MemoryToolAdapter {
+impl MemoryProtocol {
     pub fn new(memory: Arc<Memory>) -> Self
-    fn process_memory_command(&self, command: &str) -> ToolResult
 }
 
-impl ToolProtocol for MemoryToolAdapter {
+impl ToolProtocol for MemoryProtocol {
     async fn execute(
         &self,
         tool_name: &str,

@@ -4,7 +4,7 @@ Runnable demonstrations of CloudLLM patterns, tools, and multi-agent orchestrati
 
 All examples use `cargo run --example <name>` and can run with placeholder API keys (no actual API calls made).
 
-**Total Examples**: 22 | **Updated**: v0.10.1
+**Total Examples**: 22 | **Updated**: v0.10.2
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
@@ -43,7 +43,7 @@ export ANTHROPIC_API_KEY=your-key
 cargo run --example breakout_game_ralph
 ```
 
-**Runtime**: ~5-8 minutes | **Cost**: $1-2 | **Output**: `breakout_game_ralph.html`
+**Runtime**: ~10-20 minutes | **Cost**: $3-9 | **Output**: `breakout_game_ralph.html`
 
 ---
 
@@ -79,7 +79,7 @@ export ANTHROPIC_API_KEY=your-key
 cargo run --example breakout_game_agent_teams
 ```
 
-**Runtime**: ~10-15 minutes | **Cost**: $2-4 | **Output**: `breakout_game_agent_teams.html`
+**Runtime**: ~30-80 minutes | **Cost**: $5-10 | **Output**: `breakout_game_agent_teams.html`
 
 ---
 
@@ -562,6 +562,6 @@ cargo clippy --example <name>  # Lint check
 
 ---
 
-**Last Updated**: v0.10.1 (February 2026)
+**Last Updated**: v0.10.2 (February 2026)
 **Total Examples**: 22
 **Prerequisite Knowledge**: Rust async/await, tokio, serde_json, basic LLM API concepts

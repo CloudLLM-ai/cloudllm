@@ -76,7 +76,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.10.1"
+cloudllm = "0.10.2"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.
@@ -762,7 +762,7 @@ during its lifecycle. Every variant carries `agent_id` and `agent_name` for iden
 | **`LLMCallStarted`** | `iteration` | Before each LLM round-trip (first call + each tool-loop follow-up) |
 | **`LLMCallCompleted`** | `iteration`, `tokens_used`, `response_length` | After each LLM round-trip completes |
 | **`ToolCallDetected`** | `tool_name`, `parameters`, `iteration` | When a tool call is parsed from the LLM response |
-| **`ToolExecutionCompleted`** | `tool_name`, `parameters`, `success`, `error`, `iteration` | After a tool finishes executing |
+| **`ToolExecutionCompleted`** | `tool_name`, `parameters`, `success`, `error`, `result`, `iteration` | After a tool finishes executing |
 | **`ToolMaxIterationsReached`** | _(none extra)_ | When the tool loop hits its iteration cap |
 | **`ThoughtCommitted`** | `thought_type` | After a thought is appended to the ThoughtChain |
 | **`ProtocolAdded`** | `protocol_name` | When a new tool protocol is added to the agent |
@@ -900,9 +900,13 @@ impl EventHandler for ProgressHandler {
                     self.elapsed(), agent_name, tool_name, iteration,
                     serde_json::to_string(parameters).unwrap_or_default());
             }
-            AgentEvent::ToolExecutionCompleted { agent_name, tool_name, success, error, .. } => {
+            AgentEvent::ToolExecutionCompleted { agent_name, tool_name, success, error, result, .. } => {
                 if *success {
-                    println!("  [{}]    {} tool '{}' succeeded", self.elapsed(), agent_name, tool_name);
+                    let result_preview = result.as_ref().map(|r| {
+                        let s = serde_json::to_string(r).unwrap_or_default();
+                        if s.len() > 200 { format!("{}...", &s[..200]) } else { s }
+                    }).unwrap_or_default();
+                    println!("  [{}]    {} tool '{}' succeeded → {}", self.elapsed(), agent_name, tool_name, result_preview);
                 } else {
                     println!("  [{}]    {} tool '{}' FAILED: {}",
                         self.elapsed(), agent_name, tool_name, error.as_deref().unwrap_or("unknown"));

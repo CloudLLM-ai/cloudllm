@@ -494,7 +494,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     .as_str()
                     .unwrap_or("breakout_game_agent_teams.html")
                     .to_string();
-                let content = params["content"].as_str().unwrap_or("").to_string();
+                let content = params["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t")
+                    .replace("\\\"", "\"");
                 std::fs::write(&filename, &content)?;
                 Ok(cloudllm::tool_protocol::ToolResult::success(
                     serde_json::json!({"written": filename, "bytes": content.len()}),
@@ -803,5 +808,11 @@ fn extract_html(text: &str) -> String {
         .map(|i| i + "</html>".len())
         .unwrap_or(text.len());
 
-    text[start..end].to_string()
+    let raw = &text[start..end];
+
+    // LLM responses often contain literal escape sequences instead of real
+    // whitespace characters.  Unescape them so the HTML renders correctly.
+    raw.replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\\"", "\"")
 }

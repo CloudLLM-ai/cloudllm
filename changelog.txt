@@ -1,3 +1,32 @@
+0.10.2 FEB/11/2026
+ - fix: Critical bug — AnthropicAgentTeams Memory never pre-populated with tasks
+   - Agents calling `memory L` received empty results because tasks were logged but never stored
+   - Memory is now pre-populated with task data before orchestration starts
+   - Keys use hierarchical scheme: `teams:<pool_id>:unclaimed:<task_id>`
+ - fix: RALPH checklist now includes task IDs for completion markers
+   - Agents previously couldn't emit `[TASK_COMPLETE:task_id]` because the checklist only showed title and description
+   - Checklist format changed from `- [ ] Title — Description` to `- [ ] Title (id: task_id) — Description`
+ - enhance: ToolExecutionCompleted event now includes tool result data
+   - Added `result: Option<serde_json::Value>` field to ToolExecutionCompleted event variant
+   - Both `send()` and `generate_with_tokens()` in agent.rs now capture and pass tool output
+   - Event handlers can now inspect tool execution results for debugging and monitoring
+ - enhance: Improved HTML extraction in breakout game examples
+   - `extract_html()` now searches backwards through ALL messages for substantial HTML with `<canvas>`
+   - Agent system contexts updated to emphasize outputting complete, standalone HTML
+   - Agents instructed to use `cat <<'EOF'` heredoc for reliable file writing via Bash tool
+ - enhance: Increased iteration and token limits for better task completion
+   - breakout_game_agent_teams: max_iterations 6→12, max_tokens 200k→300k
+   - breakout_game_ralph: max_iterations 8→10, max_tokens 180k→250k
+ - fix: Unescape literal `\n`, `\t`, `\"` in HTML output from LLM responses
+   - LLM responses encode newlines as literal two-character `\n` sequences instead of real newlines
+   - `extract_html()` now unescapes `\\n` → newline, `\\t` → tab, `\\"` → quote before returning
+   - `write_game_file` custom tool also unescapes content before writing to disk
+   - Fixes broken HTML rendering in both breakout game examples (ralph and agent_teams)
+ - enhance: Detailed tool tracing in breakout game event handlers
+   - Event handlers now display tool execution results (truncated to 200 chars)
+   - Tool call parameter display increased to 300 chars
+   - Memory dump section added to agent_teams example after orchestration completes
+
 0.10.1 FEB/11/2026
  - fix: Correct Memory protocol documentation in agent examples
    - Fixed "Unknown Command" errors in breakout game examples
