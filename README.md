@@ -9,7 +9,7 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 
 * **Agents with Tools**: Create agents that connect to LLMs and execute actions through a flexible,
   multi-protocol tool system (local, remote MCP, Memory, custom protocols) with runtime hot-swapping,
-* **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/index.html) engine
+* **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/orchestration/index.html) engine
   supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, and Ralph collaboration patterns,
 * **ThoughtChain**: Persistent, SHA-256 hash-chained agent memory with back-references for graph-based
   context resolution and tamper-evident integrity verification,
@@ -191,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Multi-Agent Orchestration
 
-The [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/index.html) module
+The [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/orchestration/index.html) module
 coordinates conversations between multiple LLM agents. Each agent can have its own provider,
 expertise, personality, and tool access. Choose from six collaboration patterns depending on your
 use case.
@@ -788,7 +788,7 @@ response arrives.
 ### OrchestrationEvent Variants
 
 Events emitted by an
-[`Orchestration`](https://docs.rs/cloudllm/latest/cloudllm/orchestration/struct.Orchestration.html)
+[`Orchestration`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/orchestration/struct.Orchestration.html)
 during a `run()`. Each variant carries `orchestration_id` for identification.
 
 | Variant | Fields | When Emitted |
