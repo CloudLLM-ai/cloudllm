@@ -78,14 +78,17 @@ use tokio::sync::Mutex;
 
 /// Image generation model identifiers for Grok.
 pub enum ImageModel {
-    /// `grok-2-image` – Grok's image generation model
+    /// `grok-2-image-1212` – legacy Grok image generation model
     Grok2Image,
+    /// `grok-imagine-image` – current Grok Imagine image generation model
+    GrokImagineImage,
 }
 
 /// Convert a [`ImageModel`] variant into the string identifier expected by the API.
 fn image_model_to_string(model: ImageModel) -> String {
     match model {
         ImageModel::Grok2Image => "grok-2-image-1212".to_string(),
+        ImageModel::GrokImagineImage => "grok-imagine-image".to_string(),
     }
 }
 
@@ -279,24 +282,33 @@ impl ImageGenerationClient for GrokClient {
         prompt: &str,
         options: ImageGenerationOptions,
     ) -> Result<ImageGenerationResponse, Box<dyn Error + Send + Sync>> {
-        // Note: Grok Imagine doesn't support aspect_ratio parameter
-        // aspect_ratio is ignored here
-        if options.aspect_ratio.is_some() && log::log_enabled!(log::Level::Warn) {
-            log::warn!("Grok Imagine does not support aspect_ratio, it will be ignored");
-        }
-
         let n = options.num_images.unwrap_or(1).min(10); // Grok max is 10
 
-        // Build request manually to handle Grok's response format
-        let request_body = serde_json::json!({
-            "model": image_model_to_string(ImageModel::Grok2Image),
+        // Build request body with all supported parameters
+        let mut request_body = serde_json::json!({
+            "model": image_model_to_string(ImageModel::GrokImagineImage),
             "prompt": prompt,
             "n": n,
         });
 
+        // Add optional parameters if provided
+        if let Some(ref ar) = options.aspect_ratio {
+            request_body["aspect_ratio"] = serde_json::json!(ar);
+        }
+        if let Some(ref fmt) = options.response_format {
+            request_body["response_format"] = serde_json::json!(fmt);
+        }
+
         // Make direct HTTP request to Grok's image generation endpoint
         let http_client = get_shared_http_client();
         let url = format!("{}/images/generations", self.base_url);
+
+        log::info!(
+            "Grok Imagine API request: model={}, prompt_len={}, n={}",
+            request_body["model"],
+            prompt.len(),
+            n
+        );
 
         let response = http_client
             .post(&url)
@@ -305,21 +317,35 @@ impl ImageGenerationClient for GrokClient {
             .send()
             .await?;
 
+        let status = response.status();
         let response_text = response.text().await?;
 
         if log::log_enabled!(log::Level::Debug) {
-            log::debug!("Grok image API response: {}", response_text);
+            log::debug!(
+                "Grok image API response (HTTP {}): {}",
+                status,
+                response_text
+            );
         }
 
         // Parse JSON response
         let response_json: serde_json::Value = serde_json::from_str(&response_text)?;
 
-        // Check for API errors
-        if let Some(error) = response_json.get("error") {
-            if let Some(message) = error.get("message").and_then(|m| m.as_str()) {
-                return Err(format!("Grok API error: {}", message).into());
+        // Check for API errors (non-2xx status or explicit error field)
+        if !status.is_success() || response_json.get("error").is_some() {
+            log::error!(
+                "Grok Imagine API error (HTTP {}): {}",
+                status,
+                response_text
+            );
+            if let Some(error) = response_json.get("error") {
+                return Err(
+                    format!("Grok Imagine API error (HTTP {}): {}", status, error).into(),
+                );
             }
-            return Err("Grok API returned an error".into());
+            return Err(
+                format!("Grok Imagine API error (HTTP {}): {}", status, response_text).into(),
+            );
         }
 
         // Parse the response - Grok returns: { "data": [{ "url": "..." }, ...] }
@@ -359,6 +385,6 @@ impl ImageGenerationClient for GrokClient {
     }
 
     fn model_name(&self) -> &str {
-        "grok-2-image-1212"
+        "grok-imagine-image"
     }
 }
