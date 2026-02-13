@@ -1,3 +1,19 @@
+0.10.3 FEB/13/2026
+ - chore: Update all transitive dependencies to latest compatible versions
+   - tokio: 1.48.0 → 1.49.0
+   - reqwest: 0.12.24 → 0.12.28
+   - axum: 0.8.7 → 0.8.8
+   - serde_json: 1.0.145 → 1.0.149
+   - regex: 1.11.1 → 1.12.3
+   - url: 2.4.1 → 2.5.8
+   - chrono, evalexpr, env_logger, log, tempfile, and 100+ transitive dependencies updated
+   - Security and stability improvements across HTTP, TLS, cryptography, and Unicode handling
+   - Cargo.lock updated via `cargo update`
+ - verify: Confirmed Claude Opus 4.6 support in ClientWrapper
+   - Model::ClaudeOpus46 enum variant already available
+   - Maps to "claude-opus-4-6" model identifier
+   - All latest Claude models supported (Opus 4.6, 4.5, Sonnet 4.5, Haiku 4.5)
+
 0.10.2 FEB/11/2026
  - fix: Critical bug — AnthropicAgentTeams Memory never pre-populated with tasks
    - Agents calling `memory L` received empty results because tasks were logged but never stored
