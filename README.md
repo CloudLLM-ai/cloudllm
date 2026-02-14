@@ -205,6 +205,7 @@ use case.
 | **Moderated** | Agents propose ideas, a moderator synthesizes the final answer | Consensus building, curated outputs |
 | **Hierarchical** | Lead agent coordinates; specialists handle specific aspects | Complex tasks with delegation |
 | **Debate** | Agents discuss and challenge until convergence is reached | Critical analysis, stress-testing ideas |
+| **AnthropicAgentTeams** | Decentralized task pool coordination; agents autonomously claim and complete work | Large task pools (>8 tasks), parallel work distribution, agent autonomy |
 | **Ralph** | Autonomous iterative loop working through a PRD task list | Multi-step builds, code generation, structured project work |
 
 ### Basic Example: RoundRobin
@@ -255,6 +256,104 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+### AnthropicAgentTeams: Decentralized Task Coordination
+
+**AnthropicAgentTeams** is a decentralized orchestration mode where agents autonomously discover,
+claim, and complete tasks from a shared Memory pool. Unlike centralized modes where the orchestrator
+assigns work, agents coordinate directly via Memory keys with no central orchestrator.
+
+Key features:
+- **Decentralized coordination**: Agents autonomously select work from a shared task pool via Memory
+- **Task-based work items**: Structured `WorkItem` objects with id, description, and acceptance criteria
+- **Memory-based state**: Tasks stored as `teams:<pool_id>:unclaimed/claimed/completed:<task_id>` keys
+- **Autonomous claiming**: Agents discover available tasks, claim them, complete work, and report results
+- **Progress tracking**: `convergence_score` reports task completion fraction (0.0 to 1.0)
+- **Scalability**: Better suited for large task pools (>8 tasks) than centralized RALPH mode
+- **Mixed providers**: Works seamlessly with agents using different LLM providers (OpenAI, Claude, etc.)
+
+```rust,no_run
+use std::sync::Arc;
+
+use cloudllm::orchestration::{Orchestration, OrchestrationMode, WorkItem};
+use cloudllm::clients::claude::{ClaudeClient, Model};
+use cloudllm::Agent;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let key = std::env::var("ANTHROPIC_KEY")?;
+    let make_client = || Arc::new(ClaudeClient::new_with_model_enum(&key, Model::ClaudeHaiku45));
+
+    let researcher = Agent::new("researcher", "Research Agent", make_client())
+        .with_expertise("Scientific literature, data gathering");
+    let analyst = Agent::new("analyst", "Analysis Agent", make_client())
+        .with_expertise("Data synthesis, theme extraction");
+    let writer = Agent::new("writer", "Writing Agent", make_client())
+        .with_expertise("Technical writing, documentation");
+    let reviewer = Agent::new("reviewer", "Review Agent", make_client())
+        .with_expertise("Quality assurance, peer review");
+
+    let tasks = vec![
+        WorkItem::new(
+            "research_nmn",
+            "Research phase — NMN+ mechanisms and pathways",
+            "Gather and summarize current scientific literature on NAD+ boosting",
+        ),
+        WorkItem::new(
+            "analyze_longevity",
+            "Analysis phase — longevity effects",
+            "Synthesize findings on aging reversal and lifespan extension",
+        ),
+        WorkItem::new(
+            "write_summary",
+            "Writing phase — draft summary report",
+            "Draft 2-3 page synthesis of all findings",
+        ),
+        WorkItem::new(
+            "final_review",
+            "Quality review — accuracy and completeness",
+            "Peer review for scientific accuracy and identify gaps",
+        ),
+    ];
+
+    let mut orch = Orchestration::new("research-team", "Research Team")
+        .with_mode(OrchestrationMode::AnthropicAgentTeams {
+            pool_id: "research-pool".to_string(),
+            tasks,
+            max_iterations: 4,
+        })
+        .with_system_context("You are a specialized agent in a coordinated team. \
+                             Claim tasks from the shared pool and complete them autonomously.")
+        .with_max_tokens(128_000);
+
+    orch.add_agent(researcher)?;
+    orch.add_agent(analyst)?;
+    orch.add_agent(writer)?;
+    orch.add_agent(reviewer)?;
+
+    let result = orch.run("Research NMN+ for longevity and synthesize findings", 1).await?;
+
+    println!("Iterations: {}",  result.round);
+    println!("Complete: {}",    result.is_complete);
+    println!("Progress: {:.0}%", result.convergence_score.unwrap_or(0.0) * 100.0);
+    println!("Tokens: {}",       result.total_tokens_used);
+
+    Ok(())
+}
+```
+
+**How It Works**: Agents use the Memory tool to coordinate. Each iteration, agents:
+1. **LIST** unclaimed tasks from Memory (`teams:<pool_id>:unclaimed:*`)
+2. **GET** task descriptions and acceptance criteria
+3. **PUT** claim marker (`teams:<pool_id>:claimed:<task_id>` → `<agent_id>:<timestamp>`)
+4. Work on the task using their expertise and tools
+5. **PUT** completion result (`teams:<pool_id>:completed:<task_id>` → `<result>`)
+
+The orchestration terminates when all tasks are completed or `max_iterations` is reached.
+
+See `examples/anthropic_teams.rs` for a full working example with 4 agents and 8 tasks using mixed
+LLM providers (OpenAI + Claude). Also see `examples/breakout_game_agent_teams.rs` for a complete
+Atari Breakout game built with decentralized coordination.
 
 ### Ralph: Autonomous PRD-Driven Loop
 
