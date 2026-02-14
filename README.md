@@ -10,7 +10,7 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 * **Agents with Tools**: Create agents that connect to LLMs and execute actions through a flexible,
   multi-protocol tool system (local, remote MCP, Memory, custom protocols) with runtime hot-swapping,
 * **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/orchestration/index.html) engine
-  supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, and Ralph collaboration patterns,
+  supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, AnthropicAgentTeams, and Ralph collaboration patterns,
 * **ThoughtChain**: Persistent, SHA-256 hash-chained agent memory with back-references for graph-based
   context resolution and tamper-evident integrity verification,
 * **Context Strategies**: Pluggable strategies for handling context window exhaustion — Trim,
@@ -42,6 +42,7 @@ crate-level manual.
 - [Multi-Agent Orchestration](#multi-agent-orchestration)
   - [Orchestration Modes](#orchestration-modes)
   - [Basic Example: RoundRobin](#basic-example-roundrobin)
+  - [AnthropicAgentTeams: Decentralized Task Coordination](#anthropicagentteams-decentralized-task-coordination)
   - [Ralph: Autonomous PRD-Driven Loop](#ralph-autonomous-prd-driven-loop)
 - [Provider Wrappers](#provider-wrappers)
 - [LLMSession: Stateful Conversations](#llmsession-stateful-conversations-the-foundation)
