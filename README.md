@@ -261,8 +261,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### AnthropicAgentTeams: Decentralized Task Coordination
 
 **AnthropicAgentTeams** is a decentralized orchestration mode where agents autonomously discover,
-claim, and complete tasks from a shared Memory pool. Unlike centralized modes where the orchestrator
-assigns work, agents coordinate directly via Memory keys with no central orchestrator.
+claim, and complete tasks from a shared Memory pool. Unlike other modes where the orchestrator
+assigns work, agents coordinate directly via Memory keys—the orchestrator only manages the iteration
+loop while agents self-select tasks.
 
 Key features:
 - **Decentralized coordination**: Agents autonomously select work from a shared task pool via Memory
@@ -270,7 +271,7 @@ Key features:
 - **Memory-based state**: Tasks stored as `teams:<pool_id>:unclaimed/claimed/completed:<task_id>` keys
 - **Autonomous claiming**: Agents discover available tasks, claim them, complete work, and report results
 - **Progress tracking**: `convergence_score` reports task completion fraction (0.0 to 1.0)
-- **Scalability**: Better suited for large task pools (>8 tasks) than centralized RALPH mode
+- **Scalability**: Better suited for large task pools (>8 tasks) than RALPH's checklist approach
 - **Mixed providers**: Works seamlessly with agents using different LLM providers (OpenAI, Claude, etc.)
 
 ```rust,no_run
