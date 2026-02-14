@@ -271,7 +271,7 @@ Key features:
 - **Memory-based state**: Tasks stored as `teams:<pool_id>:unclaimed/claimed/completed:<task_id>` keys
 - **Autonomous claiming**: Agents discover available tasks, claim them, complete work, and report results
 - **Progress tracking**: `convergence_score` reports task completion fraction (0.0 to 1.0)
-- **Scalability**: Better suited for large task pools (>8 tasks) than RALPH's checklist approach
+- **Scalability**: Better suited for large task pools (>8 tasks) than Ralph's checklist approach
 - **Mixed providers**: Works seamlessly with agents using different LLM providers (OpenAI, Claude, etc.)
 
 ```rust,no_run
