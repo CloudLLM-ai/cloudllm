@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tetris</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #ccc;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    user-select: none;
+  }
+  #game-container {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  #left-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 120px;
+  }
+  #right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 120px;
+  }
+  .panel {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 10px;
+  }
+  .panel h3 {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+  .panel-value {
+    font-size: 20px;
+    color: #fff;
+    font-weight: bold;
+  }
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+  }
+  #playfield-wrapper {
+    position: relative;
+  }
+  #playfield {
+    border: 2px solid #333;
+    background: #0d0d0d;
+  }
+  #hold-canvas {
+    width: 100px;
+    height: 80px;
+    background: #0d0d0d;
+    border: 1px solid #333;
+  }
+  #next-canvas {
+    width: 100px;
+    height: 240px;
+    background: #0d0d0d;
+    border: 1px solid #333;
+  }
+  #mute-btn {
+    background: #222;
+    border: 1px solid #444;
+    color: #aaa;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    border-radius: 3px;
+    width: 100%;
+  }
+  #mute-btn:hover { background: #333; }
+  .legend {
+    font-size: 10px;
+    color: #666;
+    line-height: 1.8;
+  }
+  .legend span {
+    color: #999;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div id="left-panel">
+    <div class="panel">
+      <h3>Hold</h3>
+      <canvas id="hold-canvas" width="100" height="80"></canvas>
+    </div>
+    <div class="panel">
+      <h3>Score</h3>
+      <div class="panel-value" id="score-display">0</div>
+    </div>
+    <div class="panel">
+      <h3>Level</h3>
+      <div class="panel-value" id="level-display">1</div>
+    </div>
+    <div class="panel">
+      <h3>Lines</h3>
+      <div class="panel-value" id="lines-display">0</div>
+    </div>
+    <button id="mute-btn">&#128266; Sound ON</button>
+  </div>
+
+  <div id="playfield-wrapper">
+    <canvas id="playfield" width="320" height="640"></canvas>
+  </div>
+
+  <div id="right-panel">
+    <div class="panel">
+      <h3>Next</h3>
+      <canvas id="next-canvas" width="100" height="240"></canvas>
+    </div>
+    <div class="panel">
+      <h3>Controls</h3>
+      <div class="legend">
+        <span>&#8592;&#8594;</span> Move<br>
+        <span>&#8593;/X</span> Rotate CW<br>
+        <span>Z</span> Rotate CCW<br>
+        <span>&#8595;</span> Soft Drop<br>
+        <span>Space</span> Hard Drop<br>
+        <span>C</span> Hold<br>
+        <span>P</span> Pause
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─── PIECES (SRS) ────────────────────────────────────────────────────────────
+const PIECES = [
+  // 0: I
+  {
+    color: '#00f0f0',
+    states: [
+      [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+      [[0,0,1,0],[0,0,1,0],[0,0,1,0],[0,0,1,0]],
+      [[0,0,0,0],[0,0,0,0],[1,1,1,1],[0,0,0,0]],
+      [[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]]
+    ]
+  },
+  // 1: O
+  {
+    color: '#f0f000',
+    states: [
+      [[1,1],[1,1]],
+      [[1,1],[1,1]],
+      [[1,1],[1,1]],
+      [[1,1],[1,1]]
+    ]
+  },
+  // 2: T
+  {
+    color: '#a000f0',
+    states: [
+      [[0,1,0],[1,1,1],[0,0,0]],
+      [[0,1,0],[0,1,1],[0,1,0]],
+      [[0,0,0],[1,1,1],[0,1,0]],
+      [[0,1,0],[1,1,0],[0,1,0]]
+    ]
+  },
+  // 3: S
+  {
+    color: '#00f000',
+    states: [
+      [[0,1,1],[1,1,0],[0,0,0]],
+      [[0,1,0],[0,1,1],[0,0,1]],
+      [[0,0,0],[0,1,1],[1,1,0]],
+      [[1,0,0],[1,1,0],[0,1,0]]
+    ]
+  },
+  // 4: Z
+  {
+    color: '#f00000',
+    states: [
+      [[1,1,0],[0,1,1],[0,0,0]],
+      [[0,0,1],[0,1,1],[0,1,0]],
+      [[0,0,0],[1,1,0],[0,1,1]],
+      [[0,1,0],[1,1,0],[1,0,0]]
+    ]
+  },
+  // 5: J
+  {
+    color: '#0000f0',
+    states: [
+      [[1,0,0],[1,1,1],[0,0,0]],
+      [[0,1,1],[0,1,0],[0,1,0]],
+      [[0,0,0],[1,1,1],[0,0,1]],
+      [[0,1,0],[0,1,0],[1,1,0]]
+    ]
+  },
+  // 6: L
+  {
+    color: '#f0a000',
+    states: [
+      [[0,0,1],[1,1,1],[0,0,0]],
+      [[0,1,0],[0,1,0],[0,1,1]],
+      [[0,0,0],[1,1,1],[1,0,0]],
+      [[1,1,0],[0,1,0],[0,1,0]]
+    ]
+  }
+];
+
+// SRS Wall Kick Data (JLSTZ pieces)
+// Format: for each transition [from_rot * 2 + (dir===1?0:1)]
+const KICKS_JLSTZ = [
+  // 0->1 (CW)
+  [[-1,0],[-1,1],[0,-2],[-1,-2]],
+  // 1->0 (CCW)
+  [[1,0],[1,-1],[0,2],[1,2]],
+  // 1->2 (CW)
+  [[1,0],[1,-1],[0,2],[1,2]],
+  // 2->1 (CCW)
+  [[-1,0],[-1,1],[0,-2],[-1,-2]],
+  // 2->3 (CW)
+  [[1,0],[1,1],[0,-2],[1,-2]],
+  // 3->2 (CCW)
+  [[-1,0],[-1,-1],[0,2],[-1,2]],
+  // 3->0 (CW)
+  [[-1,0],[-1,1],[0,-2],[-1,-2]],
+  // 0->3 (CCW)
+  [[1,0],[1,-1],[0,2],[1,2]]
+];
+
+const KICKS_I = [
+  // 0->1 (CW)
+  [[-2,0],[1,0],[-2,-1],[1,2]],
+  // 1->0 (CCW)
+  [[2,0],[-1,0],[2,1],[-1,-2]],
+  // 1->2 (CW)
+  [[-1,0],[2,0],[-1,2],[2,-1]],
+  // 2->1 (CCW)
+  [[1,0],[-2,0],[1,-2],[-2,1]],
+  // 2->3 (CW)
+  [[2,0],[-1,0],[2,1],[-1,-2]],
+  // 3->2 (CCW)
+  [[-2,0],[1,0],[-2,-1],[1,2]],
+  // 3->0 (CW)
+  [[1,0],[-2,0],[1,-2],[-2,1]],
+  // 0->3 (CCW)
+  [[-1,0],[2,0],[-1,2],[2,-1]]
+];
+
+// ─── BOARD ──────────────────────────────────────────────────────────────────
+const COLS = 10;
+const ROWS = 20;
+const CELL = 32;
+
+class Board {
+  constructor() {
+    this.grid = this.emptyGrid();
+  }
+  emptyGrid() {
+    return Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  }
+  reset() {
+    this.grid = this.emptyGrid();
+  }
+  isValid(shape, px, py) {
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (!shape[r][c]) continue;
+        const nx = px + c;
+        const ny = py + r;
+        if (nx < 0 || nx >= COLS || ny >= ROWS) return false;
+        if (ny >= 0 && this.grid[ny][nx]) return false;
+      }
+    }
+    return true;
+  }
+  lock(shape, px, py, color) {
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (!shape[r][c]) continue;
+        const nx = px + c;
+        const ny = py + r;
+        if (ny < 0) continue;
+        this.grid[ny][nx] = color;
+      }
+    }
+  }
+  clearLines() {
+    let cleared = 0;
+    for (let r = ROWS - 1; r >= 0; r--) {
+      if (this.grid[r].every(c => c !== 0)) {
+        this.grid.splice(r, 1);
+        this.grid.unshift(Array(COLS).fill(0));
+        cleared++;
+        r++;
+      }
+    }
+    return cleared;
+  }
+}
+
+// ─── BAG7 RANDOMIZER ────────────────────────────────────────────────────────
+class Bag7 {
+  constructor() {
+    this.bag = [];
+  }
+  shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+  refill() {
+    this.bag.push(...this.shuffle([0,1,2,3,4,5,6]));
+  }
+  next() {
+    if (this.bag.length === 0) this.refill();
+    return this.bag.shift();
+  }
+  ensureLength(n) {
+    while (this.bag.length < n) this.refill();
+  }
+  peek(n) {
+    this.ensureLength(n);
+    return this.bag.slice(0, n);
+  }
+}
+
+// ─── AUDIO ──────────────────────────────────────────────────────────────────
+let audioCtx = null;
+let muted = false;
+
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioCtx;
+}
+
+function playTone(freq, type, duration, vol) {
+  if (muted) return;
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(vol || 0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration);
+  } catch(e) {}
+}
+
+function soundLock()      { playTone(110, 'square', 0.07, 0.18); }
+function soundMove()      { playTone(220, 'square', 0.04, 0.08); }
+function soundRotate()    { playTone(330, 'square', 0.05, 0.10); }
+function soundLineClear(n) {
+  const freqs = [440, 550, 660, 880];
+  const f = freqs[Math.min(n,4)-1];
+  playTone(f, 'square', 0.20, 0.30);
+  if (n === 4) {
+    setTimeout(() => playTone(f * 1.5, 'square', 0.25, 0.35), 120);
+  }
+}
+function soundGameOver() {
+  if (muted) return;
+  try {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') ctx.resume();
+    [220, 196, 174, 130].forEach((f, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(f, ctx.currentTime + i * 0.18);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.18);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.25);
+      osc.start(ctx.currentTime + i * 0.18);
+      osc.stop(ctx.currentTime + i * 0.18 + 0.30);
+    });
+  } catch(e) {}
+}
+
+// ─── GAME STATE ─────────────────────────────────────────────────────────────
+const board = new Board();
+const bag = new Bag7();
+
+let current = null;    // {type, rot, x, y}
+let holdType = null;   // piece type index or null
+let holdUsed = false;
+let nextQueue = [];    // array of type indices
+let score = 0;
+let lines = 0;
+let level = 1;
+let gameState = 'idle'; // 'idle' | 'playing' | 'paused' | 'gameover'
+let lastTime = 0;
+let dropAccum = 0;
+let isLanded = false;
+let lockTimer = 0;
+
+const SCORE_TABLE = [0, 100, 300, 500, 800];
+
+function gravityInterval(lvl) {
+  return Math.max(50, 1000 - (lvl - 1) * 90);
+}
+
+// ─── SPAWN ──────────────────────────────────────────────────────────────────
+function fillQueue() {
+  while (nextQueue.length < 3) nextQueue.push(bag.next());
+}
+
+function makePiece(type) {
+  const shape = PIECES[type].states[0];
+  return {
+    type: type,
+    rot: 0,
+    x: Math.floor((COLS - shape[0].length) / 2),
+    y: -1
+  };
+}
+
+function spawnNext() {
+  fillQueue();
+  const type = nextQueue.shift();
+  fillQueue();
+  current = makePiece(type);
+  holdUsed = false;
+  isLanded = false;
+  lockTimer = 0;
+
+  const shape = PIECES[current.type].states[current.rot];
+  if (!board.isValid(shape, current.x, current.y)) {
+    gameState = 'gameover';
+    soundGameOver();
+  }
+}
+
+// ─── ROTATION (SRS) ─────────────────────────────────────────────────────────
+function rotatePiece(dir) {
+  // dir: 1=CW, -1=CCW
+  const p = PIECES[current.type];
+  const numStates = p.states.length;
+  const newRot = (current.rot + dir + numStates) % numStates;
+  const newShape = p.states[newRot];
+
+  const isI = current.type === 0;
+  const kicks = isI ? KICKS_I : KICKS_JLSTZ;
+
+  // Compute kick table index
+  // CW: from_rot*2, CCW: new_rot*2+1
+  const kickIdx = dir === 1 ? current.rot * 2 : newRot * 2 + 1;
+  const table = kicks[kickIdx] || [];
+
+  // Try base (no offset)
+  if (board.isValid(newShape, current.x, current.y)) {
+    current = { ...current, rot: newRot };
+    soundRotate();
+    resetLockIfAble();
+    return;
+  }
+  // Try kicks
+  for (const [dx, dy] of table) {
+    // SRS: dy is positive = up = negative in our coord
+    const nx = current.x + dx;
+    const ny = current.y - dy;
+    if (board.isValid(newShape, nx, ny)) {
+      current = { ...current, rot: newRot, x: nx, y: ny };
+      soundRotate();
+      resetLockIfAble();
+      return;
+    }
+  }
+  // Rotation failed — no change
+}
+
+function resetLockIfAble() {
+  const shape = PIECES[current.type].states[current.rot];
+  if (board.isValid(shape, current.x, current.y + 1)) {
+    isLanded = false;
+    lockTimer = 0;
+  }
+}
+
+// ─── GHOST ──────────────────────────────────────────────────────────────────
+function getGhostY() {
+  const shape = PIECES[current.type].states[current.rot];
+  let gy = current.y;
+  while (board.isValid(shape, current.x, gy + 1)) gy++;
+  return gy;
+}
+
+// ─── MOVEMENT ───────────────────────────────────────────────────────────────
+function tryMove(dx, dy) {
+  const shape = PIECES[current.type].states[current.rot];
+  if (board.isValid(shape, current.x + dx, current.y + dy)) {
+    current.x += dx;
+    current.y += dy;
+    return true;
+  }
+  return false;
+}
+
+// ─── LOCKING ────────────────────────────────────────────────────────────────
+function lockPiece() {
+  const shape = PIECES[current.type].states[current.rot];
+  board.lock(shape, current.x, current.y, PIECES[current.type].color);
+  soundLock();
+  const cleared = board.clearLines();
+  if (cleared > 0) {
+    score += SCORE_TABLE[Math.min(cleared, 4)] * level;
+    lines += cleared;
+    level = Math.floor(lines / 10) + 1;
+    soundLineClear(cleared);
+  }
+  updateUI();
+  spawnNext();
+}
+
+// ─── HOLD ───────────────────────────────────────────────────────────────────
+function doHold() {
+  if (holdUsed) return;
+  holdUsed = true;
+  const type = current.type;
+  if (holdType === null) {
+    holdType = type;
+    spawnNext();
+  } else {
+    const prev = holdType;
+    holdType = type;
+    current = makePiece(prev);
+    isLanded = false;
+    lockTimer = 0;
+  }
+}
+
+// ─── HARD DROP ──────────────────────────────────────────────────────────────
+function hardDrop() {
+  const gy = getGhostY();
+  const dropped = gy - current.y;
+  score += dropped * 2;
+  current.y = gy;
+  lockPiece();
+  updateUI();
+}
+
+// ─── GAME LOOP ───────────────────────────────────────────────────────────────
+function gameLoop(ts) {
+  requestAnimationFrame(gameLoop);
+
+  if (gameState !== 'playing') {
+    render();
+    return;
+  }
+
+  const dt = lastTime ? Math.min(ts - lastTime, 150) : 0;
+  lastTime = ts;
+
+  dropAccum += dt;
+  const grav = gravityInterval(level);
+
+  while (dropAccum >= grav) {
+    dropAccum -= grav;
+    const shape = PIECES[current.type].states[current.rot];
+    if (board.isValid(shape, current.x, current.y + 1)) {
+      current.y++;
+      isLanded = false;
+      lockTimer = 0;
+    } else {
+      isLanded = true;
+    }
+  }
+
+  if (isLanded) {
+    lockTimer += dt;
+    if (lockTimer >= 500) {
+      lockPiece();
+    }
+  }
+
+  render();
+}
+
+// ─── RENDERING ──────────────────────────────────────────────────────────────
+const pfCanvas  = document.getElementById('playfield');
+const pfCtx     = pfCanvas.getContext('2d');
+const holdCv    = document.getElementById('hold-canvas');
+const holdCtx   = holdCv.getContext('2d');
+const nextCv    = document.getElementById('next-canvas');
+const nextCtx   = nextCv.getContext('2d');
+
+function drawCell(ctx, cx, cy, color, size) {
+  size = size || CELL;
+  ctx.fillStyle = color;
+  ctx.fillRect(cx * size + 1, cy * size + 1, size - 2, size - 2);
+  // Top highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.fillRect(cx * size + 1, cy * size + 1, size - 2, 3);
+  // Left highlight
+  ctx.fillRect(cx * size + 1, cy * size + 1, 3, size - 2);
+  // Bottom shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(cx * size + 1, cy * size + size - 4, size - 2, 3);
+}
+
+function renderBoard() {
+  pfCtx.fillStyle = '#0d0d0d';
+  pfCtx.fillRect(0, 0, pfCanvas.width, pfCanvas.height);
+
+  // Grid lines
+  pfCtx.strokeStyle = '#181818';
+  pfCtx.lineWidth = 0.5;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      pfCtx.strokeRect(c * CELL, r * CELL, CELL, CELL);
+    }
+  }
+
+  // Locked cells
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (board.grid[r][c]) {
+        drawCell(pfCtx, c, r, board.grid[r][c], CELL);
+      }
+    }
+  }
+}
+
+function renderGhost() {
+  if (!current) return;
+  const gy = getGhostY();
+  if (gy === current.y) return;
+  const shape = PIECES[current.type].states[current.rot];
+  const color = PIECES[current.type].color;
+  pfCtx.strokeStyle = color;
+  pfCtx.lineWidth = 1.5;
+  pfCtx.globalAlpha = 0.45;
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (!shape[r][c]) continue;
+      const bx = (current.x + c) * CELL;
+      const by = (gy + r) * CELL;
+      pfCtx.strokeRect(bx + 2, by + 2, CELL - 4, CELL - 4);
+    }
+  }
+  pfCtx.globalAlpha = 1.0;
+}
+
+function renderCurrent() {
+  if (!current) return;
+  const shape = PIECES[current.type].states[current.rot];
+  const color = PIECES[current.type].color;
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (!shape[r][c]) continue;
+      drawCell(pfCtx, current.x + c, current.y + r, color, CELL);
+    }
+  }
+}
+
+function renderHold() {
+  holdCtx.fillStyle = '#0d0d0d';
+  holdCtx.fillRect(0, 0, holdCv.width, holdCv.height);
+  if (holdType === null) return;
+  const shape = PIECES[holdType].states[0];
+  const color = holdUsed ? '#444' : PIECES[holdType].color;
+  const size = 18;
+  const offX = Math.floor((holdCv.width - shape[0].length * size) / 2) / size;
+  const offY = Math.floor((holdCv.height - shape.length * size) / 2) / size;
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (shape[r][c]) drawCell(holdCtx, offX + c, offY + r, color, size);
+    }
+  }
+}
+
+function renderNext() {
+  nextCtx.fillStyle = '#0d0d0d';
+  nextCtx.fillRect(0, 0, nextCv.width, nextCv.height);
+  const size = 18;
+  const slotH = 80;
+  for (let i = 0; i < 3; i++) {
+    const type = nextQueue[i];
+    if (type === undefined) continue;
+    const shape = PIECES[type].states[0];
+    const color = PIECES[type].color;
+    const offX = Math.floor((nextCv.width - shape[0].length * size) / 2) / size;
+    const baseY = i * slotH;
+    const offY = baseY / size + Math.floor((slotH - shape.length * size) / 2) / size;
+    for (let r = 0; r < shape.length; r++) {
+      for (let c = 0; c < shape[r].length; c++) {
+        if (shape[r][c]) drawCell(nextCtx, offX + c, offY + r, color, size);
+      }
+    }
+    if (i < 2) {
+      nextCtx.strokeStyle = '#222';
+      nextCtx.lineWidth = 1;
+      nextCtx.beginPath();
+      nextCtx.moveTo(4, (i + 1) * slotH);
+      nextCtx.lineTo(nextCv.width - 4, (i + 1) * slotH);
+      nextCtx.stroke();
+    }
+  }
+}
+
+function drawOverlay(title, sub) {
+  pfCtx.fillStyle = 'rgba(0,0,0,0.78)';
+  pfCtx.fillRect(0, 0, pfCanvas.width, pfCanvas.height);
+  pfCtx.textAlign = 'center';
+  pfCtx.fillStyle = '#fff';
+  pfCtx.font = 'bold 34px Courier New';
+  pfCtx.fillText(title, pfCanvas.width / 2, pfCanvas.height / 2 - 24);
+  pfCtx.fillStyle = '#aaa';
+  pfCtx.font = '14px Courier New';
+  pfCtx.fillText(sub, pfCanvas.width / 2, pfCanvas.height / 2 + 18);
+}
+
+function updateUI() {
+  document.getElementById('score-display').textContent = score;
+  document.getElementById('level-display').textContent = level;
+  document.getElementById('lines-display').textContent = lines;
+}
+
+function render() {
+  renderBoard();
+  if (current && (gameState === 'playing' || gameState === 'paused')) {
+    renderGhost();
+    renderCurrent();
+  }
+  renderHold();
+  renderNext();
+
+  if (gameState === 'idle') {
+    drawOverlay('TETRIS', 'Press Space to start');
+  } else if (gameState === 'paused') {
+    drawOverlay('PAUSED', 'Press P to resume');
+  } else if (gameState === 'gameover') {
+    drawOverlay('GAME OVER', 'Press Space to restart');
+  }
+}
+
+// ─── INPUT ──────────────────────────────────────────────────────────────────
+const keysDown = {};
+
+document.addEventListener('keydown', e => {
+  const key = e.key;
+
+  // Space: start / hard drop
+  if (key === ' ') {
+    e.preventDefault();
+    if (gameState === 'idle' || gameState === 'gameover') {
+      startGame();
+    } else if (gameState === 'playing') {
+      hardDrop();
+    }
+    return;
+  }
+
+  // Pause
+  if (key === 'p' || key === 'P') {
+    if (gameState === 'playing') {
+      gameState = 'paused';
+    } else if (gameState === 'paused') {
+      gameState = 'playing';
+      lastTime = 0;
+    }
+    return;
+  }
+
+  if (gameState !== 'playing') return;
+
+  switch (key) {
+    case 'ArrowLeft':
+      e.preventDefault();
+      if (tryMove(-1, 0)) { soundMove(); resetLockIfAble(); }
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      if (tryMove(1, 0))  { soundMove(); resetLockIfAble(); }
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (tryMove(0, 1)) {
+        score += 1;
+        updateUI();
+        dropAccum = 0;
+      }
+      break;
+    case 'ArrowUp':
+    case 'x':
+    case 'X':
+      e.preventDefault();
+      rotatePiece(1);
+      break;
+    case 'z':
+    case 'Z':
+      e.preventDefault();
+      rotatePiece(-1);
+      break;
+    case 'c':
+    case 'C':
+      e.preventDefault();
+      doHold();
+      break;
+  }
+});
+
+// ─── START / RESET ───────────────────────────────────────────────────────────
+function startGame() {
+  board.reset();
+  bag.bag = [];
+  holdType = null;
+  holdUsed = false;
+  nextQueue = [];
+  score = 0;
+  lines = 0;
+  level = 1;
+  dropAccum = 0;
+  lockTimer = 0;
+  isLanded = false;
+  lastTime = 0;
+  updateUI();
+  fillQueue();
+  spawnNext();
+  gameState = 'playing';
+}
+
+// ─── MUTE BUTTON ─────────────────────────────────────────────────────────────
+document.getElementById('mute-btn').addEventListener('click', () => {
+  muted = !muted;
+  document.getElementById('mute-btn').textContent =
+    muted ? '\\uD83D\\uDD07 Sound OFF' : '\\uD83D\\uDD0A Sound ON';
+});
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
