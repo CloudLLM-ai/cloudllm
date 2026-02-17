@@ -544,29 +544,71 @@ impl ToolProtocol for MemoryProtocol {
             return Err(Box::new(ToolError::NotFound(tool_name.to_string())));
         }
 
-        // Extract the command from parameters
-        let command = parameters
+        // Extract the command string.  Agents may pass:
+        //   (a) a single "command" field that includes the key/value:
+        //         {"command": "G tetris_current_html"}
+        //   (b) separate "command"+"key" (and optionally "value") fields:
+        //         {"command": "G", "key": "tetris_current_html"}
+        //         {"command": "GET", "key": "tetris_current_html"}
+        //         {"command": "P", "key": "mykey", "value": "myval"}
+        //
+        // We normalise both forms into a single command string before parsing.
+        let raw_command = parameters
             .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                ToolError::InvalidParameters("Missing 'command' parameter".to_string())
+                ToolError::InvalidParameters(
+                    "Missing 'command' field. Use e.g. {\"command\": \"G mykey\"} or \
+                     {\"command\": \"G\", \"key\": \"mykey\"}"
+                        .to_string(),
+                )
             })?;
 
-        // Parse and execute the protocol command
-        let result = self.process_memory_command(command);
+        // Normalise full-word aliases to single-letter codes so the parser
+        // works regardless of which form the agent uses.
+        let normalised_verb = match raw_command.split_whitespace().next().unwrap_or("") {
+            "GET"    => "G",
+            "PUT"    => "P",
+            "LIST"   => "L",
+            "DELETE" => "D",
+            "CLEAR"  => "C",
+            other    => other,
+        };
+
+        // Reconstruct the command string, optionally appending key/value from
+        // separate JSON fields when the agent chose the split-parameter form.
+        let key_param   = parameters.get("key").and_then(|v| v.as_str()).unwrap_or("");
+        let value_param = parameters.get("value").and_then(|v| v.as_str()).unwrap_or("");
+
+        // Rest of the original command after stripping the leading verb token.
+        let rest_of_command = raw_command
+            .splitn(2, char::is_whitespace)
+            .nth(1)
+            .unwrap_or("")
+            .trim();
+
+        // Build the final canonical command: "<VERB> [key [value]]"
+        let command = if !key_param.is_empty() {
+            // Agent used the split-parameter style.
+            if !value_param.is_empty() {
+                format!("{} {} {}", normalised_verb, key_param, value_param)
+            } else {
+                format!("{} {}", normalised_verb, key_param)
+            }
+        } else if rest_of_command.is_empty() {
+            // Just the verb with no inline key (e.g. "L" or "C")
+            normalised_verb.to_string()
+        } else {
+            // Agent used the inline style, verb already normalised.
+            format!("{} {}", normalised_verb, rest_of_command)
+        };
+
+        let result = self.process_memory_command(&command);
         Ok(result)
     }
 
     async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
-        Ok(vec![ToolMetadata::new(
-            "memory",
-            "Persistent memory system with token-efficient protocol for agent state management",
-        )
-        .with_parameter(
-            ToolParameter::new("command", ToolParameterType::String)
-                .with_description("Memory protocol command")
-                .required(),
-        )])
+        Ok(vec![self.memory_tool_metadata()])
     }
 
     async fn get_tool_metadata(
@@ -576,16 +618,7 @@ impl ToolProtocol for MemoryProtocol {
         if tool_name != "memory" {
             return Err(Box::new(ToolError::NotFound(tool_name.to_string())));
         }
-
-        Ok(ToolMetadata::new(
-            "memory",
-            "Persistent memory system with token-efficient protocol for agent state management",
-        )
-        .with_parameter(
-            ToolParameter::new("command", ToolParameterType::String)
-                .with_description("Memory protocol command")
-                .required(),
-        ))
+        Ok(self.memory_tool_metadata())
     }
 
     fn protocol_name(&self) -> &str {
@@ -594,8 +627,72 @@ impl ToolProtocol for MemoryProtocol {
 }
 
 impl MemoryProtocol {
-    /// Process a memory protocol command
-    /// Commands: P (put), G (get), L (list), D (delete), C (clear), T (total bytes), SPEC (specification)
+    /// Build the ToolMetadata for the memory tool with a comprehensive self-contained description.
+    ///
+    /// The description teaches agents exactly how to call the tool — both the compact
+    /// single-letter commands and the more readable full-word aliases are accepted.
+    fn memory_tool_metadata(&self) -> ToolMetadata {
+        ToolMetadata::new(
+            "memory",
+            "Shared key-value store for agent coordination. \
+             Pass a 'command' string. Supported commands:\n\
+             \n\
+             READ a value:\n\
+               {\"command\": \"G mykey\"}                  — get key 'mykey'\n\
+               {\"command\": \"GET\", \"key\": \"mykey\"}  — same, split-param style\n\
+             \n\
+             WRITE a value (small values only; for large content use write_tetris_file):\n\
+               {\"command\": \"P mykey myvalue\"}                           — put without TTL\n\
+               {\"command\": \"P\", \"key\": \"mykey\", \"value\": \"val\"} — same, split-param style\n\
+               {\"command\": \"P mykey myvalue 3600\"}                      — put with 1-hour TTL\n\
+             \n\
+             LIST all keys:\n\
+               {\"command\": \"L\"}     — list keys\n\
+               {\"command\": \"LIST\"}  — same\n\
+             \n\
+             DELETE a key:\n\
+               {\"command\": \"D mykey\"}                   — delete key\n\
+               {\"command\": \"DELETE\", \"key\": \"mykey\"} — same\n\
+             \n\
+             CLEAR everything:\n\
+               {\"command\": \"C\"}  or  {\"command\": \"CLEAR\"}\n\
+             \n\
+             NOTE: PUT stores values as a single token — use write_tetris_file to persist HTML.",
+        )
+        .with_parameter(
+            ToolParameter::new("command", ToolParameterType::String)
+                .with_description(
+                    "Command string: 'G key', 'P key value [ttl]', 'L', 'D key', 'C'. \
+                     Full-word aliases (GET/PUT/LIST/DELETE/CLEAR) also accepted.",
+                )
+                .required(),
+        )
+        .with_parameter(
+            ToolParameter::new("key", ToolParameterType::String)
+                .with_description(
+                    "Key for GET/PUT/DELETE when using split-parameter style \
+                     instead of embedding the key in the command string.",
+                ),
+        )
+        .with_parameter(
+            ToolParameter::new("value", ToolParameterType::String)
+                .with_description(
+                    "Value for PUT when using split-parameter style. \
+                     Must be a single token (no spaces). Use write_tetris_file for HTML content.",
+                ),
+        )
+    }
+
+    /// Process a normalised memory protocol command string.
+    ///
+    /// Commands (case-sensitive single-letter form after normalisation):
+    ///   G key [META]   — get value (optionally with metadata)
+    ///   P key value [ttl_secs] — put value
+    ///   L [META]       — list keys
+    ///   D key          — delete key
+    ///   C              — clear all
+    ///   T A|K|V        — byte usage (All / Keys / Values)
+    ///   SPEC           — return raw protocol spec string
     fn process_memory_command(&self, command: &str) -> ToolResult {
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.is_empty() {

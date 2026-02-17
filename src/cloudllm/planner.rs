@@ -53,6 +53,7 @@
 //!             streamer: &NoopStream,
 //!             grok_tools: None,
 //!             openai_tools: None,
+//!             event_handler: None,
 //!         },
 //!     )
 //!     .await?;
@@ -63,6 +64,7 @@
 //! ```
 
 use crate::client_wrapper::{Role, TokenUsage};
+use crate::cloudllm::event::{EventHandler, PlannerEvent};
 use crate::cloudllm::llm_session::LLMSession;
 use crate::cloudllm::tool_protocol::{ToolRegistry, ToolResult};
 use async_trait::async_trait;
@@ -71,6 +73,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
+use uuid::Uuid;
 
 pub type PlannerResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -605,6 +608,7 @@ impl StreamSink for NoopStream {
 ///         streamer: &NoopStream,
 ///         grok_tools: None,
 ///         openai_tools: None,
+///         event_handler: None,
 ///     }
 /// }
 /// ```
@@ -623,6 +627,8 @@ pub struct PlannerContext<'a> {
     pub grok_tools: Option<Vec<GrokTool>>,
     /// Optional OpenAI tools to pass through to the provider client.
     pub openai_tools: Option<Vec<OpenAITool>>,
+    /// Optional event handler for planner lifecycle events.
+    pub event_handler: Option<&'a dyn EventHandler>,
 }
 
 /// Result structure returned after a planner turn.
@@ -716,8 +722,11 @@ pub trait Planner: Send + Sync {
     ///     }
     /// }
     /// ```
-    async fn plan(&self, input: UserMessage, ctx: PlannerContext<'_>)
-        -> PlannerResult<PlannerOutcome>;
+    async fn plan(
+        &self,
+        input: UserMessage,
+        ctx: PlannerContext<'_>,
+    ) -> PlannerResult<PlannerOutcome>;
 }
 
 /// Default planner implementation.
@@ -798,12 +807,31 @@ impl Planner for BasicPlanner {
     ) -> PlannerResult<PlannerOutcome> {
         let mut tool_calls = Vec::new();
         let memory_writes = Vec::new();
+        let plan_id = Uuid::new_v4().to_string();
+        let event_handler = ctx.event_handler;
+
+        if let Some(handler) = event_handler {
+            let start = PlannerEvent::TurnStarted {
+                plan_id: plan_id.clone(),
+                message_preview: preview_message(&input.content),
+            };
+            handler.on_planner_event(&start).await;
+        }
+
         let memory_entries = ctx.memory.retrieve(&input)?;
 
         let mut message = build_memory_prompt(&input.content, &memory_entries);
         message = append_tool_prompt(message, ctx.tools);
 
-        let mut response = ctx
+        if let Some(handler) = event_handler {
+            let started = PlannerEvent::LLMCallStarted {
+                plan_id: plan_id.clone(),
+                iteration: 1,
+            };
+            handler.on_planner_event(&started).await;
+        }
+
+        let mut response = match ctx
             .session
             .send_message(
                 Role::User,
@@ -812,7 +840,35 @@ impl Planner for BasicPlanner {
                 ctx.openai_tools.clone(),
             )
             .await
-            .map_err(map_session_error)?;
+        {
+            Ok(resp) => resp,
+            Err(err) => {
+                if let Some(handler) = event_handler {
+                    let event = PlannerEvent::TurnErrored {
+                        plan_id: plan_id.clone(),
+                        error: err.to_string(),
+                    };
+                    handler.on_planner_event(&event).await;
+                }
+                return Err(map_session_error(err));
+            }
+        };
+
+        if let Some(handler) = event_handler {
+            let completed = PlannerEvent::LLMCallCompleted {
+                plan_id: plan_id.clone(),
+                iteration: 1,
+                response_length: response.content.len(),
+            };
+            handler.on_planner_event(&completed).await;
+
+            let chunk = PlannerEvent::PartialOutputChunk {
+                plan_id: plan_id.clone(),
+                iteration: 1,
+                chunk: response.content.to_string(),
+            };
+            handler.on_planner_event(&chunk).await;
+        }
 
         let mut current_response = response.content.to_string();
         let mut tool_iteration = 0;
@@ -823,7 +879,25 @@ impl Planner for BasicPlanner {
                 break;
             };
 
+            let iteration_index = tool_iteration + 1;
+
+            if let Some(handler) = event_handler {
+                let event = PlannerEvent::ToolCallDetected {
+                    plan_id: plan_id.clone(),
+                    tool_name: tool_call.name.clone(),
+                    parameters: tool_call.parameters.clone(),
+                    iteration: iteration_index,
+                };
+                handler.on_planner_event(&event).await;
+            }
+
             if tool_iteration >= self.max_tool_iterations {
+                if let Some(handler) = event_handler {
+                    let event = PlannerEvent::ToolMaxIterationsReached {
+                        plan_id: plan_id.clone(),
+                    };
+                    handler.on_planner_event(&event).await;
+                }
                 current_response = format!(
                     "{}\n\n[Warning: Maximum tool iterations reached]",
                     current_response
@@ -834,17 +908,31 @@ impl Planner for BasicPlanner {
             tool_iteration += 1;
             let policy_decision = ctx.policy.allow_tool_call(&tool_call).await?;
             if let PolicyDecision::Deny(reason) = policy_decision {
+                if let Some(handler) = event_handler {
+                    let event = PlannerEvent::ToolExecutionCompleted {
+                        plan_id: plan_id.clone(),
+                        tool_name: tool_call.name.clone(),
+                        parameters: tool_call.parameters.clone(),
+                        success: false,
+                        error: Some(format!("policy denied: {}", reason)),
+                        result: None,
+                        iteration: iteration_index,
+                    };
+                    handler.on_planner_event(&event).await;
+                }
                 current_response = format!("Tool call denied: {}", reason);
                 break;
             }
 
+            let tool_params_snapshot = tool_call.parameters.clone();
+
             ctx.streamer
-                .on_tool_start(&tool_call.name, &tool_call.parameters)
+                .on_tool_start(&tool_call.name, &tool_params_snapshot)
                 .await?;
 
             let tool_result = ctx
                 .tools
-                .execute_tool(&tool_call.name, tool_call.parameters.clone())
+                .execute_tool(&tool_call.name, tool_params_snapshot.clone())
                 .await;
 
             let (tool_result_message, resolved_tool_result) = match &tool_result {
@@ -871,13 +959,38 @@ impl Planner for BasicPlanner {
                 ),
             };
 
+            if let Some(handler) = event_handler {
+                let event = PlannerEvent::ToolExecutionCompleted {
+                    plan_id: plan_id.clone(),
+                    tool_name: tool_call.name.clone(),
+                    parameters: tool_params_snapshot.clone(),
+                    success: resolved_tool_result.success,
+                    error: resolved_tool_result.error.clone(),
+                    result: if resolved_tool_result.success {
+                        Some(resolved_tool_result.output.clone())
+                    } else {
+                        None
+                    },
+                    iteration: iteration_index,
+                };
+                handler.on_planner_event(&event).await;
+            }
+
             ctx.streamer
                 .on_tool_end(&tool_call.name, &resolved_tool_result)
                 .await?;
 
             tool_calls.push(resolved_tool_result.clone());
 
-            response = ctx
+            if let Some(handler) = event_handler {
+                let started = PlannerEvent::LLMCallStarted {
+                    plan_id: plan_id.clone(),
+                    iteration: tool_iteration + 1,
+                };
+                handler.on_planner_event(&started).await;
+            }
+
+            response = match ctx
                 .session
                 .send_message(
                     Role::User,
@@ -886,14 +999,61 @@ impl Planner for BasicPlanner {
                     ctx.openai_tools.clone(),
                 )
                 .await
-                .map_err(map_session_error)?;
+            {
+                Ok(resp) => resp,
+                Err(err) => {
+                    if let Some(handler) = event_handler {
+                        let event = PlannerEvent::TurnErrored {
+                            plan_id: plan_id.clone(),
+                            error: err.to_string(),
+                        };
+                        handler.on_planner_event(&event).await;
+                    }
+                    return Err(map_session_error(err));
+                }
+            };
+
+            if let Some(handler) = event_handler {
+                let completed = PlannerEvent::LLMCallCompleted {
+                    plan_id: plan_id.clone(),
+                    iteration: tool_iteration + 1,
+                    response_length: response.content.len(),
+                };
+                handler.on_planner_event(&completed).await;
+
+                let chunk = PlannerEvent::PartialOutputChunk {
+                    plan_id: plan_id.clone(),
+                    iteration: tool_iteration + 1,
+                    chunk: response.content.to_string(),
+                };
+                handler.on_planner_event(&chunk).await;
+            }
 
             current_response = response.content.to_string();
         }
 
-        ctx.streamer.on_final(&current_response).await?;
+        if let Err(err) = ctx.streamer.on_final(&current_response).await {
+            if let Some(handler) = event_handler {
+                let event = PlannerEvent::TurnErrored {
+                    plan_id: plan_id.clone(),
+                    error: err.to_string(),
+                };
+                handler.on_planner_event(&event).await;
+            }
+            return Err(err);
+        }
 
         let tokens_used = ctx.session.last_token_usage().await;
+
+        if let Some(handler) = event_handler {
+            let event = PlannerEvent::TurnCompleted {
+                plan_id: plan_id.clone(),
+                tokens_used: tokens_used.clone(),
+                response_length: current_response.len(),
+                tool_calls_made: tool_calls.len(),
+            };
+            handler.on_planner_event(&event).await;
+        }
 
         Ok(PlannerOutcome {
             final_message: current_response,
@@ -904,64 +1064,134 @@ impl Planner for BasicPlanner {
     }
 }
 
-/// Build a prompt that prepends retrieved memory to the user message.
+/// Produce a truncated preview of the user message for event payloads.
+///
+/// Returns the first N characters of the message (respecting UTF-8 boundaries).
+/// If the message is longer than the limit, an ellipsis is appended. Removes
+/// newlines for cleaner logging.
 ///
 /// # Parameters
 ///
-/// * `user_message` - The raw user input.
-/// * `entries` - Memory entries to prepend.
+/// * `text` - The full message text.
+///
+/// # Returns
+///
+/// A truncated, newline-free preview suitable for logging (≤ 120 chars + "...").
+fn preview_message(text: &str) -> String {
+    const MAX_PREVIEW_CHARS: usize = 120;
+
+    // Normalize: remove newlines for cleaner logging
+    let normalized = text.replace('\n', " ").replace('\r', "");
+
+    // Truncate at character boundary
+    let mut chars = normalized.chars();
+    let preview: String = chars.by_ref().take(MAX_PREVIEW_CHARS).collect();
+
+    // Append ellipsis if truncated
+    if chars.next().is_some() {
+        format!("{preview}...")
+    } else {
+        preview
+    }
+}
+
+/// Build a prompt that prepends retrieved memory to the user message.
+///
+/// Formats memory entries with clear section headers and maintains separation
+/// from the main user message. If no entries are provided, returns the message unchanged.
+///
+/// # Parameters
+///
+/// * `user_message` - The raw user input text.
+/// * `entries` - Memory entries to prepend (typically from semantic retrieval).
+///
+/// # Returns
+///
+/// A formatted prompt with memory context prepended, or just the user message if empty.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use cloudllm::planner::MemoryEntry;
 ///
-/// let entries = vec![MemoryEntry::new("Remember this")];
-/// let prompt = cloudllm::planner::build_memory_prompt("Hi", &entries);
+/// let entries = vec![
+///     MemoryEntry::new("Remember this").with_metadata("source", "session"),
+///     MemoryEntry::new("Also recall that").with_metadata("source", "manual"),
+/// ];
+/// let prompt = cloudllm::planner::build_memory_prompt("What should I do?", &entries);
+/// assert!(prompt.contains("Relevant memory:"));
 /// assert!(prompt.contains("Remember this"));
+/// assert!(prompt.contains("What should I do?"));
 /// ```
 fn build_memory_prompt(user_message: &str, entries: &[MemoryEntry]) -> String {
     if entries.is_empty() {
         return user_message.to_string();
     }
 
-    let mut prompt = String::from("Relevant memory:\n");
-    for entry in entries {
-        prompt.push_str(&format!("- {}\n", entry.content));
+    let mut prompt = String::new();
+    prompt.push_str("═══════════════════════════════════════════════════════════\n");
+    prompt.push_str("RELEVANT MEMORY (context from prior work):\n");
+    prompt.push_str("═══════════════════════════════════════════════════════════\n\n");
+
+    for (idx, entry) in entries.iter().enumerate() {
+        prompt.push_str(&format!("[Memory {}] {}\n", idx + 1, entry.content));
+        if !entry.metadata.is_empty() {
+            for (key, value) in &entry.metadata {
+                prompt.push_str(&format!("  ({}: {})\n", key, value));
+            }
+        }
+        prompt.push('\n');
     }
-    prompt.push_str("\n");
+
+    prompt.push_str("═══════════════════════════════════════════════════════════\n");
+    prompt.push_str("NEW TASK:\n");
+    prompt.push_str("═══════════════════════════════════════════════════════════\n\n");
     prompt.push_str(user_message);
+
     prompt
 }
 
 /// Append tool descriptions and usage instructions to a user message.
 ///
+/// Formats available tools with clear section headers, parameter details, and
+/// provides explicit JSON format examples. If no tools are available, returns
+/// the message unchanged.
+///
 /// # Parameters
 ///
-/// * `message` - The prompt to augment.
-/// * `tools` - Registry used to render tool metadata.
+/// * `message` - The prompt to augment with tool information.
+/// * `tools` - Tool registry containing all available tools and their metadata.
+///
+/// # Returns
+///
+/// The augmented message with tool list and format instructions, or unchanged
+/// message if no tools are registered.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use std::sync::Arc;
-///
-/// use cloudllm::tool_protocol::{ToolMetadata, ToolRegistry, ToolResult};
+/// use cloudllm::tool_protocol::{ToolMetadata, ToolRegistry};
 /// use cloudllm::tool_protocols::CustomToolProtocol;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let protocol = Arc::new(CustomToolProtocol::new());
 /// protocol
 ///     .register_tool(
-///         ToolMetadata::new("echo", "Echo a value"),
-///         Arc::new(|params| Ok(ToolResult::success(params.clone()))),
+///         ToolMetadata::new("calculator", "Do math operations")
+///             .with_parameter(cloudllm::tool_protocol::ToolParameter::new(
+///                 "expr",
+///                 cloudllm::tool_protocol::ToolParameterType::String
+///             ).with_description("Math expression").required()),
+///         Arc::new(|params| Ok(cloudllm::tool_protocol::ToolResult::success(serde_json::json!({"result": 5})))),
 ///     )
 ///     .await;
 ///
 /// let mut registry = ToolRegistry::new(protocol);
 /// registry.discover_tools_from_primary().await?;
-/// let prompt = cloudllm::planner::append_tool_prompt("Hi".to_string(), &registry);
-/// assert!(prompt.contains("echo"));
+/// let prompt = cloudllm::planner::append_tool_prompt("Calculate 2+3".to_string(), &registry);
+/// assert!(prompt.contains("calculator"));
+/// assert!(prompt.contains("tool_call"));
 /// # Ok(())
 /// # }
 /// ```
@@ -971,60 +1201,120 @@ fn append_tool_prompt(mut message: String, tools: &ToolRegistry) -> String {
         return message;
     }
 
-    message.push_str("\n\nYou have access to the following tools:\n");
-    for tool_metadata in tool_list {
+    message.push_str("\n\n");
+    message.push_str("═══════════════════════════════════════════════════════════\n");
+    message.push_str(&format!("AVAILABLE TOOLS ({} total):\n", tool_list.len()));
+    message.push_str("═══════════════════════════════════════════════════════════\n\n");
+
+    for (idx, tool_metadata) in tool_list.iter().enumerate() {
         message.push_str(&format!(
-            "- {}: {}\n",
-            tool_metadata.name, tool_metadata.description
+            "[{}] {}\n    {}\n",
+            idx + 1,
+            tool_metadata.name,
+            tool_metadata.description
         ));
+
         if !tool_metadata.parameters.is_empty() {
-            message.push_str("  Parameters:\n");
+            message.push_str("    Parameters:\n");
             for param in &tool_metadata.parameters {
+                let required = if param.required { " [REQUIRED]" } else { "" };
                 message.push_str(&format!(
-                    "    - {} ({:?}): {}\n",
+                    "      • {} ({}){}\n        {}\n",
                     param.name,
-                    param.param_type,
-                    param.description.as_deref().unwrap_or("No description")
+                    format!("{:?}", param.param_type).to_lowercase(),
+                    required,
+                    param.description.as_deref().unwrap_or("(no description)")
                 ));
             }
         }
+        message.push('\n');
     }
 
-    message.push_str(
-        "\nTo use a tool, respond with a JSON object in the following format:\n\
-         {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-         After tool execution, I'll provide the result and you can continue.\n",
-    );
+    message.push_str("═══════════════════════════════════════════════════════════\n");
+    message.push_str("TOOL USAGE FORMAT:\n");
+    message.push_str("═══════════════════════════════════════════════════════════\n\n");
+    message.push_str("To invoke a tool, respond with EXACTLY this JSON structure:\n\n");
+    message.push_str("  {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {\"param1\": \"value1\", \"param2\": \"value2\"}}}\n\n");
+    message.push_str("Examples:\n");
+    message.push_str("  {\"tool_call\": {\"name\": \"calculator\", \"parameters\": {\"expr\": \"2+2\"}}}\n");
+    message.push_str("  {\"tool_call\": {\"name\": \"read_file\", \"parameters\": {\"path\": \"/home/user/data.txt\"}}}\n\n");
+    message.push_str("After I execute the tool, I'll provide the result and you can continue working.\n");
+    message.push_str("You may call multiple tools sequentially in a single response.\n");
 
     message
 }
 
 /// Parse the first JSON tool call from a response string.
 ///
+/// Scans the response for the JSON tool call marker `{"tool_call":` and extracts
+/// the first valid tool call found. Supports tool calls anywhere in the response
+/// (before, after, or mixed with other text).
+///
+/// Returns `None` if:
+/// - No `{"tool_call":` marker is found
+/// - No closing `}` is found after the marker
+/// - The extracted JSON is malformed
+/// - Required fields (`name` or `parameters`) are missing
+///
 /// # Parameters
 ///
-/// * `response` - The model response to scan for a tool call.
+/// * `response` - The complete model response text to scan.
+///
+/// # Returns
+///
+/// The first valid `ToolCallRequest` found, or `None` if parsing fails.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use cloudllm::planner::ToolCallRequest;
 ///
-/// let response = "{\"tool_call\": {\"name\": \"calculator\", \"parameters\": {\"expr\": \"2+2\"}}}";
+/// // Tool call in the middle of text
+/// let response = "I will now calculate this.\n{\"tool_call\": {\"name\": \"calculator\", \"parameters\": {\"expr\": \"2+2\"}}}\nThe result will help.";
 /// let parsed = cloudllm::planner::parse_tool_call(response).unwrap();
 /// assert_eq!(parsed.name, "calculator");
+///
+/// // No tool call (returns None)
+/// let no_call = "Just talking about tools";
+/// assert!(cloudllm::planner::parse_tool_call(no_call).is_none());
 /// ```
 fn parse_tool_call(response: &str) -> Option<ToolCallRequest> {
-    let start_idx = response.find("{\"tool_call\"")?;
-    let end_idx = response.rfind('}')?;
-    if end_idx <= start_idx {
+    // Find the tool call marker
+    let marker = "{\"tool_call\"";
+    let start_idx = response.find(marker)?;
+
+    // Find the closing brace (naive approach — assumes balanced JSON)
+    let end_idx = response[start_idx..].rfind('}')?;
+    let abs_end_idx = start_idx + end_idx;
+
+    if abs_end_idx <= start_idx {
         return None;
     }
 
-    let tool_json = &response[start_idx..=end_idx];
-    let parsed: Value = serde_json::from_str(tool_json).ok()?;
+    // Extract and parse the JSON
+    let tool_json = &response[start_idx..=abs_end_idx];
+
+    // Try to parse as JSON
+    let parsed: Value = match serde_json::from_str(tool_json) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    // Extract tool_call object
     let tool_call_obj = parsed.get("tool_call")?;
-    let name = tool_call_obj.get("name")?.as_str()?.to_string();
+
+    // Extract name (required)
+    let name = tool_call_obj
+        .get("name")?
+        .as_str()?
+        .trim()
+        .to_string();
+
+    if name.is_empty() {
+        return None;
+    }
+
+    // Extract parameters (required, may be empty object)
     let parameters = tool_call_obj.get("parameters")?.clone();
 
     Some(ToolCallRequest { name, parameters })
@@ -1032,9 +1322,17 @@ fn parse_tool_call(response: &str) -> Option<ToolCallRequest> {
 
 /// Convert session errors into Send + Sync errors for planner callers.
 ///
+/// Wraps any error type (which may not be Send + Sync) into a standard io::Error
+/// that implements the required traits. This is necessary because planners are
+/// used in async contexts where error types must be Send + Sync.
+///
 /// # Parameters
 ///
-/// * `err` - The original session error.
+/// * `err` - The original session error (any Box<dyn Error> type).
+///
+/// # Returns
+///
+/// A Send + Sync error suitable for propagation through async code.
 fn map_session_error(err: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
     Box::new(io::Error::new(io::ErrorKind::Other, err.to_string()))
 }

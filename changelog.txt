@@ -1,3 +1,17 @@
+0.10.6 FEB/17/2026
+ - feat: Add Model::ClaudeCodeSonnet46 enum variant
+   - Maps to "claude-code-sonnet-4-6" model identifier
+   - Claude Code specialised Sonnet optimised for agentic coding tasks
+ - enhance: tetris_planner_team example improvements
+   - Always delete stale output file at run start (fresh slate each run)
+   - Rescue mechanism: extract HTML from agent response text when write_tetris_file not called
+   - New system context frames instructions as PATTERN A / PATTERN B response formats
+   - Tool self-descriptions printed to stdout before orchestration starts
+   - Fixed starter HTML (raw string had escaped quotes that produced invalid HTML)
+   - Memory tool now accepts both inline and split-parameter command styles
+   - Memory::get_protocol_spec() corrected to match actual implementation format
+   - MemoryProtocol::execute() normalises GET/PUT/LIST/DELETE/CLEAR aliases
+
 0.10.5 FEB/16/2026
  - feat: Planner module for single-turn orchestration
    - Planner trait with policy, memory, and streaming hooks

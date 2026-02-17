@@ -14,7 +14,7 @@
 //! * **Stateful Conversations**: [`LLMSession`] for maintaining rolling conversation history
 //!   with context trimming and token accounting
 //! * **Multi-Agent Orchestration**: [`orchestration`] module for coordinating discussions across
-//!   multiple agents with Parallel, RoundRobin, Moderated, Hierarchical, Debate, Ralph, or 
+//!   multiple agents with Parallel, RoundRobin, Moderated, Hierarchical, Debate, Ralph, or
 //!   AnthropicAgentTeams patterns
 //! * **Provider Flexibility**: [`ClientWrapper`] trait implemented for OpenAI, Anthropic Claude,
 //!   Google Gemini, xAI Grok, and custom OpenAI-compatible endpoints
@@ -314,7 +314,7 @@ pub use cloudllm::thought_chain::{Thought, ThoughtChain, ThoughtType};
 
 // Re-export tool protocol and orchestration functionality
 pub use cloudllm::event;
-pub use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
+pub use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent, PlannerEvent};
 pub use cloudllm::mcp_server;
 pub use cloudllm::orchestration;
 pub use cloudllm::planner;

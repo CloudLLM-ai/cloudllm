@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+use cloudllm::event::{EventHandler, PlannerEvent};
 use cloudllm::planner::{
     BasicPlanner, MemoryEntry, MemoryStore, NoopMemory, NoopPolicy, NoopStream, Planner,
     PlannerContext, PolicyDecision, PolicyEngine, StreamSink, UserMessage,
@@ -12,6 +13,7 @@ use cloudllm::LLMSession;
 use openai_rust2 as openai_rust;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 struct SequentialMockClient {
     responses: Vec<String>,
@@ -95,8 +97,7 @@ impl ClientWrapper for InspectingClient {
         _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let found = messages.iter().any(|message| {
-            message.content.contains("Relevant memory")
-                && message.content.contains("Remember this")
+            message.content.contains("Relevant memory") && message.content.contains("Remember this")
         });
         self.saw_memory.store(found, Ordering::SeqCst);
         if !found {
@@ -145,6 +146,26 @@ impl StreamSink for CountingStream {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.finals.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+}
+
+struct RecordingHandler {
+    events: Arc<Mutex<Vec<PlannerEvent>>>,
+}
+
+impl RecordingHandler {
+    fn new() -> Self {
+        Self {
+            events: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl EventHandler for RecordingHandler {
+    async fn on_planner_event(&self, event: &PlannerEvent) {
+        let mut lock = self.events.lock().await;
+        lock.push(event.clone());
     }
 }
 
@@ -206,6 +227,7 @@ async fn planner_executes_tool_loop_and_streams_events() {
                 streamer: &stream,
                 grok_tools: None,
                 openai_tools: None,
+                event_handler: None,
             },
         )
         .await
@@ -221,12 +243,64 @@ async fn planner_executes_tool_loop_and_streams_events() {
 }
 
 #[tokio::test]
-async fn planner_denies_tool_call_via_policy() {
+async fn planner_emits_planner_events() {
     let exec_count = Arc::new(AtomicUsize::new(0));
     let registry = build_registry(exec_count.clone()).await;
     let responses = vec![
-        r#"{"tool_call": {"name": "add", "parameters": {"a": 1, "b": 1}}}"#.to_string(),
+        r#"{"tool_call": {"name": "add", "parameters": {"a": 2, "b": 3}}}"#.to_string(),
+        "Done".to_string(),
     ];
+
+    let client: Arc<dyn ClientWrapper> = Arc::new(SequentialMockClient::new(responses));
+    let mut session = LLMSession::new(client, "You are precise.".into(), 8_000);
+    let handler = Arc::new(RecordingHandler::new());
+    let events_handle = handler.events.clone();
+
+    let planner = BasicPlanner::new();
+    let outcome = planner
+        .plan(
+            UserMessage::from("Add 2+3"),
+            PlannerContext {
+                session: &mut session,
+                tools: &registry,
+                policy: &NoopPolicy,
+                memory: &NoopMemory,
+                streamer: &NoopStream,
+                grok_tools: None,
+                openai_tools: None,
+                event_handler: Some(handler.as_ref()),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.final_message, "Done");
+
+    let events = events_handle.lock().await.clone();
+    assert!(!events.is_empty());
+    assert!(matches!(
+        events.first(),
+        Some(PlannerEvent::TurnStarted { .. })
+    ));
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, PlannerEvent::ToolCallDetected { .. })));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        PlannerEvent::ToolExecutionCompleted { success: true, .. }
+    )));
+    assert!(matches!(
+        events.last(),
+        Some(PlannerEvent::TurnCompleted { .. })
+    ));
+}
+
+#[tokio::test]
+async fn planner_denies_tool_call_via_policy() {
+    let exec_count = Arc::new(AtomicUsize::new(0));
+    let registry = build_registry(exec_count.clone()).await;
+    let responses =
+        vec![r#"{"tool_call": {"name": "add", "parameters": {"a": 1, "b": 1}}}"#.to_string()];
 
     let client: Arc<dyn ClientWrapper> = Arc::new(SequentialMockClient::new(responses));
     let mut session = LLMSession::new(client, "You are precise.".into(), 8_000);
@@ -242,6 +316,7 @@ async fn planner_denies_tool_call_via_policy() {
                 streamer: &NoopStream,
                 grok_tools: None,
                 openai_tools: None,
+                event_handler: None,
             },
         )
         .await
@@ -277,6 +352,7 @@ async fn planner_includes_memory_in_prompt() {
                 streamer: &NoopStream,
                 grok_tools: None,
                 openai_tools: None,
+                event_handler: None,
             },
         )
         .await

@@ -173,58 +173,37 @@ impl Memory {
         }
     }
 
-    /// Returns the protocol specification for agents
+    /// Returns a concise, accurate protocol specification for agents.
     ///
-    /// This should be included in the system prompt to teach the LLM
-    /// about the memory interface.
+    /// Use this in system prompts so agents know how to interact with the
+    /// memory tool. The format exactly matches what `MemoryProtocol::execute`
+    /// accepts — no length prefixes, plain whitespace-separated tokens.
     pub fn get_protocol_spec() -> String {
-        r#"
-Memory Module Protocol Specification:
---------------------------------------
-The memory module supports the following commands for persistent state management:
+        r#"Memory tool quick-reference (tool name: "memory"):
 
-1. Put (P): Store a key-value pair with optional TTL.
-   Syntax: P <key_length>:<key><value_length>:<value>[TTL:<ttl_seconds>]\n
-   Example (no expiration): P 3:foo7:barbaz\n
-   Example (with expiration): P 3:foo7:barbazTTL:3600\n
-   Response: OK
+COMMAND FIELD FORMATS — two styles are accepted:
+  Style A (inline): {"command": "G mykey"}
+  Style B (split):  {"command": "G", "key": "mykey"}
 
-2. Get (G): Retrieve a value for a key, optionally with metadata.
-   Syntax: G <key_length>:<key>[META]\n
-   Example (without metadata): G 3:foo\n
-   Example (with metadata): G 3:fooMETA\n
-   Response (with metadata): 7:barbaz|added_utc:2024-11-25T14:30:00Z|expires_in:3600\n
-   Response (without metadata): 7:barbaz\n
+COMMANDS:
+  G <key>              Read a value.      → {"value": "..."}  or ERR:NOT_FOUND
+  P <key> <value>      Write a value.     → {"status": "OK"}
+  P <key> <value> <s>  Write with TTL s.  → {"status": "OK"}
+  L                    List all keys.     → {"keys": [...]}
+  D <key>              Delete a key.      → {"status": "OK"}  or ERR:NOT_FOUND
+  C                    Clear everything.  → {"status": "OK"}
+  T A                  Total byte usage.  → {"total_bytes": N}
 
-3. List Keys (L): List all stored keys, optionally with metadata.
-   Syntax: L[META]\n
-   Example (keys only): L\n
-   Example (with metadata): LMETA\n
-   Response: 2:foo|added_utc:2024-11-25T14:30:00Z|expires_in:3600,bar\n
+ALIASES: GET=G, PUT=P, LIST=L, DELETE=D, CLEAR=C
 
-4. Delete (D): Remove a specific key.
-   Syntax: D <key_length>:<key>\n
-   Example: D 3:foo\n
-   Response: OK or ERR:NOT_FOUND
+EXAMPLES:
+  {"command": "G tetris_current_html"}
+  {"command": "GET", "key": "tetris_current_html"}
+  {"command": "P", "key": "notes", "value": "step1done"}
+  {"command": "L"}
 
-5. Clear (C): Delete all stored keys.
-   Syntax: C\n
-   Response: OK
-
-6. Total Bytes (T): Get total memory usage.
-   Syntax: T <scope>\n
-   Scopes: A (all), K (keys only), V (values only)
-   Example: T A\n
-   Response: 512\n
-
-Notes:
-- Metadata includes `added_utc` (timestamp) and `expires_in` (TTL in seconds).
-- Expired keys are automatically removed by the memory module.
-- The module prioritizes efficiency and minimal token usage.
-
-This protocol is designed to minimize token consumption and ensure accurate memory interactions.
-"#
-        .to_string()
+NOTE: P stores single-token values (no spaces). To persist HTML use write_tetris_file."#
+            .to_string()
     }
 
     /// Put a key-value pair with optional TTL (in seconds)

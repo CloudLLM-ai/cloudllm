@@ -1,13 +1,15 @@
-//! Agent and Orchestration event system.
+//! Agent, Planner, and Orchestration event system.
 //!
-//! Provides a callback-based observability layer for agents and orchestrations.
-//! Implement [`EventHandler`] to receive real-time notifications about:
+//! Provides a callback-based observability layer for agents, single-turn planners,
+//! and orchestrations. Implement [`EventHandler`] to receive real-time
+//! notifications about:
 //!
-//! - **LLM round-trips**: When each agent sends to and receives from its LLM
+//! - **LLM round-trips**: When each agent or planner turn sends to and receives from its LLM
 //! - **Tool operations**: Tool call detection, execution outcomes, iteration limits
 //! - **ThoughtChain**: Thought commits to persistent memory
 //! - **Tool mutations**: Protocol additions and removals at runtime
 //! - **Agent lifecycle**: Fork, system prompt changes, message injection
+//! - **Planner lifecycle**: Turn boundaries, per-iteration responses, policy denials
 //! - **Orchestration lifecycle**: Run start/end, round boundaries, agent selection
 //! - **Mode-specific**: Debate convergence checks, RALPH iteration/task progress
 //!
@@ -289,6 +291,135 @@ pub enum AgentEvent {
         agent_id: String,
         /// Human-readable display name.
         agent_name: String,
+    },
+}
+
+/// Events emitted by a planner turn executed via [`Planner`](crate::planner::Planner).
+///
+/// These mirror [`AgentEvent`] variants so downstream handlers can process
+/// planner activity using the same patterns they already use for agents. Each
+/// variant carries a `plan_id` so concurrent planner turns can be distinguished.
+///
+/// # Event Flow (single tool call)
+///
+/// ```text
+/// TurnStarted { plan_id: "...", message_preview: "Summarize..." }
+///   └─ LLMCallStarted { iteration: 1 }
+///   └─ LLMCallCompleted { iteration: 1, response_length: 180 }
+///   └─ ToolCallDetected { tool_name: "add", iteration: 1 }
+///   └─ ToolExecutionCompleted { tool_name: "add", success: true, iteration: 1 }
+///   └─ LLMCallStarted { iteration: 2 }
+///   └─ LLMCallCompleted { iteration: 2, response_length: 64 }
+/// TurnCompleted { tool_calls_made: 1, response_length: 64 }
+/// ```
+#[derive(Debug, Clone)]
+pub enum PlannerEvent {
+    /// Fired at the start of a planner turn.
+    TurnStarted {
+        /// Unique identifier generated for this planner turn.
+        plan_id: String,
+        /// Preview (first ~120 chars) of the user message.
+        message_preview: String,
+    },
+
+    /// Fired when a planner enters a named phase (e.g., RALPH stage).
+    PhaseStarted {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// Phase label supplied by the planner implementation.
+        phase: String,
+    },
+
+    /// Fired when a named phase completes.
+    PhaseCompleted {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// Phase label that completed.
+        phase: String,
+    },
+
+    /// Fired before each LLM round-trip inside the planner loop.
+    LLMCallStarted {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// 1-based iteration counter (1 = initial call, 2+ = after tool results).
+        iteration: usize,
+    },
+
+    /// Fired after each LLM round-trip completes.
+    LLMCallCompleted {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// 1-based iteration counter matching the corresponding `LLMCallStarted`.
+        iteration: usize,
+        /// Character length of the assistant response from this call.
+        response_length: usize,
+    },
+
+    /// A tool call was detected in the model response.
+    ToolCallDetected {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// Name of the tool requested by the model.
+        tool_name: String,
+        /// Raw JSON parameters for the tool call.
+        parameters: serde_json::Value,
+        /// 1-based tool iteration within this planner turn.
+        iteration: usize,
+    },
+
+    /// A tool execution finished (success or failure).
+    ToolExecutionCompleted {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// Name of the tool that was executed.
+        tool_name: String,
+        /// Parameters that were passed to the tool.
+        parameters: serde_json::Value,
+        /// `true` if the tool executed successfully.
+        success: bool,
+        /// Error message if execution failed or was denied.
+        error: Option<String>,
+        /// Tool output on success, `None` on failure.
+        result: Option<serde_json::Value>,
+        /// 1-based tool iteration matching the corresponding `ToolCallDetected`.
+        iteration: usize,
+    },
+
+    /// The planner's tool loop hit its iteration cap.
+    ToolMaxIterationsReached {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+    },
+
+    /// Planner produced an incremental assistant output chunk.
+    PartialOutputChunk {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// 1-based iteration counter when the chunk was produced.
+        iteration: usize,
+        /// Assistant content emitted during this iteration.
+        chunk: String,
+    },
+
+    /// Planner turn completed successfully.
+    TurnCompleted {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// Aggregated token usage reported by the provider.
+        tokens_used: Option<TokenUsage>,
+        /// Character length of the final assistant response.
+        response_length: usize,
+        /// Number of tool calls executed during the turn.
+        tool_calls_made: usize,
+    },
+
+    /// Planner turn ended with an error.
+    TurnErrored {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// Error message describing the failure.
+        error: String,
     },
 }
 
@@ -630,6 +761,13 @@ pub trait EventHandler: Send + Sync {
     /// is a no-op. Override this to observe LLM calls, tool usage, and
     /// other agent lifecycle events.
     async fn on_agent_event(&self, _event: &AgentEvent) {}
+
+    /// Called when a planner turn emits an event.
+    ///
+    /// Receives a reference to the [`PlannerEvent`]. The default implementation
+    /// is a no-op. Override this to observe single-turn planner behaviour such
+    /// as tool loops, policy denials, and final responses.
+    async fn on_planner_event(&self, _event: &PlannerEvent) {}
 
     /// Called when an orchestration emits an event.
     ///
