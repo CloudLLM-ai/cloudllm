@@ -378,14 +378,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("\n╔════════════════════════════════════════════════════════════════╗");
     println!("║         TETRIS BUILDER — RALPH Orchestration Demo             ║");
-    println!("║                Claude Haiku 4.5 Agent Team                     ║");
+    println!("║             Claude Code Sonnet 4.6 Agent Team                  ║");
     println!("╚════════════════════════════════════════════════════════════════╝\n");
 
     println!("📐 ORCHESTRATION SETUP:");
     println!("  Mode: RALPH (Iterative task-based coordination)");
     println!("  Max Iterations: 8");
     println!("  Agents: 4 specialists (researcher, architect, programmer, tester)");
-    println!("  Model: Claude Haiku 4.5 (fast + cost-effective)");
+    println!("  Model: Claude Code Sonnet 4.6 (agentic coding specialist)");
     println!("  Shared Tools: Memory, file I/O");
     println!();
     println!("🎯 PROCESS:");
@@ -628,7 +628,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let make_client = || {
         Arc::new(ClaudeClient::new_with_model_enum(
             &api_key,
-            Model::ClaudeHaiku45,
+            Model::ClaudeCodeSonnet46,
         )) as Arc<dyn cloudllm::ClientWrapper>
     };
 
