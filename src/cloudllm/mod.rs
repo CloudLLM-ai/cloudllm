@@ -27,6 +27,7 @@ pub mod mcp_server;
 pub mod mcp_server_builder;
 pub mod mcp_server_builder_utils;
 pub mod orchestration;
+pub mod planner;
 pub mod resource_protocol;
 pub mod thought_chain;
 pub mod tool_protocol;
