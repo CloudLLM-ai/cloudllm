@@ -1,3 +1,11 @@
+0.10.5 FEB/16/2026
+ - feat: Planner module for single-turn orchestration
+   - Planner trait with policy, memory, and streaming hooks
+   - BasicPlanner implementation with tool loop support
+   - Tests for planner tool execution, policy denial, memory injection, streaming hooks
+ - feat: Tetris planner example (Claude Haiku 4.5)
+   - Multi-agent planner workflow writes tetris_planner_output.html
+
 0.10.4 FEB/13/2026
  - enhance: Update Grok Imagine API integration
    - Switch from deprecated grok-2-image-1212 to current grok-imagine-image model

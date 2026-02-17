@@ -1,6 +1,6 @@
 [package]
 name = "cloudllm"
-version = "0.10.4"
+version = "0.10.5"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, and multi-agent orchestration."
