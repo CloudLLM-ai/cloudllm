@@ -50,7 +50,7 @@
 
 use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
 use crate::cloudllm::context_strategy::{ContextStrategy, TrimStrategy};
-use crate::cloudllm::event::{AgentEvent, EventHandler};
+use crate::cloudllm::event::{AgentEvent, EventHandler, PlannerEvent};
 use crate::cloudllm::llm_session::LLMSession;
 use crate::cloudllm::thought_chain::{Thought, ThoughtChain, ThoughtType};
 use crate::cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
@@ -413,6 +413,17 @@ impl Agent {
             tokio::spawn(async move {
                 handler.on_agent_event(&event).await;
             });
+        }
+    }
+
+    /// Emit a [`PlannerEvent`] to the registered handler (async context).
+    ///
+    /// Mirrors [`emit`](Agent::emit) but fires planner events so that agent
+    /// turns also appear in the `[planner]` event stream alongside RALPH
+    /// orchestration. If no handler is registered, this is a no-op.
+    async fn emit_planner(&self, event: PlannerEvent) {
+        if let Some(handler) = &self.event_handler {
+            handler.on_planner_event(&event).await;
         }
     }
 
@@ -864,10 +875,16 @@ impl Agent {
             .nth(preview_len)
             .map(|(i, _)| i)
             .unwrap_or(user_message.len());
+        let message_preview = user_message[..preview_end].to_string();
         self.emit(AgentEvent::SendStarted {
             agent_id: self.id.clone(),
             agent_name: self.name.clone(),
-            message_preview: user_message[..preview_end].to_string(),
+            message_preview: message_preview.clone(),
+        })
+        .await;
+        self.emit_planner(PlannerEvent::TurnStarted {
+            plan_id: self.id.clone(),
+            message_preview,
         })
         .await;
 
@@ -928,6 +945,11 @@ impl Agent {
             iteration: 1,
         })
         .await;
+        self.emit_planner(PlannerEvent::LLMCallStarted {
+            plan_id: self.id.clone(),
+            iteration: 1,
+        })
+        .await;
 
         let response = self
             .session
@@ -950,6 +972,7 @@ impl Agent {
             total_tokens += usage.total_tokens;
         }
 
+        let first_response_length = response.content.len();
         self.emit(AgentEvent::LLMCallCompleted {
             agent_id: self.id.clone(),
             agent_name: self.name.clone(),
@@ -963,7 +986,13 @@ impl Agent {
             } else {
                 None
             },
-            response_length: response.content.len(),
+            response_length: first_response_length,
+        })
+        .await;
+        self.emit_planner(PlannerEvent::LLMCallCompleted {
+            plan_id: self.id.clone(),
+            iteration: 1,
+            response_length: first_response_length,
         })
         .await;
 
@@ -978,6 +1007,10 @@ impl Agent {
                         agent_name: self.name.clone(),
                     })
                     .await;
+                    self.emit_planner(PlannerEvent::ToolMaxIterationsReached {
+                        plan_id: self.id.clone(),
+                    })
+                    .await;
                     current_response = format!(
                         "{}\n\n[Warning: Maximum tool iterations reached]",
                         current_response
@@ -987,11 +1020,19 @@ impl Agent {
                 tool_iteration += 1;
 
                 let tool_params_snapshot = tool_call.parameters.clone();
+                let tool_name = tool_call.name.clone();
 
                 self.emit(AgentEvent::ToolCallDetected {
                     agent_id: self.id.clone(),
                     agent_name: self.name.clone(),
-                    tool_name: tool_call.name.clone(),
+                    tool_name: tool_name.clone(),
+                    parameters: tool_params_snapshot.clone(),
+                    iteration: tool_iteration,
+                })
+                .await;
+                self.emit_planner(PlannerEvent::ToolCallDetected {
+                    plan_id: self.id.clone(),
+                    tool_name: tool_name.clone(),
                     parameters: tool_params_snapshot.clone(),
                     iteration: tool_iteration,
                 })
@@ -1045,6 +1086,16 @@ impl Agent {
                     agent_id: self.id.clone(),
                     agent_name: self.name.clone(),
                     tool_name: tool_call.name.clone(),
+                    parameters: tool_params_snapshot.clone(),
+                    success: tool_success,
+                    error: tool_error.clone(),
+                    result: tool_output.clone(),
+                    iteration: tool_iteration,
+                })
+                .await;
+                self.emit_planner(PlannerEvent::ToolExecutionCompleted {
+                    plan_id: self.id.clone(),
+                    tool_name: tool_name,
                     parameters: tool_params_snapshot,
                     success: tool_success,
                     error: tool_error,
@@ -1054,10 +1105,16 @@ impl Agent {
                 .await;
 
                 // Send tool result back through session
+                let next_iteration = tool_iteration + 1;
                 self.emit(AgentEvent::LLMCallStarted {
                     agent_id: self.id.clone(),
                     agent_name: self.name.clone(),
-                    iteration: tool_iteration + 1,
+                    iteration: next_iteration,
+                })
+                .await;
+                self.emit_planner(PlannerEvent::LLMCallStarted {
+                    plan_id: self.id.clone(),
+                    iteration: next_iteration,
                 })
                 .await;
 
@@ -1082,10 +1139,11 @@ impl Agent {
                     total_tokens += usage.total_tokens;
                 }
 
+                let follow_up_response_length = follow_up.content.len();
                 self.emit(AgentEvent::LLMCallCompleted {
                     agent_id: self.id.clone(),
                     agent_name: self.name.clone(),
-                    iteration: tool_iteration + 1,
+                    iteration: next_iteration,
                     tokens_used: if total_tokens > 0 {
                         Some(TokenUsage {
                             input_tokens: total_input_tokens,
@@ -1095,7 +1153,13 @@ impl Agent {
                     } else {
                         None
                     },
-                    response_length: follow_up.content.len(),
+                    response_length: follow_up_response_length,
+                })
+                .await;
+                self.emit_planner(PlannerEvent::LLMCallCompleted {
+                    plan_id: self.id.clone(),
+                    iteration: next_iteration,
+                    response_length: follow_up_response_length,
                 })
                 .await;
 
@@ -1115,12 +1179,20 @@ impl Agent {
             None
         };
 
+        let final_response_length = current_response.len();
         self.emit(AgentEvent::SendCompleted {
             agent_id: self.id.clone(),
             agent_name: self.name.clone(),
             tokens_used: tokens_used.clone(),
             tool_calls_made: tool_iteration,
-            response_length: current_response.len(),
+            response_length: final_response_length,
+        })
+        .await;
+        self.emit_planner(PlannerEvent::TurnCompleted {
+            plan_id: self.id.clone(),
+            tokens_used: tokens_used.clone(),
+            response_length: final_response_length,
+            tool_calls_made: tool_iteration,
         })
         .await;
 

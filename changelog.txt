@@ -1,3 +1,12 @@
+0.10.7 FEB/17/2026
+ - feat: Agent::send() now fires PlannerEvents alongside AgentEvents
+   - Every agent turn emits both [agent] and [planner] scoped events
+   - Added emit_planner() helper on Agent mirroring existing emit()
+   - Mapping: SendStarted→TurnStarted, LLMCallStarted/Completed, ToolCallDetected,
+     ToolExecutionCompleted, ToolMaxIterationsReached, SendCompleted→TurnCompleted
+   - plan_id is the agent's id; event handlers can show [planner] log entries
+   - Full backward compatibility — all existing AgentEvent emissions unchanged
+
 0.10.6 FEB/17/2026
  - feat: Add Model::ClaudeSonnet46 enum variant
    - Maps to "claude-sonnet-4-6" model identifier
