@@ -38,3 +38,7 @@ tempfile = "3.23"
 [features]
 # MCP Server builder with HTTP support (requires axum and tower)
 mcp-server = ["axum", "tower"]
+
+[[example]]
+name = "tetris_mcp_server"
+required-features = ["mcp-server"]

@@ -26,6 +26,7 @@
 //! }
 //! ```
 
+use crate::cloudllm::event::EventHandler;
 use crate::cloudllm::mcp_http_adapter::{HttpServerAdapter, HttpServerConfig, HttpServerInstance};
 use crate::cloudllm::mcp_server::UnifiedMcpServer;
 use crate::cloudllm::mcp_server_builder_utils::{AuthConfig, IpFilter};
@@ -49,6 +50,8 @@ pub struct MCPServerBuilder {
     auth: AuthConfig,
     /// HTTP framework adapter (trait object for swappability)
     adapter: Arc<dyn HttpServerAdapter>,
+    /// Optional event handler for MCP server lifecycle and request events
+    event_handler: Option<Arc<dyn EventHandler>>,
 }
 
 impl MCPServerBuilder {
@@ -65,6 +68,7 @@ impl MCPServerBuilder {
             ip_filter: IpFilter::new(),
             auth: AuthConfig::None,
             adapter: Self::default_adapter(),
+            event_handler: None,
         }
     }
 
@@ -200,6 +204,15 @@ impl MCPServerBuilder {
         self
     }
 
+    /// Attach an event handler to receive MCP server lifecycle and request events.
+    ///
+    /// When set, the handler will receive [`McpEvent`] variants for server startup,
+    /// tool list requests, tool executions, and rejected connections.
+    pub fn with_event_handler(mut self, handler: Arc<dyn EventHandler>) -> Self {
+        self.event_handler = Some(handler);
+        self
+    }
+
     /// Start the MCP server on the specified port
     ///
     /// # Arguments
@@ -260,6 +273,7 @@ impl MCPServerBuilder {
                 _ => None,
             },
             allowed_ips: Vec::new(), // TODO: Extract from ip_filter
+            event_handler: self.event_handler,
         };
 
         // Start server using adapter

@@ -20,13 +20,15 @@
 //!
 //! This allows users to swap HTTP frameworks without changing their code.
 
+use crate::cloudllm::event::EventHandler;
+#[cfg(feature = "mcp-server")]
+use crate::cloudllm::event::McpEvent;
 use crate::cloudllm::tool_protocol::ToolProtocol;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Configuration for an HTTP MCP server
-#[derive(Debug, Clone)]
 pub struct HttpServerConfig {
     /// Socket address to bind to (e.g., "127.0.0.1:8080")
     pub addr: SocketAddr,
@@ -34,6 +36,30 @@ pub struct HttpServerConfig {
     pub bearer_token: Option<String>,
     /// Optional list of allowed IP addresses and CIDR blocks
     pub allowed_ips: Vec<String>,
+    /// Optional event handler for MCP server lifecycle and request events
+    pub event_handler: Option<Arc<dyn EventHandler>>,
+}
+
+impl Clone for HttpServerConfig {
+    fn clone(&self) -> Self {
+        Self {
+            addr: self.addr,
+            bearer_token: self.bearer_token.clone(),
+            allowed_ips: self.allowed_ips.clone(),
+            event_handler: self.event_handler.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for HttpServerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpServerConfig")
+            .field("addr", &self.addr)
+            .field("bearer_token", &self.bearer_token)
+            .field("allowed_ips", &self.allowed_ips)
+            .field("has_event_handler", &self.event_handler.is_some())
+            .finish()
+    }
 }
 
 /// A running HTTP server instance
@@ -130,7 +156,6 @@ impl HttpServerAdapter for AxumHttpAdapter {
             .allowed_ips
             .iter()
             .filter_map(|ip_str| {
-                // Try parsing as simple IP first
                 if let Ok(addr) = IpAddr::from_str(ip_str) {
                     return Some(addr);
                 }
@@ -142,7 +167,7 @@ impl HttpServerAdapter for AxumHttpAdapter {
         let bearer_token = Arc::new(config.bearer_token.clone());
         let allowed_ips = Arc::new(allowed_ips);
 
-        // Clone for each route handler to avoid move conflicts
+        // Clone per-route: token, IPs, protocol, event handler
         let token_list = bearer_token.clone();
         let ips_list = allowed_ips.clone();
         let token_exec = bearer_token.clone();
@@ -151,6 +176,9 @@ impl HttpServerAdapter for AxumHttpAdapter {
         let ips_res_list = allowed_ips.clone();
         let token_res_read = bearer_token.clone();
         let ips_res_read = allowed_ips.clone();
+
+        let eh_list = config.event_handler.clone();
+        let eh_exec = config.event_handler.clone();
 
         let protocol_list = protocol.clone();
         let protocol_exec = protocol.clone();
@@ -165,9 +193,18 @@ impl HttpServerAdapter for AxumHttpAdapter {
                     let token = token_list.clone();
                     let allowed = ips_list.clone();
                     let proto = protocol_list.clone();
+                    let eh = eh_list.clone();
                     async move {
                         // Check IP filtering
                         if !allowed.is_empty() && !allowed.contains(&addr.ip()) {
+                            if let Some(ref handler) = eh {
+                                handler
+                                    .on_mcp_event(&McpEvent::RequestRejected {
+                                        client_addr: addr.ip().to_string(),
+                                        reason: "IP not allowed".to_string(),
+                                    })
+                                    .await;
+                            }
                             return (
                                 StatusCode::FORBIDDEN,
                                 Json(json!({"error": "Access denied"})),
@@ -180,8 +217,26 @@ impl HttpServerAdapter for AxumHttpAdapter {
                             // TODO: Validate Authorization header here
                         }
 
+                        // Fire ToolListRequested
+                        if let Some(ref handler) = eh {
+                            handler
+                                .on_mcp_event(&McpEvent::ToolListRequested {
+                                    client_addr: addr.ip().to_string(),
+                                })
+                                .await;
+                        }
+
                         match proto.list_tools().await {
                             Ok(tools) => {
+                                let tool_count = tools.len();
+                                if let Some(ref handler) = eh {
+                                    handler
+                                        .on_mcp_event(&McpEvent::ToolListReturned {
+                                            client_addr: addr.ip().to_string(),
+                                            tool_count,
+                                        })
+                                        .await;
+                                }
                                 (StatusCode::OK, Json(json!({"tools": tools}))).into_response()
                             }
                             Err(e) => (
@@ -201,9 +256,18 @@ impl HttpServerAdapter for AxumHttpAdapter {
                         let token = token_exec.clone();
                         let allowed = ips_exec.clone();
                         let proto = protocol_exec.clone();
+                        let eh = eh_exec.clone();
                         async move {
                             // Check IP filtering
                             if !allowed.is_empty() && !allowed.contains(&addr.ip()) {
+                                if let Some(ref handler) = eh {
+                                    handler
+                                        .on_mcp_event(&McpEvent::RequestRejected {
+                                            client_addr: addr.ip().to_string(),
+                                            reason: "IP not allowed".to_string(),
+                                        })
+                                        .await;
+                                }
                                 return (
                                     StatusCode::FORBIDDEN,
                                     Json(json!({"error": "Access denied"})),
@@ -216,17 +280,59 @@ impl HttpServerAdapter for AxumHttpAdapter {
                                 // TODO: Validate Authorization header here
                             }
 
-                            let tool_name = payload["tool"].as_str().unwrap_or("");
+                            let tool_name = payload["tool"].as_str().unwrap_or("").to_string();
                             let params = payload["parameters"].clone();
 
-                            match proto.execute(tool_name, params).await {
-                                Ok(result) => (StatusCode::OK, Json(json!({"result": result})))
-                                    .into_response(),
-                                Err(e) => (
-                                    StatusCode::BAD_REQUEST,
-                                    Json(json!({"error": e.to_string()})),
-                                )
-                                    .into_response(),
+                            // Fire ToolCallReceived
+                            if let Some(ref handler) = eh {
+                                handler
+                                    .on_mcp_event(&McpEvent::ToolCallReceived {
+                                        client_addr: addr.ip().to_string(),
+                                        tool_name: tool_name.clone(),
+                                        parameters: params.clone(),
+                                    })
+                                    .await;
+                            }
+
+                            let exec_start = std::time::Instant::now();
+                            match proto.execute(&tool_name, params).await {
+                                Ok(result) => {
+                                    let duration_ms = exec_start.elapsed().as_millis() as u64;
+                                    let success = result.success;
+                                    let error = result.error.clone();
+                                    if let Some(ref handler) = eh {
+                                        handler
+                                            .on_mcp_event(&McpEvent::ToolCallCompleted {
+                                                client_addr: addr.ip().to_string(),
+                                                tool_name: tool_name.clone(),
+                                                success,
+                                                error,
+                                                duration_ms,
+                                            })
+                                            .await;
+                                    }
+                                    (StatusCode::OK, Json(json!({"result": result})))
+                                        .into_response()
+                                }
+                                Err(e) => {
+                                    let duration_ms = exec_start.elapsed().as_millis() as u64;
+                                    let err_msg = e.to_string();
+                                    if let Some(ref handler) = eh {
+                                        handler
+                                            .on_mcp_event(&McpEvent::ToolError {
+                                                source: addr.ip().to_string(),
+                                                tool_name: tool_name.clone(),
+                                                error: err_msg.clone(),
+                                                duration_ms,
+                                            })
+                                            .await;
+                                    }
+                                    (
+                                        StatusCode::BAD_REQUEST,
+                                        Json(json!({"error": err_msg})),
+                                    )
+                                        .into_response()
+                                }
                             }
                         }
                     },
@@ -328,6 +434,15 @@ impl HttpServerAdapter for AxumHttpAdapter {
         // Bind and start server
         let listener = TcpListener::bind(config.addr).await?;
         let addr = listener.local_addr()?;
+
+        // Fire ServerStarted event
+        if let Some(ref handler) = config.event_handler {
+            handler
+                .on_mcp_event(&McpEvent::ServerStarted {
+                    addr: addr.to_string(),
+                })
+                .await;
+        }
 
         let server_handle = tokio::spawn(async move { axum::serve(listener, app).await });
 

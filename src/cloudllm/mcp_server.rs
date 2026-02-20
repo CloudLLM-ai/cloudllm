@@ -160,9 +160,19 @@ impl ToolProtocol for UnifiedMcpServer {
     /// List all available tools across all registered protocols
     ///
     /// This aggregates tool metadata from all registered tool protocols.
+    /// Each protocol is queried at most once even if multiple tool names
+    /// are registered to the same protocol instance.
     async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
         let tools = self.tools.read().await;
-        let protocols: Vec<Arc<dyn ToolProtocol>> = tools.values().cloned().collect();
+
+        // Deduplicate protocol instances by pointer so each protocol's list_tools()
+        // is called at most once (multiple tool names may point to the same protocol).
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let protocols: Vec<Arc<dyn ToolProtocol>> = tools
+            .values()
+            .filter(|p| seen.insert(Arc::as_ptr(*p) as *const () as usize))
+            .cloned()
+            .collect();
 
         // Drop the read lock before making async calls
         drop(tools);
