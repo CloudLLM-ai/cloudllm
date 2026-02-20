@@ -32,6 +32,7 @@
 //! registry.add_protocol("mcp", Arc::new(McpClientProtocol::new(url))).await?;
 //! ```
 
+use crate::cloudllm::event::{EventHandler, McpEvent};
 use crate::cloudllm::tool_protocol::{
     ToolError, ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolResult,
 };
@@ -203,6 +204,7 @@ pub struct McpClientProtocol {
     tools_cache: Arc<RwLock<Option<Vec<ToolMetadata>>>>,
     cache_ttl_secs: u64,
     last_cache_refresh: Arc<RwLock<Option<std::time::Instant>>>,
+    event_handler: Option<Arc<dyn EventHandler>>,
 }
 
 impl McpClientProtocol {
@@ -217,6 +219,7 @@ impl McpClientProtocol {
             tools_cache: Arc::new(RwLock::new(None)),
             cache_ttl_secs: 300, // 5 minutes
             last_cache_refresh: Arc::new(RwLock::new(None)),
+            event_handler: None,
         }
     }
 
@@ -235,6 +238,15 @@ impl McpClientProtocol {
         self
     }
 
+    /// Attach an event handler to observe MCP client lifecycle events.
+    ///
+    /// When set, the handler will receive [`McpEvent`] variants for connection
+    /// initialization, tool discovery, cache hits/misses, and remote tool calls.
+    pub fn with_event_handler(mut self, handler: Arc<dyn EventHandler>) -> Self {
+        self.event_handler = Some(handler);
+        self
+    }
+
     async fn should_refresh_cache(&self) -> bool {
         let last_refresh = self.last_cache_refresh.read().await;
         match *last_refresh {
@@ -246,7 +258,8 @@ impl McpClientProtocol {
     async fn refresh_cache(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let response = self
             .client
-            .get(format!("{}/tools", self.endpoint))
+            .post(format!("{}/tools/list", self.endpoint))
+            .json(&serde_json::json!({}))
             .send()
             .await?;
 
@@ -257,9 +270,28 @@ impl McpClientProtocol {
             ))));
         }
 
-        let tools: Vec<ToolMetadata> = response.json().await?;
+        let body: serde_json::Value = response.json().await?;
+        // The server wraps tools in {"tools": [...]}
+        let tools: Vec<ToolMetadata> = if let Some(arr) = body.get("tools").and_then(|v| v.as_array()) {
+            serde_json::from_value(serde_json::Value::Array(arr.clone())).unwrap_or_default()
+        } else {
+            serde_json::from_value(body).unwrap_or_default()
+        };
+
+        let tool_count = tools.len();
+        let tool_names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
+
         *self.tools_cache.write().await = Some(tools);
         *self.last_cache_refresh.write().await = Some(std::time::Instant::now());
+
+        if let Some(ref eh) = self.event_handler {
+            eh.on_mcp_event(&McpEvent::ToolsDiscovered {
+                endpoint: self.endpoint.clone(),
+                tool_count,
+                tool_names,
+            })
+            .await;
+        }
 
         Ok(())
     }
@@ -272,30 +304,111 @@ impl ToolProtocol for McpClientProtocol {
         tool_name: &str,
         parameters: JsonValue,
     ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+        if let Some(ref eh) = self.event_handler {
+            eh.on_mcp_event(&McpEvent::RemoteToolCallStarted {
+                endpoint: self.endpoint.clone(),
+                tool_name: tool_name.to_string(),
+                parameters: parameters.clone(),
+            })
+            .await;
+        }
+
+        let call_start = std::time::Instant::now();
+
         let response = self
             .client
-            .post(format!("{}/execute", self.endpoint))
+            .post(format!("{}/tools/execute", self.endpoint))
             .json(&serde_json::json!({
                 "tool": tool_name,
                 "parameters": parameters
             }))
             .send()
-            .await?;
+            .await;
 
-        if !response.status().is_success() {
-            return Err(Box::new(ToolError::ExecutionFailed(format!(
-                "MCP server returned status: {}",
-                response.status()
-            ))));
+        match response {
+            Err(e) => {
+                let duration_ms = call_start.elapsed().as_millis() as u64;
+                if let Some(ref eh) = self.event_handler {
+                    eh.on_mcp_event(&McpEvent::ToolError {
+                        source: self.endpoint.clone(),
+                        tool_name: tool_name.to_string(),
+                        error: e.to_string(),
+                        duration_ms,
+                    })
+                    .await;
+                }
+                Err(Box::new(e))
+            }
+            Ok(resp) => {
+                if !resp.status().is_success() {
+                    let duration_ms = call_start.elapsed().as_millis() as u64;
+                    let err_msg = format!("MCP server returned status: {}", resp.status());
+                    if let Some(ref eh) = self.event_handler {
+                        eh.on_mcp_event(&McpEvent::ToolError {
+                            source: self.endpoint.clone(),
+                            tool_name: tool_name.to_string(),
+                            error: err_msg.clone(),
+                            duration_ms,
+                        })
+                        .await;
+                    }
+                    return Err(Box::new(ToolError::ExecutionFailed(err_msg)));
+                }
+
+                let body: serde_json::Value = resp.json().await?;
+                // Server wraps result in {"result": {...}}
+                let result: ToolResult = if let Some(r) = body.get("result") {
+                    serde_json::from_value(r.clone()).unwrap_or_else(|_| {
+                        ToolResult::failure("Failed to deserialize result".to_string())
+                    })
+                } else {
+                    serde_json::from_value(body).unwrap_or_else(|_| {
+                        ToolResult::failure("Failed to deserialize result".to_string())
+                    })
+                };
+
+                let duration_ms = call_start.elapsed().as_millis() as u64;
+                if let Some(ref eh) = self.event_handler {
+                    eh.on_mcp_event(&McpEvent::RemoteToolCallCompleted {
+                        endpoint: self.endpoint.clone(),
+                        tool_name: tool_name.to_string(),
+                        success: result.success,
+                        error: result.error.clone(),
+                        duration_ms,
+                    })
+                    .await;
+                }
+
+                Ok(result)
+            }
         }
-
-        let result: ToolResult = response.json().await?;
-        Ok(result)
     }
 
     async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
         if self.should_refresh_cache().await {
+            // If we had a prior cache entry, the TTL expired
+            let had_cache = self.last_cache_refresh.read().await.is_some();
+            if had_cache {
+                if let Some(ref eh) = self.event_handler {
+                    eh.on_mcp_event(&McpEvent::CacheExpired {
+                        endpoint: self.endpoint.clone(),
+                    })
+                    .await;
+                }
+            }
             self.refresh_cache().await?;
+        } else {
+            // Cache is valid — fire CacheHit
+            if let Some(ref eh) = self.event_handler {
+                let cache = self.tools_cache.read().await;
+                let count = cache.as_ref().map_or(0, |t| t.len());
+                drop(cache);
+                eh.on_mcp_event(&McpEvent::CacheHit {
+                    endpoint: self.endpoint.clone(),
+                    tool_count: count,
+                })
+                .await;
+            }
         }
 
         let cache = self.tools_cache.read().await;
@@ -325,10 +438,31 @@ impl ToolProtocol for McpClientProtocol {
 
     async fn initialize(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Test connection and load initial tool list
-        self.refresh_cache().await
+        self.refresh_cache().await?;
+
+        let tool_count = {
+            let cache = self.tools_cache.read().await;
+            cache.as_ref().map_or(0, |t| t.len())
+        };
+
+        if let Some(ref eh) = self.event_handler {
+            eh.on_mcp_event(&McpEvent::ConnectionInitialized {
+                endpoint: self.endpoint.clone(),
+                tool_count,
+            })
+            .await;
+        }
+
+        Ok(())
     }
 
     async fn shutdown(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(ref eh) = self.event_handler {
+            eh.on_mcp_event(&McpEvent::ConnectionClosed {
+                endpoint: self.endpoint.clone(),
+            })
+            .await;
+        }
         // Clear cache
         *self.tools_cache.write().await = None;
         *self.last_cache_refresh.write().await = None;
