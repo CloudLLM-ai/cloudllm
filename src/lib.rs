@@ -314,7 +314,7 @@ pub use cloudllm::thought_chain::{Thought, ThoughtChain, ThoughtType};
 
 // Re-export tool protocol and orchestration functionality
 pub use cloudllm::event;
-pub use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent, PlannerEvent};
+pub use cloudllm::event::{AgentEvent, EventHandler, McpEvent, OrchestrationEvent, PlannerEvent};
 pub use cloudllm::mcp_server;
 pub use cloudllm::orchestration;
 pub use cloudllm::planner;

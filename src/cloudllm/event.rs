@@ -12,6 +12,7 @@
 //! - **Planner lifecycle**: Turn boundaries, per-iteration responses, policy denials
 //! - **Orchestration lifecycle**: Run start/end, round boundaries, agent selection
 //! - **Mode-specific**: Debate convergence checks, RALPH iteration/task progress
+//! - **MCP protocol**: Server-side HTTP requests, tool call routing, auth rejections; client-side connections, remote calls, cache hits/misses
 //!
 //! # Architecture
 //!
@@ -676,6 +677,213 @@ pub enum OrchestrationEvent {
     },
 }
 
+/// Events emitted by the MCP server and MCP client protocol during their lifecycle.
+///
+/// These events provide traceability for MCP HTTP interactions on both the server
+/// side (requests received, tool calls executed, auth rejections) and the client
+/// side (connections, remote calls, cache behaviour).
+///
+/// # Server-Side Event Flow (AxumHttpAdapter, per HTTP request)
+///
+/// ```text
+/// ServerStarted { addr }              ← once at startup
+///
+/// // For tool-list requests:
+/// ToolListRequested { client_addr }   ← on POST /tools/list
+/// ToolListReturned { client_addr, tool_count }
+///
+/// // For tool-execute requests:
+/// ToolCallReceived { client_addr, tool_name, parameters }   ← on POST /tools/execute
+/// ToolCallCompleted { client_addr, tool_name, success, duration_ms }
+///
+/// // For rejected requests:
+/// RequestRejected { client_addr, reason }
+/// ```
+///
+/// # Client-Side Event Flow (McpClientProtocol)
+///
+/// ```text
+/// ConnectionInitialized { endpoint, tool_count }   ← from initialize()
+/// ToolsDiscovered { endpoint, tool_count, tool_names }  ← when cache refreshed
+/// CacheHit { endpoint, tool_count }               ← when using cached tools
+/// CacheExpired { endpoint }                        ← when TTL expired, before refresh
+/// RemoteToolCallStarted { endpoint, tool_name, parameters }
+/// RemoteToolCallCompleted { endpoint, tool_name, success, duration_ms }
+/// ConnectionClosed { endpoint }                    ← from shutdown()
+/// ```
+#[derive(Debug, Clone)]
+pub enum McpEvent {
+    // ── Server-side HTTP events ───────────────────────────────────────────
+    /// The MCP HTTP server started successfully and is listening for connections.
+    ///
+    /// Fired once inside [`HttpServerAdapter::start`] after the TCP listener binds.
+    ServerStarted {
+        /// Socket address the server is bound to (e.g., `"127.0.0.1:9090"`).
+        addr: String,
+    },
+
+    /// An HTTP `POST /tools/list` request was received from a client.
+    ///
+    /// Fired at the top of the route handler, before the tool list is fetched.
+    ToolListRequested {
+        /// IP address of the requesting client (e.g., `"127.0.0.1"`).
+        client_addr: String,
+    },
+
+    /// A tool-list response was sent back to the HTTP client.
+    ///
+    /// Fired after [`ToolProtocol::list_tools`] succeeds and the response is built.
+    ToolListReturned {
+        /// IP address of the client that issued the list request.
+        client_addr: String,
+        /// Number of tools included in the response.
+        tool_count: usize,
+    },
+
+    /// An HTTP `POST /tools/execute` request was received from a client.
+    ///
+    /// Fired at the top of the execute route handler, before the tool runs.
+    ToolCallReceived {
+        /// IP address of the requesting client.
+        client_addr: String,
+        /// Name of the tool the client wants to invoke.
+        tool_name: String,
+        /// Raw JSON parameters included in the request body.
+        parameters: serde_json::Value,
+    },
+
+    /// A server-side tool execution completed and the HTTP response was sent.
+    ///
+    /// Fired after [`ToolProtocol::execute`] returns (success or failure).
+    ToolCallCompleted {
+        /// IP address of the client that made the request.
+        client_addr: String,
+        /// Name of the tool that was executed.
+        tool_name: String,
+        /// `true` if the tool executed without an error.
+        success: bool,
+        /// Error message if execution failed, `None` on success.
+        error: Option<String>,
+        /// Wall-clock execution time in milliseconds.
+        duration_ms: u64,
+    },
+
+    /// A tool execution failed at the transport or protocol level.
+    ///
+    /// Fired instead of [`ToolCallCompleted`] when the error is unexpected — i.e.
+    /// `ToolProtocol::execute` returns `Err(_)` on the server side, or an HTTP
+    /// network failure / non-2xx status occurs on the client side.
+    ///
+    /// This is distinct from [`ToolCallCompleted`] / [`RemoteToolCallCompleted`] with
+    /// `success: false`, which represents a *controlled* tool-level failure
+    /// (e.g., `"file not found"`). Use `ToolError` to catch exceptional errors without
+    /// inspecting the `success` field.
+    ///
+    /// The `source` field carries:
+    /// - the **client IP address** when fired from the server (`AxumHttpAdapter`)
+    /// - the **server endpoint URL** when fired from the client (`McpClientProtocol`)
+    ToolError {
+        /// Client IP (server-side) or server endpoint URL (client-side).
+        source: String,
+        /// Name of the tool that was being invoked when the error occurred.
+        tool_name: String,
+        /// Error message describing what went wrong.
+        error: String,
+        /// Time elapsed before the error occurred, in milliseconds.
+        duration_ms: u64,
+    },
+
+    /// An HTTP request was rejected by IP filtering or authentication.
+    ///
+    /// Fired when the server returns a `403 Forbidden` response due to a failed
+    /// IP allowlist check.
+    RequestRejected {
+        /// IP address of the client whose request was rejected.
+        client_addr: String,
+        /// Human-readable rejection reason (e.g., `"IP not allowed"`).
+        reason: String,
+    },
+
+    // ── Client-side events (McpClientProtocol) ───────────────────────────
+    /// The MCP client successfully connected to the remote server and fetched the
+    /// initial tool list.
+    ///
+    /// Fired at the end of [`McpClientProtocol::initialize`].
+    ConnectionInitialized {
+        /// URL of the remote MCP server (e.g., `"http://127.0.0.1:9090"`).
+        endpoint: String,
+        /// Number of tools available on the server after initialization.
+        tool_count: usize,
+    },
+
+    /// The MCP client was shut down and the tool cache was cleared.
+    ///
+    /// Fired at the start of [`McpClientProtocol::shutdown`].
+    ConnectionClosed {
+        /// URL of the remote MCP server.
+        endpoint: String,
+    },
+
+    /// The client fetched (or refreshed) the tool list from the remote server.
+    ///
+    /// Fired after a successful cache refresh inside `refresh_cache()`.
+    ToolsDiscovered {
+        /// URL of the remote MCP server.
+        endpoint: String,
+        /// Total number of tools discovered.
+        tool_count: usize,
+        /// Name of every discovered tool, in order.
+        tool_names: Vec<String>,
+    },
+
+    /// The client served tool metadata from its local cache without an HTTP call.
+    ///
+    /// Fired from `list_tools()` when the cache is still valid.
+    CacheHit {
+        /// URL of the remote MCP server.
+        endpoint: String,
+        /// Number of tools in the cached snapshot.
+        tool_count: usize,
+    },
+
+    /// The tool metadata cache has expired and will be refreshed on the next access.
+    ///
+    /// Fired from `list_tools()` just before calling `refresh_cache()` when the
+    /// TTL has elapsed (and this is not the first fetch).
+    CacheExpired {
+        /// URL of the remote MCP server whose cache expired.
+        endpoint: String,
+    },
+
+    /// A remote tool call was dispatched to the MCP server over HTTP.
+    ///
+    /// Fired from [`McpClientProtocol::execute`] just before the HTTP `POST /tools/execute` request.
+    RemoteToolCallStarted {
+        /// URL of the remote MCP server.
+        endpoint: String,
+        /// Name of the tool being invoked.
+        tool_name: String,
+        /// JSON parameters sent with the request.
+        parameters: serde_json::Value,
+    },
+
+    /// A remote tool call returned from the MCP server.
+    ///
+    /// Fired after the HTTP response is received, regardless of success or failure.
+    RemoteToolCallCompleted {
+        /// URL of the remote MCP server.
+        endpoint: String,
+        /// Name of the tool that was invoked.
+        tool_name: String,
+        /// `true` if the HTTP call succeeded and the tool result indicates success.
+        success: bool,
+        /// Error message if the call or tool execution failed, `None` on success.
+        error: Option<String>,
+        /// Round-trip time of the HTTP call in milliseconds.
+        duration_ms: u64,
+    },
+}
+
 /// Trait for receiving agent and orchestration events.
 ///
 /// Both methods have **default no-op implementations**, so you only need to
@@ -775,4 +983,11 @@ pub trait EventHandler: Send + Sync {
     /// implementation is a no-op. Override this to observe round boundaries,
     /// agent selection, convergence checks, and RALPH task progress.
     async fn on_orchestration_event(&self, _event: &OrchestrationEvent) {}
+
+    /// Called when an MCP server or client emits a protocol event.
+    ///
+    /// Receives a reference to the [`McpEvent`]. The default implementation is a
+    /// no-op. Override this to trace HTTP traffic, tool call round-trips, cache
+    /// behaviour, connection lifecycle, and authentication events at the MCP layer.
+    async fn on_mcp_event(&self, _event: &McpEvent) {}
 }
