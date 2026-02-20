@@ -406,13 +406,12 @@ async fn test_leading_whitespace_does_not_bypass_denylist() {
 async fn test_allowlist_prefix_only_does_not_stop_chained_commands() {
     let bash = BashTool::new(Platform::Linux)
         .with_allowed_commands(vec!["echo".to_string()]);
-    // This command starts with "echo" so it passes the allowlist check,
-    // and then the shell executes the chained rm (which will fail harmlessly
-    // because the target path doesn't exist, but will NOT be blocked by cloudllm).
-    let r = bash
-        .execute("echo hello && rm /nonexistent_path_xyz_123")
-        .await;
-    // The allowlist check passes; rm runs and fails at the OS level (exit 1 or similar).
+    // "echo hello && date" starts with "echo" so it passes the prefix check,
+    // and then the shell also executes `date` — demonstrating that allowlist
+    // checking only inspects the command prefix, not the full pipeline.
+    // No destructive commands are used; the test is purely observational.
+    let r = bash.execute("echo hello && date").await;
+    // The allowlist check passes; date runs fine.
     // The important thing is that CommandDenied was NOT returned.
     match r {
         Err(BashError::CommandDenied(_)) => {
@@ -421,7 +420,7 @@ async fn test_allowlist_prefix_only_does_not_stop_chained_commands() {
                  this test documents the known limitation"
             )
         }
-        _ => {} // OK or OS-level error is the expected behaviour for now
+        _ => {} // Ok or other OS-level error is acceptable
     }
 }
 
