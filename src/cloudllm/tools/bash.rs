@@ -56,6 +56,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tokio::io::AsyncReadExt;
 use tokio::process::Command as TokioCommand;
 
 /// Platform selector for bash tool
@@ -159,6 +160,32 @@ impl std::error::Error for BashError {}
 /// Maximum output size per stream (stdout/stderr) in bytes - default 10MB
 const DEFAULT_MAX_OUTPUT_SIZE: usize = 10 * 1024 * 1024;
 
+/// Read from `reader` into a byte buffer, returning an error if the stream
+/// exceeds `max_bytes`.  Used to enforce `max_output_size` on stdout/stderr.
+async fn read_limited<R: AsyncReadExt + Unpin>(
+    mut reader: R,
+    max_bytes: usize,
+    stream_name: &'static str,
+) -> Result<Vec<u8>, BashError> {
+    let mut buf = Vec::new();
+    let mut chunk = vec![0u8; 8192];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) => return Ok(buf),
+            Ok(n) => {
+                if buf.len() + n > max_bytes {
+                    return Err(BashError::OutputTooLarge(format!(
+                        "{} exceeded the {} byte limit",
+                        stream_name, max_bytes
+                    )));
+                }
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            Err(e) => return Err(BashError::IoError(e)),
+        }
+    }
+}
+
 /// Bash command execution tool with security features
 ///
 /// This tool provides a secure interface for agents to execute bash commands
@@ -191,8 +218,7 @@ pub struct BashTool {
     cwd_restriction: Arc<Mutex<Option<PathBuf>>>,
     /// Environment variables to pass to the command
     env_vars: Arc<Mutex<HashMap<String, String>>>,
-    /// Maximum output size per stream in bytes (reserved for future bounded output)
-    #[allow(dead_code)]
+    /// Maximum output size per stream in bytes; enforced during execution.
     max_output_size: usize,
 }
 
@@ -317,6 +343,15 @@ impl BashTool {
         self
     }
 
+    /// Override the maximum number of bytes collected from stdout or stderr.
+    ///
+    /// If either stream exceeds this limit the child process is killed and
+    /// `BashError::OutputTooLarge` is returned.  Defaults to 10 MiB.
+    pub fn with_max_output_size(mut self, bytes: usize) -> Self {
+        self.max_output_size = bytes;
+        self
+    }
+
     /// Add or override an environment variable for command execution
     ///
     /// # Arguments
@@ -348,14 +383,38 @@ impl BashTool {
         self.timeout_secs
     }
 
-    /// Check if a command is allowed to execute
+    /// Check if a command is allowed to execute.
+    ///
+    /// Matching is case-insensitive and inspects both the raw command string
+    /// and the **basename** of the first word so that absolute-path variants
+    /// (e.g. `/bin/rm`, `../bin/rm`) are caught by the same rules as the bare
+    /// command name.
+    ///
+    /// # Security note
+    ///
+    /// The check examines only the *first token* of the command string.  Shell
+    /// metacharacters such as `;`, `&&`, `||`, `$(...)`, and backticks can
+    /// chain additional commands that bypass these rules.  Use OS-level
+    /// sandboxing (seccomp, containers) for stronger isolation.
     fn is_command_allowed(&self, cmd: &str) -> Result<(), BashError> {
         let cmd_lower = cmd.trim().to_lowercase();
 
-        // Check denied list first
+        // Extract the basename of the first word so that `/bin/rm`, `./rm`,
+        // and `../bin/rm` are all caught by a denylist entry of `"rm"`.
+        let first_word = cmd_lower.split_whitespace().next().unwrap_or("");
+        let cmd_basename = first_word.rsplit('/').next().unwrap_or(first_word);
+
+        // A helper that returns true if `entry` matches either the full
+        // command or its basename.
+        let matches = |entry: &str| -> bool {
+            let e = entry.to_lowercase();
+            cmd_lower.starts_with(&e) || cmd_basename.starts_with(&e)
+        };
+
+        // Check denied list first (denylist beats allowlist).
         if let Some(denied) = self.denied_commands.lock().unwrap().as_ref() {
             for denied_cmd in denied {
-                if cmd_lower.starts_with(&denied_cmd.to_lowercase()) {
+                if matches(denied_cmd) {
                     return Err(BashError::CommandDenied(format!(
                         "Command '{}' is denied",
                         denied_cmd
@@ -364,13 +423,9 @@ impl BashTool {
             }
         }
 
-        // Check allowed list if present
+        // Check allowed list if present.
         if let Some(allowed) = self.allowed_commands.lock().unwrap().as_ref() {
-            let is_allowed = allowed
-                .iter()
-                .any(|allowed_cmd| cmd_lower.starts_with(&allowed_cmd.to_lowercase()));
-
-            if !is_allowed {
+            if !allowed.iter().any(|allowed_cmd| matches(allowed_cmd)) {
                 return Err(BashError::CommandDenied(
                     "Command not in allowed list".to_string(),
                 ));
@@ -419,28 +474,55 @@ impl BashTool {
         let env_vars = self.env_vars.lock().unwrap().clone();
         let cwd = self.cwd_restriction.lock().unwrap().clone();
 
-        // Use tokio::process::Command so the future is truly async and can be
-        // cancelled by tokio::time::timeout.  std::process::Command::output()
-        // blocks the OS thread, making the timeout unreliable.
+        let max_output = self.max_output_size;
+
+        // Use tokio::process::Command so the future is truly async and
+        // cancellable.  Spawn the process and read stdout/stderr incrementally
+        // so we can enforce max_output_size without buffering unbounded data.
         match tokio::time::timeout(timeout, async move {
             let mut command = TokioCommand::new(&shell_path);
-            command.arg(&shell_flag).arg(&cmd).envs(env_vars);
+            command
+                .arg(&shell_flag)
+                .arg(&cmd)
+                .envs(env_vars)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
 
-            // Apply CWD restriction when configured.
             if let Some(dir) = cwd {
                 command.current_dir(dir);
             }
 
-            let output = command.output().await.map_err(BashError::IoError)?;
+            let mut child = command.spawn().map_err(BashError::IoError)?;
+            let stdout_pipe = child.stdout.take().expect("stdout was piped");
+            let stderr_pipe = child.stderr.take().expect("stderr was piped");
 
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            // Read both streams concurrently to avoid pipe-buffer deadlocks.
+            let (stdout_result, stderr_result) = tokio::join!(
+                read_limited(stdout_pipe, max_output, "stdout"),
+                read_limited(stderr_pipe, max_output, "stderr"),
+            );
+
+            // On output overflow kill the child before surfacing the error.
+            let (stdout_bytes, stderr_bytes) = match (stdout_result, stderr_result) {
+                (Err(e), _) | (_, Err(e)) => {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                    return Err(e);
+                }
+                (Ok(out), Ok(err)) => (out, err),
+            };
+
+            let status = child.wait().await.map_err(BashError::IoError)?;
             let duration_ms = start_time.elapsed().as_millis() as u64;
 
-            if output.status.success() {
+            let stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
+            let stderr = String::from_utf8_lossy(&stderr_bytes).to_string();
+
+            if status.success() {
                 Ok(BashResult::success(stdout, stderr, duration_ms))
             } else {
-                let exit_code = output.status.code().unwrap_or(-1);
+                let exit_code = status.code().unwrap_or(-1);
                 Ok(BashResult::failure(stdout, stderr, exit_code, duration_ms))
             }
         })

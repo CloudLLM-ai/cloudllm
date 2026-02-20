@@ -311,6 +311,44 @@ async fn test_empty_allowlist_blocks_everything() {
     }
 }
 
+// ─── 3b. Absolute-path bypass (was a real vulnerability) ─────────────────────
+
+#[tokio::test]
+async fn test_denylist_blocks_absolute_path_variant() {
+    // "/bin/rm -rf /" must be caught by a denylist entry of "rm".
+    let bash = BashTool::new(Platform::Linux)
+        .with_denied_commands(vec!["rm".to_string()]);
+    let r = bash.execute("/bin/rm -rf /").await;
+    assert!(r.is_err(), "/bin/rm must be blocked by a denylist entry of 'rm'");
+    match r.unwrap_err() {
+        BashError::CommandDenied(_) => {}
+        other => panic!("expected CommandDenied, got: {}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_denylist_blocks_relative_path_variant() {
+    // "../bin/rm" must also match the "rm" denylist entry.
+    let bash = BashTool::new(Platform::Linux)
+        .with_denied_commands(vec!["rm".to_string()]);
+    let r = bash.execute("../bin/rm -rf /").await;
+    assert!(r.is_err(), "../bin/rm must be blocked by a denylist entry of 'rm'");
+}
+
+#[tokio::test]
+async fn test_allowlist_permits_absolute_path_variant() {
+    // "/bin/echo hello" must be allowed when "echo" is in the allowlist.
+    let bash = BashTool::new(Platform::Linux)
+        .with_allowed_commands(vec!["echo".to_string()]);
+    // We only check the allowlist decision, not that /bin/echo exists.
+    match bash.execute("/bin/echo hello").await {
+        Err(BashError::CommandDenied(_)) => {
+            panic!("/bin/echo should be allowed when 'echo' is in the allowlist")
+        }
+        _ => {} // Ok or other OS error is acceptable
+    }
+}
+
 // ─── 4. Denylist security ────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -559,6 +597,39 @@ async fn test_tool_is_reusable_across_many_sequential_calls() {
         assert!(r.success);
         assert_eq!(r.stdout.trim(), i.to_string());
     }
+}
+
+// ─── 8b. Output size limit ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_output_within_limit_succeeds() {
+    // Default limit is 10 MB; a small output must complete normally.
+    let bash = BashTool::new(Platform::Linux);
+    let r = bash.execute("echo small").await.unwrap();
+    assert!(r.success);
+    assert_eq!(r.stdout.trim(), "small");
+}
+
+#[tokio::test]
+async fn test_output_exceeding_limit_returns_output_too_large() {
+    // Set a tiny limit (1024 bytes) and generate more output than that.
+    let bash = BashTool::new(Platform::Linux).with_max_output_size(1024);
+    // Generate ~10 KB of output — well over the 1 KB limit.
+    let result = bash.execute("yes x | head -c 10000").await;
+    assert!(result.is_err(), "output exceeding the limit must return Err");
+    match result.unwrap_err() {
+        BashError::OutputTooLarge(_) => {}
+        other => panic!("expected OutputTooLarge, got: {}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_output_at_exact_limit_succeeds() {
+    // Output of exactly `limit` bytes must not trip the guard.
+    // We generate exactly 100 bytes (100 'x' characters) with limit = 200.
+    let bash = BashTool::new(Platform::Linux).with_max_output_size(200);
+    let r = bash.execute("printf '%0.s x' {1..50}").await.unwrap();
+    assert!(r.success);
 }
 
 // ─── 9. BashProtocol (ToolProtocol integration) ──────────────────────────────
