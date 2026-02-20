@@ -1,56 +1,229 @@
 //! Bash Command Execution Tool
 //!
-//! This module provides a secure, configurable tool for agents to execute bash commands
-//! on Linux and macOS systems. It supports safety features like timeouts, command allowlisting,
-//! working directory restrictions, and environment variable controls.
+//! Provides a configurable tool for agents to run bash commands on Linux and macOS.
+//! Built-in defences include command allowlisting/denylisting (with path-aware
+//! basename matching), working-directory restriction, output-size capping, and
+//! timeout enforcement.
 //!
 //! # Features
 //!
-//! - **Cross-Platform Support**: Linux and macOS with platform-specific shell selection
-//! - **Security**: Command allowlisting/denylisting, working directory restrictions
-//! - **Timeouts**: Configurable timeout for long-running commands
-//! - **Output Control**: Separate stdout/stderr capture with size limits
-//! - **Environment Variables**: Safe propagation of environment variables
-//! - **Thread-Safe**: Full async/await support with Arc<Mutex<>>
+//! - **Cross-platform**: Linux and macOS via `/bin/bash`
+//! - **Allowlist / Denylist**: First-token matching on both the raw command string
+//!   *and* its basename (so `/bin/rm` is caught by a denylist entry of `"rm"`)
+//! - **Timeout**: Enforced with `tokio::time::timeout`; the child process is killed
+//!   when the deadline fires
+//! - **Output cap**: Incremental reads stop at `max_output_size` (default 10 MiB);
+//!   the child process is killed and `BashError::OutputTooLarge` is returned
+//! - **CWD restriction**: Sets the process working directory via
+//!   `tokio::process::Command::current_dir()`
+//! - **Thread-safe**: `Arc<BashTool>` can be shared across agents and tokio tasks
 //!
-//! # Examples
-//!
-//! ## Basic Usage
-//!
-//! ```ignore
-//! use cloudllm::tools::{BashTool, Platform};
-//!
-//! let bash = BashTool::new(Platform::Linux);
-//! let result = bash.execute("ls -la /tmp").await?;
-//! println!("Files: {}", result.stdout);
-//! ```
-//!
-//! ## With Safety Features
+//! # Quick start
 //!
 //! ```ignore
 //! use cloudllm::tools::{BashTool, Platform};
 //! use std::path::PathBuf;
 //!
-//! let bash = BashTool::new(Platform::macOS)
-//!     .with_timeout(30)
-//!     .with_cwd_restriction(PathBuf::from("/home/user"))
-//!     .with_denied_commands(vec!["rm -rf".to_string(), "sudo".to_string()]);
+//! let bash = BashTool::new(Platform::Linux)
+//!     .with_timeout(15)
+//!     .with_max_output_size(1 * 1024 * 1024)        // 1 MiB cap
+//!     .with_cwd_restriction(PathBuf::from("/tmp/sandbox"))
+//!     .with_denied_commands(vec![
+//!         "sudo".to_string(),
+//!         "su".to_string(),
+//!         "bash".to_string(),   // block trampoline bypass
+//!         "sh".to_string(),
+//!         "eval".to_string(),
+//!         "exec".to_string(),
+//!     ]);
 //!
-//! let result = bash.execute("find . -type f -name '*.txt'").await?;
+//! let result = bash.execute("find . -name '*.log' | head -20").await?;
+//! println!("{}", result.stdout);
 //! ```
 //!
-//! ## With Agent Integration
+//! ---
+//!
+//! # Known security limitations
+//!
+//! **This tool is not a sandbox.** The defences below are effective for
+//! cooperative or lightly-adversarial agents, but a determined rogue agent can
+//! bypass every in-process check. Each section describes the gap and the
+//! recommended mitigation.
+//!
+//! ## 1 — Shell chaining bypasses the allowlist / denylist
+//!
+//! `is_command_allowed` examines only the *first token* of the command string.
+//! Any bash metacharacter that introduces a second command defeats it:
+//!
+//! ```text
+//! echo hello && rm -rf /          # starts with "echo" → passes allowlist
+//! echo hello; rm -rf /            # semicolon-chained
+//! echo $(rm -rf /)                # command substitution in argument
+//! echo `rm -rf /`                 # backtick substitution
+//! cat file | bash                 # pipe into unrestricted shell
+//! ```
+//!
+//! **In-process mitigation (partial):** Scan the command string for shell
+//! metacharacters before execution and reject anything containing `;`, `&&`,
+//! `||`, `$(`, `` ` ``, `|`, `<(`, or `>(` unless your use-case requires them.
+//! Example guard you can add to your MCP server before calling `execute()`:
 //!
 //! ```ignore
-//! use cloudllm::Agent;
-//! use cloudllm::tools::BashTool;
-//! use cloudllm::tool_protocols::CustomToolProtocol;
-//!
-//! let bash = BashTool::new(Platform::Linux).with_timeout(60);
-//! let adapter = BashToolAdapter::new(Arc::new(bash));
-//! let agent = Agent::new("analyst", "File Analysis", client)
-//!     .with_tools(Arc::new(ToolRegistry::new(adapter)));
+//! fn reject_shell_metacharacters(cmd: &str) -> Result<(), &'static str> {
+//!     const DANGEROUS: &[&str] = &[
+//!         ";", "&&", "||", "$(", "`", "<(", ">(", " | ",
+//!     ];
+//!     for pat in DANGEROUS {
+//!         if cmd.contains(pat) {
+//!             return Err("shell metacharacters are not allowed");
+//!         }
+//!     }
+//!     Ok(())
+//! }
 //! ```
+//!
+//! **Recommended fix:** Run the agent inside a container (Docker / OCI) or
+//! under a seccomp profile that restricts the `execve` syscall to an explicit
+//! allowlist of binaries. No amount of string matching in Rust can be as
+//! complete as OS-level enforcement.
+//!
+//! ## 2 — Trampoline via shell / eval
+//!
+//! Even with `rm` denied, an agent can invoke it through an intermediary:
+//!
+//! ```text
+//! bash -c 'rm -rf /'       # outer command is "bash", not "rm"
+//! sh -c 'rm -rf /'
+//! eval "rm -rf /"          # eval is a shell builtin
+//! exec rm -rf /
+//! perl -e 'system("rm -rf /")'
+//! python3 -c 'import os; os.system("rm -rf /")'
+//! ```
+//!
+//! **In-process mitigation:** Add shell interpreters and meta-execution
+//! commands to your denylist:
+//!
+//! ```ignore
+//! .with_denied_commands(vec![
+//!     "bash".to_string(), "sh".to_string(), "zsh".to_string(),
+//!     "dash".to_string(), "ksh".to_string(), "fish".to_string(),
+//!     "eval".to_string(), "exec".to_string(), "source".to_string(),
+//!     "python".to_string(), "python3".to_string(), "perl".to_string(),
+//!     "ruby".to_string(), "node".to_string(), "php".to_string(),
+//!     "lua".to_string(), "tclsh".to_string(), "expect".to_string(),
+//! ])
+//! ```
+//!
+//! This is a best-effort measure. An attacker with write access to the
+//! filesystem can place a custom binary with a name that passes the denylist.
+//! The only complete fix is OS-level allow-by-default-deny (seccomp/pledge).
+//!
+//! ## 3 — Symlink escape from CWD restriction
+//!
+//! `with_cwd_restriction()` sets the process working directory; it does **not**
+//! prevent the shell from following symlinks out of that directory:
+//!
+//! ```text
+//! # Inside the restricted dir:
+//! ln -s /etc/shadow leak && cat leak    # reads a file outside the sandbox
+//! cd /; cat /etc/passwd                 # "cd" is a shell builtin, unrestricted
+//! ```
+//!
+//! **Recommended fix:** Use `chroot(2)` (set the root directory of the child
+//! process), or run the agent inside a container with a minimal read-only
+//! filesystem. Alternatively, replace bash with a domain-specific scripting
+//! language that has no file-system access at all.
+//!
+//! ## 4 — Fork bomb / CPU exhaustion
+//!
+//! The timeout mitigates long-running commands but cannot prevent a fork bomb
+//! from creating thousands of processes in milliseconds:
+//!
+//! ```text
+//! :(){:|:&};:          # classic fork bomb
+//! while true; do :; done &   # background CPU loop
+//! ```
+//!
+//! **Recommended fix:** Set process limits before spawning:
+//!
+//! - **Linux:** `setrlimit(RLIMIT_NPROC, ...)` caps the number of child
+//!   processes; `RLIMIT_CPU` caps CPU seconds. Integrate via the `nix` crate
+//!   with `Command::pre_exec()`.
+//! - **Containers:** Apply a `--pids-limit` and a CPU quota to the container.
+//! - **systemd:** Use a transient unit with `TasksMax=` and `CPUQuota=`.
+//!
+//! ```ignore
+//! // Example: cap child processes and CPU time with nix (Linux only)
+//! use nix::sys::resource::{setrlimit, Resource, Rlim};
+//! unsafe {
+//!     command.pre_exec(|| {
+//!         setrlimit(Resource::RLIMIT_NPROC, Rlim::from_raw(64), Rlim::from_raw(64))?;
+//!         setrlimit(Resource::RLIMIT_CPU, Rlim::from_raw(10), Rlim::from_raw(10))?;
+//!         Ok(())
+//!     });
+//! }
+//! ```
+//!
+//! ## 5 — Disk exhaustion
+//!
+//! A command can fill the filesystem before the timeout fires:
+//!
+//! ```text
+//! dd if=/dev/zero of=/tmp/bomb bs=1M   # fills disk at ~GB/s
+//! yes > /tmp/bomb
+//! ```
+//!
+//! **Recommended fix:** Apply a disk quota to the user or working directory
+//! (`quota(1)`, tmpfs with a size limit, or a container with a size-limited
+//! overlay filesystem). A tmpfs mount point is the simplest option:
+//!
+//! ```text
+//! # Mount a 100 MB tmpfs as the sandbox working directory
+//! mount -t tmpfs -o size=100m tmpfs /tmp/agent-sandbox
+//! ```
+//!
+//! ## 6 — Inherited file descriptors
+//!
+//! The child process inherits all open file descriptors from the parent Rust
+//! process (database connections, API key files, sockets, etc.). A rogue agent
+//! can read from `/proc/self/fd/<n>` on Linux to exfiltrate them.
+//!
+//! **In-process mitigation:** stdin is already set to `Stdio::null()` and
+//! stdout/stderr to `Stdio::piped()`. For additional FDs, set the
+//! `close-on-exec` flag or explicitly close them in a `pre_exec` hook:
+//!
+//! ```ignore
+//! // Close all non-standard file descriptors (Linux)
+//! unsafe {
+//!     command.pre_exec(|| {
+//!         // Close fds 3..1024; adjust upper bound as needed.
+//!         for fd in 3..1024i32 {
+//!             libc::close(fd);
+//!         }
+//!         Ok(())
+//!     });
+//! }
+//! ```
+//!
+//! Or use the `close-fds` crate which handles this portably.
+//!
+//! ---
+//!
+//! # Recommended hardening checklist for MCP server operators
+//!
+//! Apply as many layers as your threat model requires:
+//!
+//! | Layer | Mechanism | Closes |
+//! |---|---|---|
+//! | Denylist shell interpreters | `.with_denied_commands(["bash","sh","eval",…])` | Trampoline (#2) |
+//! | Metacharacter guard | Custom pre-execution check | Chaining (#1) |
+//! | Short timeout | `.with_timeout(10)` | CPU exhaustion (#4, partial) |
+//! | Output cap | `.with_max_output_size(1_048_576)` | Memory DoS |
+//! | CWD restriction | `.with_cwd_restriction(sandbox_dir)` | Casual traversal |
+//! | tmpfs working dir | OS mount | Disk exhaustion (#5) |
+//! | `RLIMIT_NPROC` + `RLIMIT_CPU` | `pre_exec` + `nix` crate | Fork bomb (#4) |
+//! | `chroot` / container | Docker / OCI / nsjail | Symlink escape (#3), all of the above |
+//! | seccomp / pledge | OS syscall filter | All of the above |
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -186,24 +359,27 @@ async fn read_limited<R: AsyncReadExt + Unpin>(
     }
 }
 
-/// Bash command execution tool with security features
+/// Bash command execution tool with configurable safety controls.
 ///
-/// This tool provides a secure interface for agents to execute bash commands
-/// on Linux and macOS systems. It supports multiple safety mechanisms including
-/// command allowlisting/denylisting, timeout enforcement, working directory
-/// restrictions, and environment variable controls.
+/// Wraps `tokio::process::Command` and adds allowlisting/denylisting,
+/// timeout enforcement, CWD restriction, and output-size capping.
 ///
-/// # Security Considerations
+/// # Security model and known limitations
 ///
-/// - Always use `with_allowed_commands()` for restrictive environments
-/// - Use `with_cwd_restriction()` to limit file system access
-/// - Set appropriate timeouts to prevent hanging commands
-/// - Be cautious with agent prompts that might generate dangerous commands
+/// The built-in controls defend against cooperative or lightly-adversarial
+/// agents.  They are **not** a substitute for OS-level sandboxing.  See the
+/// [module-level documentation](self) for a full threat analysis and
+/// hardening recommendations, including:
 ///
-/// # Thread Safety
+/// - Shell metacharacter chaining (`;`, `&&`, `$(…)`) bypasses the allowlist
+/// - Trampoline commands (`bash -c '…'`, `eval`, `exec`) evade the denylist
+/// - `with_cwd_restriction()` does not prevent `cd` or symlink traversal
+/// - Fork bombs and disk exhaustion require OS-level resource limits
 ///
-/// BashTool is fully thread-safe and can be shared across multiple agents
-/// using `Arc<BashTool>`.
+/// # Thread safety
+///
+/// `BashTool` is `Clone + Send + Sync` and can be shared across agents via
+/// `Arc<BashTool>`.
 #[derive(Clone)]
 pub struct BashTool {
     /// Selected platform (Linux or macOS)
