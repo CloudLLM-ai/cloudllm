@@ -1583,27 +1583,32 @@ impl Agent {
     /// Returns `Some(ToolCall)` if a valid tool call is found, `None` otherwise.
     /// Only the *first* tool call in the response is extracted.
     fn parse_tool_call(&self, response: &str) -> Option<ToolCall> {
-        // Locate the start of the tool_call JSON fragment
+        // Locate the start of the tool_call JSON fragment.
+        // `start_idx` is a byte offset (returned by str::find).
         if let Some(start_idx) = response.find("{\"tool_call\"") {
-            // Use brace-counting to find the matching closing brace
-            let mut brace_count = 0;
-            let mut end_idx = start_idx;
-            let chars: Vec<char> = response.chars().collect();
+            // Use brace-counting to find the matching closing brace.
+            // Iterate with char_indices on the slice so every offset stays in
+            // byte space — mixing char indices and byte offsets would panic on
+            // multibyte characters such as '─' (U+2500, 3 bytes).
+            let mut brace_count = 0i32;
+            let mut end_byte = start_idx;
 
-            for (i, ch) in chars.iter().enumerate().skip(start_idx) {
-                if *ch == '{' {
-                    brace_count += 1;
-                } else if *ch == '}' {
-                    brace_count -= 1;
-                    if brace_count == 0 {
-                        end_idx = i + 1;
-                        break;
+            for (offset, ch) in response[start_idx..].char_indices() {
+                match ch {
+                    '{' => brace_count += 1,
+                    '}' => {
+                        brace_count -= 1;
+                        if brace_count == 0 {
+                            end_byte = start_idx + offset + ch.len_utf8();
+                            break;
+                        }
                     }
+                    _ => {}
                 }
             }
 
-            if end_idx > start_idx {
-                let json_str = &response[start_idx..end_idx];
+            if end_byte > start_idx {
+                let json_str = &response[start_idx..end_byte];
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
                     if let Some(tool_call_obj) = parsed.get("tool_call") {
                         if let (Some(name), Some(parameters)) = (
