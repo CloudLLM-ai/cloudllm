@@ -56,6 +56,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tokio::process::Command as TokioCommand;
 
 /// Platform selector for bash tool
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -414,17 +415,23 @@ impl BashTool {
         let cmd = cmd.to_string();
         let timeout = std::time::Duration::from_secs(self.timeout_secs);
 
-        // Get environment variables
+        // Get environment variables and optional CWD restriction.
         let env_vars = self.env_vars.lock().unwrap().clone();
+        let cwd = self.cwd_restriction.lock().unwrap().clone();
 
-        // Execute command with timeout
+        // Use tokio::process::Command so the future is truly async and can be
+        // cancelled by tokio::time::timeout.  std::process::Command::output()
+        // blocks the OS thread, making the timeout unreliable.
         match tokio::time::timeout(timeout, async move {
-            let output = std::process::Command::new(&shell_path)
-                .arg(&shell_flag)
-                .arg(&cmd)
-                .envs(env_vars)
-                .output()
-                .map_err(BashError::IoError)?;
+            let mut command = TokioCommand::new(&shell_path);
+            command.arg(&shell_flag).arg(&cmd).envs(env_vars);
+
+            // Apply CWD restriction when configured.
+            if let Some(dir) = cwd {
+                command.current_dir(dir);
+            }
+
+            let output = command.output().await.map_err(BashError::IoError)?;
 
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
