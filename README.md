@@ -58,6 +58,7 @@ crate-level manual.
   - [Registering an Event Handler](#registering-an-event-handler)
   - [Full Example: Real-Time Progress Display](#full-example-real-time-progress-display)
 - [Tool Registry: Multi-Protocol Tool Access](#tool-registry-multi-protocol-tool-access)
+- [Native Tool Calling (v0.11.1)](#native-tool-calling-v0111)
 - [Deploying Tool Servers with MCPServerBuilder](#deploying-tool-servers-with-mcpserverbuilder)
 - [Creating Tools: Simple to Advanced](#creating-tools-simple-to-advanced)
   - [Simple Tool Creation: Rust Closures](#simple-tool-creation-rust-closures)
@@ -77,7 +78,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.10.2"
+cloudllm = "0.11.1"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.
@@ -111,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = LLMSession::new(client, "You are a concise tutor.".into(), 8_192);
 
     let reply = session
-        .send_message(Role::User, "What is ownership in Rust?".into(), None, None)
+        .send_message(Role::User, "What is ownership in Rust?".into(), None)
         .await?;
 
     println!("{}", reply.content);
@@ -134,7 +135,7 @@ use cloudllm::clients::claude::{ClaudeClient, Model};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client = Arc::new(ClaudeClient::new_with_model_enum(
-        &std::env::var("ANTHROPIC_KEY")?, Model::ClaudeHaiku45,
+        &std::env::var("ANTHROPIC_KEY")?, Model::ClaudeSonnet46,
     ));
 
     let agent = Agent::new("tutor", "Rust Tutor", client)
@@ -173,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = LLMSession::new(client, "You think out loud.".into(), 16_000);
 
     if let Some(mut stream) = session
-        .send_message_stream(Role::User, "Explain type erasure.".into(), None, None)
+        .send_message_stream(Role::User, "Explain type erasure.".into(), None)
         .await? {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -284,7 +285,7 @@ use cloudllm::Agent;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let key = std::env::var("ANTHROPIC_KEY")?;
-    let make_client = || Arc::new(ClaudeClient::new_with_model_enum(&key, Model::ClaudeHaiku45));
+    let make_client = || Arc::new(ClaudeClient::new_with_model_enum(&key, Model::ClaudeSonnet46));
 
     let researcher = Agent::new("researcher", "Research Agent", make_client())
         .with_expertise("Scientific literature, data gathering");
@@ -383,7 +384,7 @@ use cloudllm::Agent;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let key = std::env::var("ANTHROPIC_KEY")?;
-    let make_client = || Arc::new(ClaudeClient::new_with_model_enum(&key, Model::ClaudeHaiku45));
+    let make_client = || Arc::new(ClaudeClient::new_with_model_enum(&key, Model::ClaudeSonnet46));
 
     let frontend = Agent::new("frontend", "Frontend Dev", make_client())
         .with_expertise("HTML, CSS, Canvas");
@@ -448,7 +449,9 @@ CloudLLM ships wrappers for popular OpenAI-compatible services:
 | xAI Grok | `cloudllm::clients::grok` | `GrokClient::new_with_model_enum` |
 
 Providers share the [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/trait.ClientWrapper.html)
-contract, so you can swap them without changing downstream code.
+contract, so you can swap them without changing downstream code. As of v0.11.1, all four
+providers (OpenAI, Claude, Grok, Gemini) support **native tool calling** via the
+`tools: Option<Vec<ToolDefinition>>` parameter on `send_message`.
 
 ```rust,no_run
 use cloudllm::ClientWrapper;
@@ -462,7 +465,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = claude
         .send_message(
-            &[Message { role: Role::User, content: "Summarise rice fermentation.".into() }],
+            &[Message { role: Role::User, content: "Summarise rice fermentation.".into(), tool_calls: vec![] }],
             None,
             None,
         )
@@ -497,7 +500,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
 
     let reply = session
-        .send_message(Role::User, "Tell me about Rust.".into(), None, None)
+        .send_message(Role::User, "Tell me about Rust.".into(), None)
         .await?;
 
     println!("Assistant: {}", reply.content);
@@ -1132,6 +1135,85 @@ registry.add_protocol("name", protocol).await?;
 let protocol = Arc::new(CustomToolProtocol::new());
 let registry = ToolRegistry::new(protocol);
 ```
+
+---
+
+## Native Tool Calling (v0.11.1)
+
+Starting with v0.11.1, agents route tool calls through the provider's **native function-calling
+API** rather than relying solely on text parsing. OpenAI, Claude, Grok, and Gemini are all
+supported.
+
+### How It Works
+
+1. `ToolRegistry::to_tool_definitions()` converts all registered tools into a
+   `Vec<ToolDefinition>` (JSON Schema format) that the provider understands.
+2. These definitions are passed to `send_message` via the `tools: Option<Vec<ToolDefinition>>`
+   parameter (replacing the old provider-specific grok/openai tool params).
+3. The provider returns structured `NativeToolCall` objects instead of plain text markers.
+4. A text-parsing fallback remains active for providers or models that do not support native
+   function calling, ensuring backward compatibility.
+
+### New Types
+
+| Type | Description |
+|------|-------------|
+| `ToolDefinition` | JSON Schema description of a tool (name, description, parameters) |
+| `NativeToolCall` | A structured tool invocation returned by the provider (id, name, arguments) |
+| `Role::Tool { call_id }` | Conversation role for tool result messages, carrying the originating call id |
+
+### Example
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::Agent;
+use cloudllm::clients::openai::{OpenAIClient, Model};
+use cloudllm::tool_protocols::CustomToolProtocol;
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameterType, ToolParameter, ToolRegistry, ToolResult};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("OPEN_AI_SECRET")?;
+
+    // 1. Register tools as usual
+    let protocol = Arc::new(CustomToolProtocol::new());
+    protocol.register_tool(
+        ToolMetadata::new("add", "Add two numbers")
+            .with_parameter(ToolParameter::new("a", ToolParameterType::Number).required())
+            .with_parameter(ToolParameter::new("b", ToolParameterType::Number).required()),
+        Arc::new(|params| {
+            let a = params["a"].as_f64().unwrap_or(0.0);
+            let b = params["b"].as_f64().unwrap_or(0.0);
+            Ok(ToolResult::success(serde_json::json!({ "result": a + b })))
+        }),
+    ).await;
+
+    let registry = ToolRegistry::new(protocol);
+
+    // 2. Convert registry to ToolDefinitions for native calling
+    let tool_defs = registry.to_tool_definitions().await;
+
+    // 3. Agent automatically passes tool_defs to send_message — the provider
+    //    returns NativeToolCall objects that the agent executes directly.
+    let agent = Agent::new(
+        "calculator",
+        "Calculator Agent",
+        Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini)),
+    )
+    .with_tools(registry);
+
+    // Agent.send() internally calls:
+    //   session.send_message(role, content, Some(tool_defs))
+    // and handles NativeToolCall responses from the provider.
+    println!("Agent ready with native tool calling");
+    Ok(())
+}
+```
+
+The agent's `send()` loop handles the full native tool-calling cycle automatically: it passes
+tool definitions to the provider, receives `NativeToolCall` responses, executes the matching
+tools, and feeds results back as `Role::Tool { call_id }` messages until the provider produces
+a final text response.
 
 ---
 
