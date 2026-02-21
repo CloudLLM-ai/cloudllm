@@ -831,11 +831,7 @@ impl Planner for BasicPlanner {
             handler.on_planner_event(&started).await;
         }
 
-        let mut response = match ctx
-            .session
-            .send_message(Role::User, message, None)
-            .await
-        {
+        let mut response = match ctx.session.send_message(Role::User, message, None).await {
             Ok(resp) => resp,
             Err(err) => {
                 if let Some(handler) = event_handler {
@@ -1226,9 +1222,13 @@ fn append_tool_prompt(mut message: String, tools: &ToolRegistry) -> String {
     message.push_str("To invoke a tool, respond with EXACTLY this JSON structure:\n\n");
     message.push_str("  {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {\"param1\": \"value1\", \"param2\": \"value2\"}}}\n\n");
     message.push_str("Examples:\n");
-    message.push_str("  {\"tool_call\": {\"name\": \"calculator\", \"parameters\": {\"expr\": \"2+2\"}}}\n");
+    message.push_str(
+        "  {\"tool_call\": {\"name\": \"calculator\", \"parameters\": {\"expr\": \"2+2\"}}}\n",
+    );
     message.push_str("  {\"tool_call\": {\"name\": \"read_file\", \"parameters\": {\"path\": \"/home/user/data.txt\"}}}\n\n");
-    message.push_str("After I execute the tool, I'll provide the result and you can continue working.\n");
+    message.push_str(
+        "After I execute the tool, I'll provide the result and you can continue working.\n",
+    );
     message.push_str("You may call multiple tools sequentially in a single response.\n");
 
     message
@@ -1294,11 +1294,7 @@ fn parse_tool_call(response: &str) -> Option<ToolCallRequest> {
     let tool_call_obj = parsed.get("tool_call")?;
 
     // Extract name (required)
-    let name = tool_call_obj
-        .get("name")?
-        .as_str()?
-        .trim()
-        .to_string();
+    let name = tool_call_obj.get("name")?.as_str()?.trim().to_string();
 
     if name.is_empty() {
         return None;
@@ -1324,5 +1320,5 @@ fn parse_tool_call(response: &str) -> Option<ToolCallRequest> {
 ///
 /// A Send + Sync error suitable for propagation through async code.
 fn map_session_error(err: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
-    Box::new(io::Error::new(io::ErrorKind::Other, err.to_string()))
+    Box::new(io::Error::other(err.to_string()))
 }

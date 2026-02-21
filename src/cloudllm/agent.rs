@@ -1008,8 +1008,10 @@ impl Agent {
                     native_id: Some(ntc.id.clone()),
                 })
             } else {
-                self.parse_tool_call(&current_response)
-                    .map(|tc| ToolCall { native_id: None, ..tc })
+                self.parse_tool_call(&current_response).map(|tc| ToolCall {
+                    native_id: None,
+                    ..tc
+                })
             };
 
             if let Some(tool_call) = tool_call {
@@ -1108,7 +1110,7 @@ impl Agent {
                 .await;
                 self.emit_planner(PlannerEvent::ToolExecutionCompleted {
                     plan_id: self.id.clone(),
-                    tool_name: tool_name,
+                    tool_name,
                     parameters: tool_params_snapshot,
                     success: tool_success,
                     error: tool_error,
@@ -1448,8 +1450,10 @@ impl Agent {
                     native_id: Some(ntc.id.clone()),
                 })
             } else {
-                self.parse_tool_call(&current_response)
-                    .map(|tc| ToolCall { native_id: None, ..tc })
+                self.parse_tool_call(&current_response).map(|tc| ToolCall {
+                    native_id: None,
+                    ..tc
+                })
             };
 
             if let Some(tool_call) = tool_call {

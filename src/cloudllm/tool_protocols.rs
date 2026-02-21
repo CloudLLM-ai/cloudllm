@@ -275,17 +275,22 @@ impl McpClientProtocol {
         // Propagate deserialization errors rather than silently replacing the cache with an
         // empty list — a compromised MCP server sending malformed JSON would otherwise
         // disable all remote tools without any visible error.
-        let tools: Vec<ToolMetadata> = if let Some(arr) = body.get("tools").and_then(|v| v.as_array()) {
-            serde_json::from_value(serde_json::Value::Array(arr.clone()))
-                .map_err(|e| Box::new(ToolError::ProtocolError(
-                    format!("Failed to deserialize tool list from MCP server: {}", e)
-                )) as Box<dyn Error + Send + Sync>)?
-        } else {
-            serde_json::from_value(body)
-                .map_err(|e| Box::new(ToolError::ProtocolError(
-                    format!("Failed to deserialize tool list from MCP server: {}", e)
-                )) as Box<dyn Error + Send + Sync>)?
-        };
+        let tools: Vec<ToolMetadata> =
+            if let Some(arr) = body.get("tools").and_then(|v| v.as_array()) {
+                serde_json::from_value(serde_json::Value::Array(arr.clone())).map_err(|e| {
+                    Box::new(ToolError::ProtocolError(format!(
+                        "Failed to deserialize tool list from MCP server: {}",
+                        e
+                    ))) as Box<dyn Error + Send + Sync>
+                })?
+            } else {
+                serde_json::from_value(body).map_err(|e| {
+                    Box::new(ToolError::ProtocolError(format!(
+                        "Failed to deserialize tool list from MCP server: {}",
+                        e
+                    ))) as Box<dyn Error + Send + Sync>
+                })?
+            };
 
         let tool_count = tools.len();
         let tool_names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
@@ -370,15 +375,19 @@ impl ToolProtocol for McpClientProtocol {
                 // than a ghost-success ToolResult — a compromised server injecting malformed
                 // responses would otherwise appear to the agent as a successful tool call.
                 let result: ToolResult = if let Some(r) = body.get("result") {
-                    serde_json::from_value(r.clone())
-                        .map_err(|e| Box::new(ToolError::ProtocolError(
-                            format!("Failed to deserialize tool result from MCP server: {}", e)
-                        )) as Box<dyn Error + Send + Sync>)?
+                    serde_json::from_value(r.clone()).map_err(|e| {
+                        Box::new(ToolError::ProtocolError(format!(
+                            "Failed to deserialize tool result from MCP server: {}",
+                            e
+                        ))) as Box<dyn Error + Send + Sync>
+                    })?
                 } else {
-                    serde_json::from_value(body)
-                        .map_err(|e| Box::new(ToolError::ProtocolError(
-                            format!("Failed to deserialize tool result from MCP server: {}", e)
-                        )) as Box<dyn Error + Send + Sync>)?
+                    serde_json::from_value(body).map_err(|e| {
+                        Box::new(ToolError::ProtocolError(format!(
+                            "Failed to deserialize tool result from MCP server: {}",
+                            e
+                        ))) as Box<dyn Error + Send + Sync>
+                    })?
                 };
 
                 let duration_ms = call_start.elapsed().as_millis() as u64;
@@ -715,23 +724,26 @@ impl ToolProtocol for MemoryProtocol {
         // Normalise full-word aliases to single-letter codes so the parser
         // works regardless of which form the agent uses.
         let normalised_verb = match raw_command.split_whitespace().next().unwrap_or("") {
-            "GET"    => "G",
-            "PUT"    => "P",
-            "LIST"   => "L",
+            "GET" => "G",
+            "PUT" => "P",
+            "LIST" => "L",
             "DELETE" => "D",
-            "CLEAR"  => "C",
-            other    => other,
+            "CLEAR" => "C",
+            other => other,
         };
 
         // Reconstruct the command string, optionally appending key/value from
         // separate JSON fields when the agent chose the split-parameter form.
-        let key_param   = parameters.get("key").and_then(|v| v.as_str()).unwrap_or("");
-        let value_param = parameters.get("value").and_then(|v| v.as_str()).unwrap_or("");
+        let key_param = parameters.get("key").and_then(|v| v.as_str()).unwrap_or("");
+        let value_param = parameters
+            .get("value")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         // Rest of the original command after stripping the leading verb token.
         let rest_of_command = raw_command
-            .splitn(2, char::is_whitespace)
-            .nth(1)
+            .split_once(char::is_whitespace)
+            .map(|x| x.1)
             .unwrap_or("")
             .trim();
 

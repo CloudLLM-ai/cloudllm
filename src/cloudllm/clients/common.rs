@@ -80,7 +80,9 @@
 //! The same helpers can be combined with [`chunks_to_stream`] to wire streaming support into the
 //! custom client.
 
-use crate::client_wrapper::{Message, MessageChunk, NativeToolCall, Role, TokenUsage, ToolDefinition};
+use crate::client_wrapper::{
+    Message, MessageChunk, NativeToolCall, Role, TokenUsage, ToolDefinition,
+};
 use lazy_static::lazy_static;
 use openai_rust::chat;
 use openai_rust::chat::{
@@ -348,15 +350,17 @@ pub async fn send_with_native_tools(
                     let tool_calls: Vec<serde_json::Value> = msg
                         .tool_calls
                         .iter()
-                        .map(|tc| serde_json::json!({
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": serde_json::to_string(&tc.arguments)
-                                    .unwrap_or_else(|_| "{}".to_string())
-                            }
-                        }))
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": serde_json::to_string(&tc.arguments)
+                                        .unwrap_or_else(|_| "{}".to_string())
+                                }
+                            })
+                        })
                         .collect();
                     serde_json::json!({
                         "role": "assistant",
@@ -376,14 +380,16 @@ pub async fn send_with_native_tools(
     // Serialise tools array
     let wire_tools: Vec<serde_json::Value> = tools
         .iter()
-        .map(|t| serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.parameters_schema
-            }
-        }))
+        .map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters_schema
+                }
+            })
+        })
         .collect();
 
     let body = serde_json::json!({
@@ -404,20 +410,25 @@ pub async fn send_with_native_tools(
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
     if !status.is_success() {
         if log::log_enabled!(log::Level::Error) {
             log::error!(
                 "send_with_native_tools: HTTP {} from {}: {}",
-                status, url, text
+                status,
+                url,
+                text
             );
         }
         return Err(format!("send_with_native_tools: HTTP {} — {}", status, text).into());
     }
 
-    let parsed: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
     // Store token usage
     if let Some(usage_obj) = parsed.get("usage") {
@@ -441,12 +452,14 @@ pub async fn send_with_native_tools(
         .get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("message"))
-        .ok_or_else(|| -> Box<dyn Error> { "send_with_native_tools: no choices in response".into() })?;
+        .ok_or_else(|| -> Box<dyn Error> {
+            "send_with_native_tools: no choices in response".into()
+        })?;
 
     let content: std::sync::Arc<str> = choice_msg
         .get("content")
         .and_then(|c| c.as_str())
-        .map(|s| std::sync::Arc::from(s))
+        .map(std::sync::Arc::from)
         .unwrap_or_else(|| std::sync::Arc::from(""));
 
     // Parse native tool calls if present
@@ -460,11 +473,13 @@ pub async fn send_with_native_tools(
                     let func = tc.get("function")?;
                     let name = func.get("name")?.as_str()?.to_string();
                     let args_str = func.get("arguments")?.as_str().unwrap_or("{}");
-                    let arguments: serde_json::Value =
-                        serde_json::from_str(args_str).unwrap_or(serde_json::Value::Object(
-                            serde_json::Map::new(),
-                        ));
-                    Some(NativeToolCall { id, name, arguments })
+                    let arguments: serde_json::Value = serde_json::from_str(args_str)
+                        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                    Some(NativeToolCall {
+                        id,
+                        name,
+                        arguments,
+                    })
                 })
                 .collect()
         })
