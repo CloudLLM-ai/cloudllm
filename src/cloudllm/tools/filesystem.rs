@@ -205,28 +205,61 @@ impl FileSystemTool {
             normalized
         };
 
-        // Verify the effective path is within root (if root is set)
+        // Verify the effective path is within root (if root is set).
+        //
+        // Always canonicalize to resolve symlinks before comparing against root_canonical.
+        // For paths that don't exist yet (write/create), canonicalize the nearest existing
+        // ancestor and reconstruct the non-existent suffix under it — this prevents symlink
+        // escapes through parent directory components.
         if let Some(root) = &self.root_path {
             let root_canonical = root.canonicalize().map_err(|e| {
                 FileSystemError::IOError(format!("Cannot canonicalize root: {}", e))
             })?;
 
-            // For validation, we just need to ensure that the path doesn't escape the root
-            // by checking if it starts with the root after joining
-            if !effective_path.starts_with(&root_canonical) {
-                // If it doesn't naturally start with root, it might have popped too many dirs
-                // Try to canonicalize if it exists to be sure
-                if effective_path.exists() {
-                    let canonical = effective_path.canonicalize().map_err(|e| {
-                        FileSystemError::IOError(format!("Cannot canonicalize path: {}", e))
-                    })?;
-                    if !canonical.starts_with(&root_canonical) {
-                        return Err(FileSystemError::PathTraversal(format!(
-                            "Path escapes root directory: {}",
-                            path
-                        )));
+            let canonical_to_check = if effective_path.exists() {
+                // Path exists — canonicalize fully (resolves all symlinks).
+                effective_path.canonicalize().map_err(|e| {
+                    FileSystemError::IOError(format!("Cannot canonicalize path: {}", e))
+                })?
+            } else {
+                // Path doesn't exist yet (write/create).
+                // Canonicalize the nearest existing ancestor to catch symlinks in parent dirs.
+                let parent = effective_path.parent().ok_or_else(|| {
+                    FileSystemError::InvalidPath("Path has no parent".to_string())
+                })?;
+                let canonical_parent = if parent.exists() {
+                    parent.canonicalize().map_err(|e| {
+                        FileSystemError::IOError(format!("Cannot canonicalize parent: {}", e))
+                    })?
+                } else {
+                    // Walk up until we find an existing ancestor.
+                    let mut ancestor = parent;
+                    loop {
+                        if ancestor.exists() {
+                            break ancestor.canonicalize().map_err(|e| {
+                                FileSystemError::IOError(format!(
+                                    "Cannot canonicalize ancestor: {}",
+                                    e
+                                ))
+                            })?;
+                        }
+                        ancestor = ancestor.parent().ok_or_else(|| {
+                            FileSystemError::InvalidPath(
+                                "No existing ancestor found".to_string(),
+                            )
+                        })?;
                     }
-                }
+                };
+                // Reconstruct the non-existent suffix under the canonical parent.
+                let suffix = effective_path.strip_prefix(parent).unwrap_or(&effective_path);
+                canonical_parent.join(suffix)
+            };
+
+            if !canonical_to_check.starts_with(&root_canonical) {
+                return Err(FileSystemError::PathTraversal(format!(
+                    "Path escapes root directory: {}",
+                    path
+                )));
             }
         }
 
@@ -440,6 +473,20 @@ impl FileSystemTool {
             });
 
             if metadata.is_dir() {
+                // Validate the resolved path before recursing to prevent a symlink inside the
+                // tree from pointing outside the root and being silently traversed.
+                if let Some(root) = &self.root_path {
+                    if let Ok(root_canonical) = root.canonicalize() {
+                        match entry.path().canonicalize() {
+                            Ok(canonical) if !canonical.starts_with(&root_canonical) => {
+                                // Symlink points outside the root — skip silently.
+                                continue;
+                            }
+                            Err(_) => continue, // Cannot resolve — skip.
+                            Ok(_) => {}          // Within root — proceed.
+                        }
+                    }
+                }
                 self.read_directory_recursive(&entry.path(), entries)?;
             }
         }

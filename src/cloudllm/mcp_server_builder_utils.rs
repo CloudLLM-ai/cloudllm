@@ -3,8 +3,10 @@
 //! This module provides helper functionality for the MCP server builder,
 //! including IP filtering, authentication, and CIDR matching.
 
+use sha2::{Digest, Sha256};
 use std::net::IpAddr;
 use std::str::FromStr;
+use subtle::ConstantTimeEq;
 
 /// IP filter for restricting server access
 #[derive(Debug, Clone)]
@@ -174,7 +176,11 @@ impl AuthConfig {
             AuthConfig::None => true,
             AuthConfig::Bearer(token) => {
                 if let Some(token_part) = header.strip_prefix("Bearer ") {
-                    token_part == token
+                    // subtle::ConstantTimeEq on SHA-256 digests prevents timing oracle attacks.
+                    // The optimizer cannot short-circuit ct_eq() the way it can with `==`.
+                    let expected_hash = Sha256::digest(token.as_bytes());
+                    let provided_hash = Sha256::digest(token_part.as_bytes());
+                    expected_hash.ct_eq(&provided_hash).into()
                 } else {
                     false
                 }
@@ -184,7 +190,10 @@ impl AuthConfig {
                     // Decode base64 and check against username:password
                     if let Ok(decoded) = base64_decode(creds_part) {
                         let expected = format!("{}:{}", username, password);
-                        decoded == expected
+                        // subtle::ConstantTimeEq prevents timing oracle on credentials.
+                        let expected_hash = Sha256::digest(expected.as_bytes());
+                        let decoded_hash = Sha256::digest(decoded.as_bytes());
+                        expected_hash.ct_eq(&decoded_hash).into()
                     } else {
                         false
                     }

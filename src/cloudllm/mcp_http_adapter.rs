@@ -23,6 +23,7 @@
 use crate::cloudllm::event::EventHandler;
 #[cfg(feature = "mcp-server")]
 use crate::cloudllm::event::McpEvent;
+use crate::cloudllm::mcp_server_builder_utils::IpFilter;
 use crate::cloudllm::tool_protocol::ToolProtocol;
 use std::error::Error;
 use std::net::SocketAddr;
@@ -34,8 +35,8 @@ pub struct HttpServerConfig {
     pub addr: SocketAddr,
     /// Optional bearer token for authentication
     pub bearer_token: Option<String>,
-    /// Optional list of allowed IP addresses and CIDR blocks
-    pub allowed_ips: Vec<String>,
+    /// IP filter controlling which client addresses are allowed
+    pub ip_filter: IpFilter,
     /// Optional event handler for MCP server lifecycle and request events
     pub event_handler: Option<Arc<dyn EventHandler>>,
 }
@@ -45,7 +46,7 @@ impl Clone for HttpServerConfig {
         Self {
             addr: self.addr,
             bearer_token: self.bearer_token.clone(),
-            allowed_ips: self.allowed_ips.clone(),
+            ip_filter: self.ip_filter.clone(),
             event_handler: self.event_handler.clone(),
         }
     }
@@ -56,7 +57,7 @@ impl std::fmt::Debug for HttpServerConfig {
         f.debug_struct("HttpServerConfig")
             .field("addr", &self.addr)
             .field("bearer_token", &self.bearer_token)
-            .field("allowed_ips", &self.allowed_ips)
+            .field("ip_filter", &self.ip_filter)
             .field("has_event_handler", &self.event_handler.is_some())
             .finish()
     }
@@ -143,39 +144,52 @@ impl HttpServerAdapter for AxumHttpAdapter {
         protocol: Arc<dyn ToolProtocol>,
     ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>> {
         use axum::{
-            extract::ConnectInfo, http::StatusCode, response::IntoResponse, routing::post, Json,
-            Router,
+            extract::ConnectInfo, http::HeaderMap, http::StatusCode, response::IntoResponse,
+            routing::post, Json, Router,
         };
         use serde_json::json;
-        use std::net::IpAddr;
-        use std::str::FromStr;
+        use sha2::{Digest, Sha256};
+        use subtle::ConstantTimeEq;
         use tokio::net::TcpListener;
 
-        // Parse allowed IPs for filtering
-        let allowed_ips: Vec<IpAddr> = config
-            .allowed_ips
-            .iter()
-            .filter_map(|ip_str| {
-                if let Ok(addr) = IpAddr::from_str(ip_str) {
-                    return Some(addr);
+        /// Validate the Authorization header against the configured bearer token.
+        ///
+        /// Returns `true` when no token is configured (open server) or when the
+        /// provided `Bearer <token>` matches the expected token. Uses
+        /// `subtle::ConstantTimeEq` on SHA-256 digests so the compiler cannot
+        /// short-circuit the comparison and leak token length via timing.
+        fn check_auth(expected_token: &Option<String>, headers: &HeaderMap) -> bool {
+            match expected_token.as_deref() {
+                None => true, // No auth configured — open server
+                Some(expected) => {
+                    let provided = headers
+                        .get("Authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.strip_prefix("Bearer "))
+                        .unwrap_or("");
+                    let expected_hash = Sha256::digest(expected.as_bytes());
+                    let provided_hash = Sha256::digest(provided.as_bytes());
+                    // subtle::ConstantTimeEq resists compiler-level short-circuit optimisation.
+                    expected_hash.ct_eq(&provided_hash).into()
                 }
-                // TODO: Handle CIDR notation in future enhancement
-                None
-            })
-            .collect();
+            }
+        }
 
         let bearer_token = Arc::new(config.bearer_token.clone());
-        let allowed_ips = Arc::new(allowed_ips);
+        // Use the fully-constructed IpFilter directly — it correctly handles both single IPs
+        // and CIDR blocks via IpFilter::is_allowed(), replacing the previous Vec<IpAddr>
+        // that silently dropped CIDR entries.
+        let ip_filter = Arc::new(config.ip_filter.clone());
 
-        // Clone per-route: token, IPs, protocol, event handler
+        // Clone per-route: token, IP filter, protocol, event handler
         let token_list = bearer_token.clone();
-        let ips_list = allowed_ips.clone();
+        let ips_list = ip_filter.clone();
         let token_exec = bearer_token.clone();
-        let ips_exec = allowed_ips.clone();
+        let ips_exec = ip_filter.clone();
         let token_res_list = bearer_token.clone();
-        let ips_res_list = allowed_ips.clone();
+        let ips_res_list = ip_filter.clone();
         let token_res_read = bearer_token.clone();
-        let ips_res_read = allowed_ips.clone();
+        let ips_res_read = ip_filter.clone();
 
         let eh_list = config.event_handler.clone();
         let eh_exec = config.event_handler.clone();
@@ -189,14 +203,15 @@ impl HttpServerAdapter for AxumHttpAdapter {
         let app = Router::new()
             .route(
                 "/tools/list",
-                post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>| {
+                post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
                     let token = token_list.clone();
                     let allowed = ips_list.clone();
                     let proto = protocol_list.clone();
                     let eh = eh_list.clone();
                     async move {
-                        // Check IP filtering
-                        if !allowed.is_empty() && !allowed.contains(&addr.ip()) {
+                        // Check IP filtering — delegates to IpFilter which handles both
+                        // single IPs and CIDR blocks correctly.
+                        if !allowed.is_allowed(addr.ip()) {
                             if let Some(ref handler) = eh {
                                 handler
                                     .on_mcp_event(&McpEvent::RequestRejected {
@@ -212,9 +227,13 @@ impl HttpServerAdapter for AxumHttpAdapter {
                                 .into_response();
                         }
 
-                        // Token validation placeholder
-                        if let Some(_expected_token) = token.as_ref() {
-                            // TODO: Validate Authorization header here
+                        // Validate bearer token (constant-time comparison)
+                        if !check_auth(&token, &headers) {
+                            return (
+                                StatusCode::UNAUTHORIZED,
+                                Json(json!({"error": "Unauthorized"})),
+                            )
+                                .into_response();
                         }
 
                         // Fire ToolListRequested
@@ -252,14 +271,16 @@ impl HttpServerAdapter for AxumHttpAdapter {
                 "/tools/execute",
                 post(
                     move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
+                          headers: HeaderMap,
                           Json(payload): Json<serde_json::Value>| {
                         let token = token_exec.clone();
                         let allowed = ips_exec.clone();
                         let proto = protocol_exec.clone();
                         let eh = eh_exec.clone();
                         async move {
-                            // Check IP filtering
-                            if !allowed.is_empty() && !allowed.contains(&addr.ip()) {
+                            // Check IP filtering — delegates to IpFilter which handles both
+                            // single IPs and CIDR blocks correctly.
+                            if !allowed.is_allowed(addr.ip()) {
                                 if let Some(ref handler) = eh {
                                     handler
                                         .on_mcp_event(&McpEvent::RequestRejected {
@@ -275,9 +296,13 @@ impl HttpServerAdapter for AxumHttpAdapter {
                                     .into_response();
                             }
 
-                            // Token validation placeholder
-                            if let Some(_expected_token) = token.as_ref() {
-                                // TODO: Validate Authorization header here
+                            // Validate bearer token (constant-time comparison)
+                            if !check_auth(&token, &headers) {
+                                return (
+                                    StatusCode::UNAUTHORIZED,
+                                    Json(json!({"error": "Unauthorized"})),
+                                )
+                                    .into_response();
                             }
 
                             let tool_name = payload["tool"].as_str().unwrap_or("").to_string();
@@ -340,13 +365,14 @@ impl HttpServerAdapter for AxumHttpAdapter {
             )
             .route(
                 "/resources/list",
-                post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>| {
+                post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
                     let token = token_res_list.clone();
                     let allowed = ips_res_list.clone();
                     let proto = protocol_res_list.clone();
                     async move {
-                        // Check IP filtering
-                        if !allowed.is_empty() && !allowed.contains(&addr.ip()) {
+                        // Check IP filtering — delegates to IpFilter which handles both
+                        // single IPs and CIDR blocks correctly.
+                        if !allowed.is_allowed(addr.ip()) {
                             return (
                                 StatusCode::FORBIDDEN,
                                 Json(json!({"error": "Access denied"})),
@@ -354,9 +380,13 @@ impl HttpServerAdapter for AxumHttpAdapter {
                                 .into_response();
                         }
 
-                        // Token validation placeholder
-                        if let Some(_expected_token) = token.as_ref() {
-                            // TODO: Validate Authorization header here
+                        // Validate bearer token (constant-time comparison)
+                        if !check_auth(&token, &headers) {
+                            return (
+                                StatusCode::UNAUTHORIZED,
+                                Json(json!({"error": "Unauthorized"})),
+                            )
+                                .into_response();
                         }
 
                         if !proto.supports_resources() {
@@ -385,13 +415,15 @@ impl HttpServerAdapter for AxumHttpAdapter {
                 "/resources/read",
                 post(
                     move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
+                          headers: HeaderMap,
                           Json(payload): Json<serde_json::Value>| {
                         let token = token_res_read.clone();
                         let allowed = ips_res_read.clone();
                         let proto = protocol_res_read.clone();
                         async move {
-                            // Check IP filtering
-                            if !allowed.is_empty() && !allowed.contains(&addr.ip()) {
+                            // Check IP filtering — delegates to IpFilter which handles both
+                            // single IPs and CIDR blocks correctly.
+                            if !allowed.is_allowed(addr.ip()) {
                                 return (
                                     StatusCode::FORBIDDEN,
                                     Json(json!({"error": "Access denied"})),
@@ -399,9 +431,13 @@ impl HttpServerAdapter for AxumHttpAdapter {
                                     .into_response();
                             }
 
-                            // Token validation placeholder
-                            if let Some(_expected_token) = token.as_ref() {
-                                // TODO: Validate Authorization header here
+                            // Validate bearer token (constant-time comparison)
+                            if !check_auth(&token, &headers) {
+                                return (
+                                    StatusCode::UNAUTHORIZED,
+                                    Json(json!({"error": "Unauthorized"})),
+                                )
+                                    .into_response();
                             }
 
                             if !proto.supports_resources() {

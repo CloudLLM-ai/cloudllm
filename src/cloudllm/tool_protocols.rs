@@ -272,10 +272,19 @@ impl McpClientProtocol {
 
         let body: serde_json::Value = response.json().await?;
         // The server wraps tools in {"tools": [...]}
+        // Propagate deserialization errors rather than silently replacing the cache with an
+        // empty list — a compromised MCP server sending malformed JSON would otherwise
+        // disable all remote tools without any visible error.
         let tools: Vec<ToolMetadata> = if let Some(arr) = body.get("tools").and_then(|v| v.as_array()) {
-            serde_json::from_value(serde_json::Value::Array(arr.clone())).unwrap_or_default()
+            serde_json::from_value(serde_json::Value::Array(arr.clone()))
+                .map_err(|e| Box::new(ToolError::ProtocolError(
+                    format!("Failed to deserialize tool list from MCP server: {}", e)
+                )) as Box<dyn Error + Send + Sync>)?
         } else {
-            serde_json::from_value(body).unwrap_or_default()
+            serde_json::from_value(body)
+                .map_err(|e| Box::new(ToolError::ProtocolError(
+                    format!("Failed to deserialize tool list from MCP server: {}", e)
+                )) as Box<dyn Error + Send + Sync>)?
         };
 
         let tool_count = tools.len();
@@ -357,14 +366,19 @@ impl ToolProtocol for McpClientProtocol {
 
                 let body: serde_json::Value = resp.json().await?;
                 // Server wraps result in {"result": {...}}
+                // Propagate deserialization errors so the caller receives an actual Err rather
+                // than a ghost-success ToolResult — a compromised server injecting malformed
+                // responses would otherwise appear to the agent as a successful tool call.
                 let result: ToolResult = if let Some(r) = body.get("result") {
-                    serde_json::from_value(r.clone()).unwrap_or_else(|_| {
-                        ToolResult::failure("Failed to deserialize result".to_string())
-                    })
+                    serde_json::from_value(r.clone())
+                        .map_err(|e| Box::new(ToolError::ProtocolError(
+                            format!("Failed to deserialize tool result from MCP server: {}", e)
+                        )) as Box<dyn Error + Send + Sync>)?
                 } else {
-                    serde_json::from_value(body).unwrap_or_else(|_| {
-                        ToolResult::failure("Failed to deserialize result".to_string())
-                    })
+                    serde_json::from_value(body)
+                        .map_err(|e| Box::new(ToolError::ProtocolError(
+                            format!("Failed to deserialize tool result from MCP server: {}", e)
+                        )) as Box<dyn Error + Send + Sync>)?
                 };
 
                 let duration_ms = call_start.elapsed().as_millis() as u64;

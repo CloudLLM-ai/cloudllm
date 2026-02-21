@@ -265,14 +265,15 @@ impl MCPServerBuilder {
         self,
         addr: SocketAddr,
     ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>> {
-        // Build configuration
+        // Build configuration — pass the fully-constructed IpFilter so CIDR entries
+        // and single-IP entries are preserved and evaluated correctly by the adapter.
         let config = HttpServerConfig {
             addr,
             bearer_token: match self.auth {
                 AuthConfig::Bearer(token) => Some(token),
                 _ => None,
             },
-            allowed_ips: Vec::new(), // TODO: Extract from ip_filter
+            ip_filter: self.ip_filter,
             event_handler: self.event_handler,
         };
 

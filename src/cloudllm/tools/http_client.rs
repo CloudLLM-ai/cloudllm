@@ -169,6 +169,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::net::IpAddr;
 use std::time::Duration;
 
 use reqwest::Client;
@@ -431,9 +432,13 @@ impl HttpClient {
     }
 
     /// Verify that a domain is allowed
-    fn check_domain(&self, url: &str) -> Result<(), HttpClientError> {
+    async fn check_domain(&self, url: &str) -> Result<(), HttpClientError> {
         let domain = extract_domain(url)
             .ok_or_else(|| HttpClientError::new("Could not extract domain from URL"))?;
+
+        // Hard-coded SSRF deny-list — checked before any user-configured lists.
+        // Resolves the hostname to IP(s) via spawn_blocking to avoid stalling the executor.
+        check_ssrf_blocked(&domain).await?;
 
         // Check blocklist first
         if self.denied_domains.contains(&domain) {
@@ -488,7 +493,7 @@ impl HttpClient {
     /// println!("Status: {}", response.status);
     /// ```
     pub async fn get(&self, url: &str) -> Result<HttpResponse, HttpClientError> {
-        self.check_domain(url)?;
+        self.check_domain(url).await?;
 
         let full_url = self.build_url(url);
         let mut req = self.client.get(&full_url);
@@ -525,7 +530,7 @@ impl HttpClient {
         url: &str,
         payload: JsonValue,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.check_domain(url)?;
+        self.check_domain(url).await?;
 
         let full_url = self.build_url(url);
         let mut req = self.client.post(&full_url).json(&payload);
@@ -562,7 +567,7 @@ impl HttpClient {
         url: &str,
         payload: JsonValue,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.check_domain(url)?;
+        self.check_domain(url).await?;
 
         let full_url = self.build_url(url);
         let mut req = self.client.put(&full_url).json(&payload);
@@ -593,7 +598,7 @@ impl HttpClient {
     /// let response = client.delete("https://api.example.com/users/123").await?;
     /// ```
     pub async fn delete(&self, url: &str) -> Result<HttpResponse, HttpClientError> {
-        self.check_domain(url)?;
+        self.check_domain(url).await?;
 
         let full_url = self.build_url(url);
         let mut req = self.client.delete(&full_url);
@@ -630,7 +635,7 @@ impl HttpClient {
         url: &str,
         payload: JsonValue,
     ) -> Result<HttpResponse, HttpClientError> {
-        self.check_domain(url)?;
+        self.check_domain(url).await?;
 
         let full_url = self.build_url(url);
         let mut req = self.client.patch(&full_url).json(&payload);
@@ -661,7 +666,7 @@ impl HttpClient {
     /// let response = client.head("https://api.example.com/data").await?;
     /// ```
     pub async fn head(&self, url: &str) -> Result<HttpResponse, HttpClientError> {
-        self.check_domain(url)?;
+        self.check_domain(url).await?;
 
         let full_url = self.build_url(url);
         let mut req = self.client.head(&full_url);
@@ -692,17 +697,25 @@ impl HttpClient {
             .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
             .collect();
 
-        let body = response
-            .text()
-            .await
-            .map_err(|e| HttpClientError::new(format!("Failed to read response body: {}", e)))?;
-
-        if body.len() > self.max_response_size {
-            return Err(HttpClientError::new(format!(
-                "Response body exceeds maximum size of {} bytes",
-                self.max_response_size
-            )));
+        // Stream the body incrementally, aborting as soon as we exceed
+        // max_response_size — this prevents an oversized response from ever
+        // being fully buffered in memory (OOM DoS fix).
+        use futures_util::StreamExt;
+        let mut stream = response.bytes_stream();
+        let mut body_bytes: Vec<u8> = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| {
+                HttpClientError::new(format!("Failed to read response body: {}", e))
+            })?;
+            if body_bytes.len() + chunk.len() > self.max_response_size {
+                return Err(HttpClientError::new(format!(
+                    "Response body exceeds maximum size of {} bytes",
+                    self.max_response_size
+                )));
+            }
+            body_bytes.extend_from_slice(&chunk);
         }
+        let body = String::from_utf8_lossy(&body_bytes).into_owned();
 
         Ok(HttpResponse {
             status,
@@ -716,6 +729,93 @@ impl Default for HttpClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Returns `true` if the IP address falls into a range that must never be
+/// reachable from an agent-driven HTTP request (SSRF deny-list).
+///
+/// Blocked ranges:
+/// - IPv4 loopback:       127.0.0.0/8
+/// - IPv4 link-local:     169.254.0.0/16  (AWS IMDS and similar metadata services)
+/// - IPv4 RFC-1918:       10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+/// - IPv6 loopback:       ::1
+/// - IPv6 link-local:     fe80::/10
+fn is_ssrf_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            // 127.0.0.0/8 — loopback
+            if o[0] == 127 {
+                return true;
+            }
+            // 169.254.0.0/16 — link-local / cloud metadata (AWS IMDS etc.)
+            if o[0] == 169 && o[1] == 254 {
+                return true;
+            }
+            // 10.0.0.0/8 — RFC-1918
+            if o[0] == 10 {
+                return true;
+            }
+            // 172.16.0.0/12 — RFC-1918 (172.16.x.x – 172.31.x.x)
+            if o[0] == 172 && o[1] >= 16 && o[1] <= 31 {
+                return true;
+            }
+            // 192.168.0.0/16 — RFC-1918
+            if o[0] == 192 && o[1] == 168 {
+                return true;
+            }
+            false
+        }
+        IpAddr::V6(v6) => {
+            // ::1 — IPv6 loopback
+            if v6.is_loopback() {
+                return true;
+            }
+            // :: — unspecified address
+            if v6.is_unspecified() {
+                return true;
+            }
+            // fe80::/10 — IPv6 link-local
+            let segments = v6.segments();
+            if (segments[0] & 0xffc0) == 0xfe80 {
+                return true;
+            }
+            false
+        }
+    }
+}
+
+/// Resolve `host` to IP addresses and reject any that fall in SSRF-blocked ranges.
+///
+/// Uses the synchronous system resolver (`ToSocketAddrs`). If DNS resolution
+/// fails the request is also rejected — unknown hosts are not allowed through.
+///
+/// Note: a DNS-rebinding attack could bypass this pre-flight check by resolving
+/// to a public IP here and a private IP at request time. That risk is accepted;
+/// the deny-list still blocks the overwhelmingly common direct-IP and single-DNS
+/// SSRF vectors.
+/// Async wrapper: runs the blocking DNS resolution on a dedicated thread via
+/// `spawn_blocking` so the tokio executor thread is never stalled.
+async fn check_ssrf_blocked(host: &str) -> Result<(), HttpClientError> {
+    let host_owned = host.to_string();
+    let addrs = tokio::task::spawn_blocking(move || {
+        use std::net::ToSocketAddrs;
+        format!("{}:80", host_owned).to_socket_addrs()
+    })
+    .await
+    .map_err(|e| HttpClientError::new(format!("DNS resolution task failed: {}", e)))?
+    .map_err(|e| HttpClientError::new(format!("Could not resolve host '{}': {}", host, e)))?;
+
+    for addr in addrs {
+        if is_ssrf_ip(addr.ip()) {
+            return Err(HttpClientError::new(format!(
+                "Request to '{}' blocked: target IP {} is in a reserved/private range",
+                host,
+                addr.ip()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Extract domain from URL
