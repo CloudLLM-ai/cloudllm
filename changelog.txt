@@ -1,3 +1,74 @@
+0.11.0 FEB/21/2026
+ - security: Fix 3 Critical and 4 High vulnerabilities (full audit by ai-systems-security-engineer)
+   - [CRITICAL] C1: Bearer token auth was dead code — all MCP HTTP endpoints were unauthenticated
+     - Added check_auth() wired into all four routes: /tools/list, /tools/execute, /resources/list, /resources/read
+     - Extracts and validates Authorization: Bearer <token> header on every request
+   - [CRITICAL] C2: IP filter config silently discarded in MCPServerBuilder
+     - start_at() always passed allowed_ips: Vec::new() to HttpServerConfig regardless of allow_ip()/allow_cidr() calls
+     - Fixed: IpFilter passed through builder → HttpServerConfig → AxumHttpAdapter and evaluated correctly
+   - [CRITICAL] C3: Non-timing-safe bearer token comparison enabled timing oracle attack
+     - Direct string equality short-circuits on first differing byte; attacker could enumerate tokens character by character
+     - Replaced with subtle::ConstantTimeEq (subtle v2 added as direct dep) in both mcp_http_adapter.rs and mcp_server_builder_utils.rs
+     - Applied to both Bearer and Basic auth paths
+   - [HIGH] H1: SSRF via HttpClientTool — agents could reach loopback, link-local (169.254/16 — AWS IMDS), and RFC-1918 addresses
+     - Added is_ssrf_ip() deny-list covering 127/8, 169.254/16, 10/8, 172.16/12, 192.168/16, ::1, fe80::/10, unspecified
+     - check_ssrf_blocked() resolves hostname via tokio::task::spawn_blocking (DNS is blocking) before each request
+   - [HIGH] H2: HTTP response body fully buffered before size check — OOM DoS possible
+     - response.text().await loaded unlimited data into heap before comparing against max_response_size
+     - Switched to bytes_stream() + incremental accumulation that aborts immediately when running total exceeds limit
+   - [HIGH] H3: FileSystemTool path traversal via symlink escape past root boundary
+     - validate_path() used starts_with() before canonicalization, so symlinks inside root pointing outside were not caught
+     - Fixed: fully canonicalize existing paths; for non-existent paths walk up to nearest existing ancestor, canonicalize it,
+       then reconstruct the non-existent suffix beneath it
+     - read_directory_recursive() now canonicalizes each entry and skips any that resolve outside the configured root
+   - [HIGH] H4: McpClientProtocol silently swallowed deserialization errors — cache poisoning vector
+     - unwrap_or_default() / unwrap_or_else(|_| ToolResult::failure(...)) on serde_json::from_value() masked malformed
+       server responses with empty tool lists or phantom successes
+     - Replaced with ? propagation returning ToolError::ProtocolError at both tool-list and tool-result deserialization sites
+
+ - security: Harden BashTool — fix absolute-path bypass and enforce output size limit
+   - [FIX] Absolute-path denylist bypass: /bin/rm bypassed a denylist entry of "rm"
+     - is_command_allowed() now extracts the basename of the first token (strips leading path via rsplit('/'))
+     - Checks both the full command string and the basename; closes /bin/rm, ./rm, ../bin/rm, etc.
+   - [FIX] max_output_size was declared but never enforced (#[allow(dead_code)]) — OOM attack via unbounded output
+     - Switched from command.output() (buffers everything) to spawn() + incremental reads via read_limited() helper
+     - Stops at max_output_size bytes, kills the child process, returns BashError::OutputTooLarge
+     - Added with_max_output_size() builder method
+   - [FIX] Timeout never fired — std::process::Command::output() blocks the tokio thread preventing cancellation
+     - Switched to tokio::process::Command (async, truly cancellable by tokio::time::timeout)
+   - [FIX] cwd_restriction stored but never applied to spawned process
+     - Now passed to tokio::process::Command::current_dir()
+   - Added 62-test suite covering output/exit codes, timeout enforcement, allowlist/denylist security,
+     env vars, platform, thread safety, CWD restriction, and BashProtocol integration
+   - Added module-level security documentation with PoC payloads and hardening guidance for 6 threat categories
+
+ - feat: MCP event tracing (McpEvent) for full observability of MCP server/client interactions
+   - New McpEvent enum with 14 variants covering server-side and client-side lifecycle
+   - Server-side: ServerStarted, ToolListRequested, ToolListReturned, ToolCallReceived,
+     ToolCallCompleted, ToolError, RequestRejected
+   - Client-side: ConnectionInitialized, ConnectionClosed, ToolsDiscovered, CacheHit,
+     CacheExpired, RemoteToolCallStarted, RemoteToolCallCompleted
+   - EventHandler gains on_mcp_event() default no-op method; McpEvent re-exported from crate root
+   - MCPServerBuilder gains with_event_handler() builder method
+   - McpClientProtocol gains with_event_handler() builder method
+   - ToolError fires on transport/protocol failures distinct from ToolCallCompleted { success: false }
+   - Fix: UnifiedMcpServer::list_tools() deduplicates protocols by Arc pointer to avoid redundant calls
+
+ - feat: McpClientProtocol endpoint paths fixed to match AxumHttpAdapter routes
+   - GET {endpoint}/tools → POST {endpoint}/tools/list
+   - POST {endpoint}/execute → POST {endpoint}/tools/execute
+
+ - fix: parse_tool_call panic on multibyte Unicode characters in agent responses
+   - Mixed byte offsets (from str::find) with char indices (from chars().enumerate()) causing panic
+     inside multibyte chars like '─' (U+2500, 3 bytes) when slicing the response string
+   - Fixed by using response[start_idx..].char_indices() so all offsets stay in byte space
+
+ - feat: tetris_mcp_server example — RALPH orchestration via MCP HTTP transport
+   - Ports tetris_planner_team.rs to route all tool calls through MCPServerBuilder on localhost:9090
+   - Agents connect via McpClientProtocol (HTTP round-trips instead of in-process calls)
+   - TetrisMcpEventHandler implements all four EventHandler methods including on_mcp_event
+   - Added [[example]] entry in Cargo.toml with required-features = ["mcp-server"]
+
 0.10.7 FEB/17/2026
  - feat: Agent::send() now fires PlannerEvents alongside AgentEvents
    - Every agent turn emits both [agent] and [planner] scoped events
