@@ -60,6 +60,7 @@
 //! }
 //! ```
 
+use crate::cloudllm::client_wrapper::ToolDefinition;
 use crate::cloudllm::resource_protocol::ResourceMetadata;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -179,6 +180,91 @@ impl ToolParameter {
         self.properties = Some(properties);
         self
     }
+
+    /// Converts this parameter to a JSON Schema snippet suitable for native tool-calling.
+    ///
+    /// The generated schema follows [JSON Schema draft-07] conventions accepted by all major
+    /// providers (OpenAI, Anthropic, Grok, Gemini).
+    ///
+    /// | `ToolParameterType` | Schema produced |
+    /// |---|---|
+    /// | `String` | `{"type":"string"}` |
+    /// | `Number` | `{"type":"number"}` |
+    /// | `Integer` | `{"type":"integer"}` |
+    /// | `Boolean` | `{"type":"boolean"}` |
+    /// | `Array` | `{"type":"array","items":{...}}` |
+    /// | `Object` | `{"type":"object","properties":{...},"required":[...]}` |
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use cloudllm::tool_protocol::{ToolParameter, ToolParameterType};
+    ///
+    /// let param = ToolParameter::new("query", ToolParameterType::String)
+    ///     .with_description("Search query string")
+    ///     .required();
+    ///
+    /// let schema = param.to_json_schema();
+    /// assert_eq!(schema["type"], "string");
+    /// assert_eq!(schema["description"], "Search query string");
+    /// ```
+    pub fn to_json_schema(&self) -> serde_json::Value {
+        let mut schema = match &self.param_type {
+            ToolParameterType::String => serde_json::json!({"type": "string"}),
+            ToolParameterType::Number => serde_json::json!({"type": "number"}),
+            ToolParameterType::Integer => serde_json::json!({"type": "integer"}),
+            ToolParameterType::Boolean => serde_json::json!({"type": "boolean"}),
+            ToolParameterType::Array => {
+                let items_schema = self
+                    .items
+                    .as_ref()
+                    .map(|t| param_type_to_schema(t))
+                    .unwrap_or_else(|| serde_json::json!({}));
+                serde_json::json!({"type": "array", "items": items_schema})
+            }
+            ToolParameterType::Object => {
+                if let Some(props) = &self.properties {
+                    let properties: serde_json::Map<String, serde_json::Value> = props
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.to_json_schema()))
+                        .collect();
+                    let required: Vec<&str> = props
+                        .values()
+                        .filter(|p| p.required)
+                        .map(|p| p.name.as_str())
+                        .collect();
+                    serde_json::json!({
+                        "type": "object",
+                        "properties": properties,
+                        "required": required
+                    })
+                } else {
+                    serde_json::json!({"type": "object"})
+                }
+            }
+        };
+
+        // Attach description if present
+        if let Some(desc) = &self.description {
+            schema["description"] = serde_json::Value::String(desc.clone());
+        }
+
+        schema
+    }
+}
+
+/// Convert a bare [`ToolParameterType`] to a minimal JSON Schema value (no description).
+///
+/// Used internally when building array `items` schemas.
+fn param_type_to_schema(t: &ToolParameterType) -> serde_json::Value {
+    match t {
+        ToolParameterType::String => serde_json::json!({"type": "string"}),
+        ToolParameterType::Number => serde_json::json!({"type": "number"}),
+        ToolParameterType::Integer => serde_json::json!({"type": "integer"}),
+        ToolParameterType::Boolean => serde_json::json!({"type": "boolean"}),
+        ToolParameterType::Array => serde_json::json!({"type": "array"}),
+        ToolParameterType::Object => serde_json::json!({"type": "object"}),
+    }
 }
 
 /// Metadata about a tool
@@ -216,6 +302,55 @@ impl ToolMetadata {
     ) -> Self {
         self.protocol_metadata.insert(key.into(), value);
         self
+    }
+
+    /// Builds a [`ToolDefinition`] (JSON Schema) from this metadata.
+    ///
+    /// The resulting [`ToolDefinition`] is ready to be passed to
+    /// [`ClientWrapper::send_message`](crate::client_wrapper::ClientWrapper::send_message)
+    /// as part of the `tools` slice.  Parameters marked `required` are collected into the
+    /// JSON Schema `"required"` array automatically.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType};
+    ///
+    /// let meta = ToolMetadata::new("calculator", "Evaluates a math expression")
+    ///     .with_parameter(
+    ///         ToolParameter::new("expression", ToolParameterType::String)
+    ///             .with_description("The expression to evaluate")
+    ///             .required(),
+    ///     );
+    ///
+    /// let def = meta.to_tool_definition();
+    /// assert_eq!(def.name, "calculator");
+    /// let schema = &def.parameters_schema;
+    /// assert_eq!(schema["type"], "object");
+    /// assert!(schema["properties"]["expression"].is_object());
+    /// ```
+    pub fn to_tool_definition(&self) -> ToolDefinition {
+        let mut properties = serde_json::Map::new();
+        let mut required: Vec<String> = Vec::new();
+
+        for param in &self.parameters {
+            properties.insert(param.name.clone(), param.to_json_schema());
+            if param.required {
+                required.push(param.name.clone());
+            }
+        }
+
+        let parameters_schema = serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required
+        });
+
+        ToolDefinition {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            parameters_schema,
+        }
     }
 }
 
@@ -611,6 +746,39 @@ impl ToolRegistry {
     pub fn protocol(&self) -> Option<&Arc<dyn ToolProtocol>> {
         self.primary_protocol.as_ref()
     }
+
+    /// Returns all registered tools as [`ToolDefinition`]s ready to pass to the LLM.
+    ///
+    /// Iterates over every tool in the registry, calling
+    /// [`ToolMetadata::to_tool_definition`] on each, and returns the results as a `Vec`.
+    /// An empty `Vec` is returned when no tools have been registered.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use cloudllm::tool_protocol::{ToolRegistry, Tool, ToolMetadata, ToolParameter, ToolParameterType};
+    /// use cloudllm::tool_protocols::CustomToolProtocol;
+    /// use std::sync::Arc;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let protocol = Arc::new(CustomToolProtocol::new());
+    /// let mut registry = ToolRegistry::new(protocol.clone());
+    ///
+    /// let tool = Tool::new("calculator", "Evaluates math", protocol);
+    /// registry.add_tool(tool);
+    ///
+    /// let defs = registry.to_tool_definitions();
+    /// assert_eq!(defs.len(), 1);
+    /// assert_eq!(defs[0].name, "calculator");
+    /// # }
+    /// ```
+    pub fn to_tool_definitions(&self) -> Vec<ToolDefinition> {
+        self.tools
+            .values()
+            .map(|t| t.metadata.to_tool_definition())
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -907,5 +1075,131 @@ mod tests {
         // Tools should be mapped to primary protocol
         assert_eq!(registry.get_tool_protocol("tool1"), Some("primary"));
         assert_eq!(registry.get_tool_protocol("tool2"), Some("primary"));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // New tests for native tool-calling support (v0.11.1)
+    // ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_to_json_schema_string() {
+        let param = ToolParameter::new("q", ToolParameterType::String)
+            .with_description("Search query");
+        let schema = param.to_json_schema();
+        assert_eq!(schema["type"], "string");
+        assert_eq!(schema["description"], "Search query");
+    }
+
+    #[test]
+    fn test_to_json_schema_number() {
+        let param = ToolParameter::new("value", ToolParameterType::Number);
+        let schema = param.to_json_schema();
+        assert_eq!(schema["type"], "number");
+        // no description key when absent
+        assert!(schema.get("description").is_none());
+    }
+
+    #[test]
+    fn test_to_json_schema_integer() {
+        let schema = ToolParameter::new("n", ToolParameterType::Integer).to_json_schema();
+        assert_eq!(schema["type"], "integer");
+    }
+
+    #[test]
+    fn test_to_json_schema_boolean() {
+        let schema = ToolParameter::new("flag", ToolParameterType::Boolean).to_json_schema();
+        assert_eq!(schema["type"], "boolean");
+    }
+
+    #[test]
+    fn test_to_json_schema_array_with_items() {
+        let param = ToolParameter::new("ids", ToolParameterType::Array)
+            .with_items(ToolParameterType::Integer);
+        let schema = param.to_json_schema();
+        assert_eq!(schema["type"], "array");
+        assert_eq!(schema["items"]["type"], "integer");
+    }
+
+    #[test]
+    fn test_to_json_schema_array_without_items() {
+        let schema = ToolParameter::new("items", ToolParameterType::Array).to_json_schema();
+        assert_eq!(schema["type"], "array");
+        // items key may be present but empty {}
+        assert!(schema.get("items").is_some());
+    }
+
+    #[test]
+    fn test_to_json_schema_object_with_properties() {
+        use std::collections::HashMap;
+        let mut props = HashMap::new();
+        props.insert(
+            "name".to_string(),
+            ToolParameter::new("name", ToolParameterType::String)
+                .with_description("Person's name")
+                .required(),
+        );
+        props.insert(
+            "age".to_string(),
+            ToolParameter::new("age", ToolParameterType::Integer),
+        );
+        let param = ToolParameter::new("person", ToolParameterType::Object)
+            .with_properties(props);
+        let schema = param.to_json_schema();
+        assert_eq!(schema["type"], "object");
+        assert!(schema["properties"]["name"].is_object());
+        assert!(schema["properties"]["age"].is_object());
+        // "name" is required, "age" is not
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.iter().any(|v| v.as_str() == Some("name")));
+        assert!(!required.iter().any(|v| v.as_str() == Some("age")));
+    }
+
+    #[test]
+    fn test_to_tool_definition_roundtrip() {
+        let meta = ToolMetadata::new("calculator", "Evaluates a math expression")
+            .with_parameter(
+                ToolParameter::new("expression", ToolParameterType::String)
+                    .with_description("The expression")
+                    .required(),
+            )
+            .with_parameter(
+                ToolParameter::new("precision", ToolParameterType::Integer)
+                    .with_description("Decimal places"),
+            );
+
+        let def = meta.to_tool_definition();
+        assert_eq!(def.name, "calculator");
+        assert_eq!(def.description, "Evaluates a math expression");
+        assert_eq!(def.parameters_schema["type"], "object");
+        assert!(def.parameters_schema["properties"]["expression"].is_object());
+        assert!(def.parameters_schema["properties"]["precision"].is_object());
+
+        let required = def.parameters_schema["required"].as_array().unwrap();
+        assert!(required.iter().any(|v| v.as_str() == Some("expression")));
+        assert!(!required.iter().any(|v| v.as_str() == Some("precision")));
+    }
+
+    #[test]
+    fn test_to_tool_definitions_collects_all() {
+        let protocol = Arc::new(MockProtocol);
+        let mut registry = ToolRegistry::empty();
+
+        let tool_a = Tool::new("tool_a", "First tool", protocol.clone());
+        registry.add_tool(tool_a);
+        let tool_b = Tool::new("tool_b", "Second tool", protocol.clone());
+        registry.add_tool(tool_b);
+
+        let defs = registry.to_tool_definitions();
+        assert_eq!(defs.len(), 2);
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"tool_a"));
+        assert!(names.contains(&"tool_b"));
+    }
+
+    #[test]
+    fn test_to_tool_definitions_empty_registry() {
+        let registry = ToolRegistry::empty();
+        let defs = registry.to_tool_definitions();
+        assert!(defs.is_empty());
     }
 }
