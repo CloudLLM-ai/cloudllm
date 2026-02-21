@@ -276,7 +276,7 @@ If you reference prior thought indices, include a line: REFS: 150, 200\n\
 Be concise but preserve all critical information.";
 
         let response = session
-            .send_message(Role::User, compression_prompt.to_string(), None, None)
+            .send_message(Role::User, compression_prompt.to_string(), None)
             .await
             .map_err(|e| -> Box<dyn Error + Send + Sync> {
                 Box::new(std::io::Error::other(e.to_string()))

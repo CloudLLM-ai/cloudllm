@@ -51,9 +51,8 @@
 //! The session automatically trims oldest messages before transmission when cumulative tokens exceed the configured window.
 
 use crate::client_wrapper;
-use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role, ToolDefinition};
 use bumpalo::Bump;
-use openai_rust2::chat::{GrokTool, OpenAITool};
 use std::sync::Arc;
 
 pub struct LLMSession {
@@ -96,6 +95,7 @@ impl LLMSession {
         let system_prompt_message = Message {
             role: Role::System,
             content: system_prompt_arc,
+            tool_calls: vec![],
         };
 
         LLMSession {
@@ -125,12 +125,36 @@ impl LLMSession {
     /// 6. Perform a second pruning pass if the provider indicates the hard cap was exceeded.
     ///
     /// Inspect [`LLMSession::token_usage`] to read the cumulative accounting.
+    /// Send a message, update the session history, and return the assistant reply.
+    ///
+    /// The `tools` parameter carries native [`ToolDefinition`]s forwarded to the underlying
+    /// [`ClientWrapper`].  Pass `None` for plain conversational turns.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use cloudllm::client_wrapper::Role;
+    /// use cloudllm::clients::openai::{Model, OpenAIClient};
+    /// use cloudllm::LLMSession;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Arc::new(OpenAIClient::new_with_model_enum(
+    ///     &std::env::var("OPEN_AI_SECRET")?,
+    ///     Model::GPT41Nano,
+    /// ));
+    /// let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
+    /// let reply = session.send_message(Role::User, "Hello!".into(), None).await?;
+    /// println!("{}", reply.content);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn send_message(
         &mut self,
         role: Role,
         content: String,
-        optional_grok_tools: Option<Vec<GrokTool>>,
-        optional_openai_tools: Option<Vec<OpenAITool>>,
+        tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Allocate message content in arena and create Arc<str>
         let content_str = self.arena.alloc_str(&content);
@@ -139,6 +163,7 @@ impl LLMSession {
         let message = Message {
             role,
             content: content_arc,
+            tool_calls: vec![],
         };
 
         // Cache the token count for the new message before adding it
@@ -176,11 +201,7 @@ impl LLMSession {
         // Send the messages to the LLM
         let response = self
             .client
-            .send_message(
-                &self.request_buffer,
-                optional_grok_tools,
-                optional_openai_tools,
-            )
+            .send_message(&self.request_buffer, tools)
             .await?;
 
         // Clone response for return before adding to history
@@ -225,12 +246,40 @@ impl LLMSession {
     /// [`LLMSession::send_message`].
     ///
     /// Returning `Ok(None)` indicates that the wrapped client does not support streaming.
+    /// Send a message and return a streaming response when the provider supports it.
+    ///
+    /// The `tools` parameter mirrors [`send_message`](LLMSession::send_message).  Streaming with
+    /// native tool calling is not yet supported; implementors may return `Ok(None)`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use cloudllm::client_wrapper::Role;
+    /// use cloudllm::clients::openai::{Model, OpenAIClient};
+    /// use cloudllm::LLMSession;
+    /// use futures_util::StreamExt;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Arc::new(OpenAIClient::new_with_model_enum(
+    ///     &std::env::var("OPEN_AI_SECRET")?,
+    ///     Model::GPT41Mini,
+    /// ));
+    /// let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
+    /// if let Some(mut stream) = session.send_message_stream(Role::User, "Hello!".into(), None).await? {
+    ///     while let Some(chunk) = stream.next().await {
+    ///         print!("{}", chunk?.content);
+    ///     }
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn send_message_stream(
         &mut self,
         role: Role,
         content: String,
-        optional_grok_tools: Option<Vec<GrokTool>>,
-        optional_openai_tools: Option<Vec<OpenAITool>>,
+        tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Option<crate::client_wrapper::MessageChunkStream>, Box<dyn std::error::Error>> {
         // Allocate message content in arena and create Arc<str>
         let content_str = self.arena.alloc_str(&content);
@@ -239,6 +288,7 @@ impl LLMSession {
         let message = Message {
             role,
             content: content_arc,
+            tool_calls: vec![],
         };
 
         // Cache the token count for the new message before adding it
@@ -275,11 +325,7 @@ impl LLMSession {
         // Get the streaming response
         let stream_result = self
             .client
-            .send_message_stream(
-                &self.request_buffer,
-                optional_grok_tools,
-                optional_openai_tools,
-            )
+            .send_message_stream(&self.request_buffer, tools)
             .await?;
 
         // If streaming is not supported, remove the message we added
@@ -304,6 +350,7 @@ impl LLMSession {
         self.system_prompt = Message {
             role: Role::System,
             content: prompt_arc,
+            tool_calls: vec![],
         };
     }
 
@@ -447,6 +494,7 @@ impl LLMSession {
         let message = Message {
             role,
             content: content_arc,
+            tool_calls: vec![],
         };
         let token_count = estimate_message_token_count(&message);
         self.conversation_history.push(message);

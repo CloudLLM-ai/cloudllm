@@ -833,12 +833,7 @@ impl Planner for BasicPlanner {
 
         let mut response = match ctx
             .session
-            .send_message(
-                Role::User,
-                message,
-                ctx.grok_tools.clone(),
-                ctx.openai_tools.clone(),
-            )
+            .send_message(Role::User, message, None)
             .await
         {
             Ok(resp) => resp,
@@ -992,12 +987,7 @@ impl Planner for BasicPlanner {
 
             response = match ctx
                 .session
-                .send_message(
-                    Role::User,
-                    tool_result_message,
-                    ctx.grok_tools.clone(),
-                    ctx.openai_tools.clone(),
-                )
+                .send_message(Role::User, tool_result_message, None)
                 .await
             {
                 Ok(resp) => resp,
