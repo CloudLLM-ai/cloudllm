@@ -48,7 +48,7 @@
 //! # };
 //! ```
 
-use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage, ToolDefinition};
 use crate::cloudllm::context_strategy::{ContextStrategy, TrimStrategy};
 use crate::cloudllm::event::{AgentEvent, EventHandler, PlannerEvent};
 use crate::cloudllm::llm_session::LLMSession;
@@ -61,19 +61,20 @@ use std::io;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Internal representation of a parsed tool call extracted from an LLM response.
+/// Internal representation of a resolved tool call.
 ///
-/// The agent's `parse_tool_call()` method scans LLM output for JSON fragments
-/// matching `{"tool_call": {"name": "...", "parameters": {...}}}` and returns
-/// this struct. The `name` is used to route the call through the
-/// [`ToolRegistry`](crate::tool_protocol::ToolRegistry), and `parameters` is
-/// the raw JSON payload forwarded to the tool protocol's `execute()` method.
+/// When the LLM returns a native function-calling result, `native_id` is populated
+/// with the provider-assigned call ID so that the tool result can be injected as a
+/// `Role::Tool { call_id }` message in the next request.  For text-parsed fallback
+/// calls, `native_id` is `None` and the result is injected as a `Role::User` message.
 #[derive(Debug, Clone)]
 struct ToolCall {
-    /// Name of the tool to execute (e.g. `"memory"`, `"calculator"`, `"write_game_file"`).
+    /// Name of the tool to execute.
     name: String,
-    /// Raw JSON parameters extracted from the LLM's tool call request.
+    /// JSON parameters for the tool.
     parameters: serde_json::Value,
+    /// Provider-assigned call ID when this came from native function calling.
+    native_id: Option<String>,
 }
 
 /// Response body returned after asking an agent to generate content.
@@ -888,14 +889,27 @@ impl Agent {
         })
         .await;
 
-        // Build tool description string to append to user message
-        let mut message_with_tools = user_message.to_string();
-        {
+        // Build native tool definitions from the registry
+        let tool_defs: Vec<ToolDefinition> = {
             let registry = self.tool_registry.read().await;
-            let tools = registry.list_tools();
-            if !tools.is_empty() {
+            registry.to_tool_definitions()
+        };
+        let tools: Option<Vec<ToolDefinition>> = if tool_defs.is_empty() {
+            None
+        } else {
+            Some(tool_defs)
+        };
+
+        // When no native tools are available, fall back to text-parsing: append tool
+        // descriptions to the message so providers without function-calling can still
+        // select tools.
+        let mut message_with_tools = user_message.to_string();
+        if tools.is_none() {
+            let registry = self.tool_registry.read().await;
+            let registry_tools = registry.list_tools();
+            if !registry_tools.is_empty() {
                 message_with_tools.push_str("\n\nYou have access to the following tools:\n");
-                for tool_metadata in tools {
+                for tool_metadata in registry_tools {
                     message_with_tools.push_str(&format!(
                         "- {}: {}\n",
                         tool_metadata.name, tool_metadata.description
@@ -920,17 +934,6 @@ impl Agent {
             }
         }
 
-        let grok_tools = if self.grok_tools.is_empty() {
-            None
-        } else {
-            Some(self.grok_tools.clone())
-        };
-        let openai_tools = if self.openai_tools.is_empty() {
-            None
-        } else {
-            Some(self.openai_tools.clone())
-        };
-
         // Tool execution loop
         let max_tool_iterations = 5;
         let mut tool_iteration = 0;
@@ -953,12 +956,7 @@ impl Agent {
 
         let response = self
             .session
-            .send_message(
-                Role::User,
-                message_with_tools,
-                grok_tools.clone(),
-                openai_tools.clone(),
-            )
+            .send_message(Role::User, message_with_tools, tools.clone())
             .await
             .map_err(|e| {
                 Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -996,10 +994,24 @@ impl Agent {
         })
         .await;
 
-        let mut current_response = response.content.to_string();
+        // Track current response as a full Message to access both content and tool_calls.
+        let mut current_msg = response;
+        let mut current_response = current_msg.content.to_string();
 
         loop {
-            let tool_call = self.parse_tool_call(&current_response);
+            // Primary path: native tool calls from the provider; fallback: text-parsing.
+            let tool_call: Option<ToolCall> = if !current_msg.tool_calls.is_empty() {
+                let ntc = &current_msg.tool_calls[0];
+                Some(ToolCall {
+                    name: ntc.name.clone(),
+                    parameters: ntc.arguments.clone(),
+                    native_id: Some(ntc.id.clone()),
+                })
+            } else {
+                self.parse_tool_call(&current_response)
+                    .map(|tc| ToolCall { native_id: None, ..tc })
+            };
+
             if let Some(tool_call) = tool_call {
                 if tool_iteration >= max_tool_iterations {
                     self.emit(AgentEvent::ToolMaxIterationsReached {
@@ -1021,6 +1033,7 @@ impl Agent {
 
                 let tool_params_snapshot = tool_call.parameters.clone();
                 let tool_name = tool_call.name.clone();
+                let native_id = tool_call.native_id.clone();
 
                 self.emit(AgentEvent::ToolCallDetected {
                     agent_id: self.id.clone(),
@@ -1104,7 +1117,9 @@ impl Agent {
                 })
                 .await;
 
-                // Send tool result back through session
+                // Send tool result back through session.
+                // Native path: inject result as Role::Tool so the provider correlates the call.
+                // Text-parsing fallback: inject as Role::User (existing behaviour).
                 let next_iteration = tool_iteration + 1;
                 self.emit(AgentEvent::LLMCallStarted {
                     agent_id: self.id.clone(),
@@ -1118,14 +1133,15 @@ impl Agent {
                 })
                 .await;
 
+                let result_role = if let Some(call_id) = native_id {
+                    Role::Tool { call_id }
+                } else {
+                    Role::User
+                };
+
                 let follow_up = self
                     .session
-                    .send_message(
-                        Role::User,
-                        tool_result_message,
-                        grok_tools.clone(),
-                        openai_tools.clone(),
-                    )
+                    .send_message(result_role, tool_result_message, tools.clone())
                     .await
                     .map_err(|e| {
                         Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -1164,6 +1180,7 @@ impl Agent {
                 .await;
 
                 current_response = follow_up.content.to_string();
+                current_msg = follow_up;
             } else {
                 break;
             }
@@ -1295,17 +1312,28 @@ impl Agent {
 
         let augmented_system = self.augment_system_prompt(system_prompt);
 
+        // Build native tool definitions from the registry
+        let gwt_tool_defs: Vec<ToolDefinition> = {
+            let registry = self.tool_registry.read().await;
+            registry.to_tool_definitions()
+        };
+        let gwt_tools: Option<Vec<ToolDefinition>> = if gwt_tool_defs.is_empty() {
+            None
+        } else {
+            Some(gwt_tool_defs)
+        };
+
         // Build message array
         let mut messages = Vec::new();
 
-        // System message with tool information if available
+        // System message — when no native tools, append text descriptions for fallback parsing
         let mut system_with_tools = augmented_system.clone();
-        {
+        if gwt_tools.is_none() {
             let registry = self.tool_registry.read().await;
-            let tools = registry.list_tools();
-            if !tools.is_empty() {
+            let registry_tools = registry.list_tools();
+            if !registry_tools.is_empty() {
                 system_with_tools.push_str("\n\nYou have access to the following tools:\n");
-                for tool_metadata in tools {
+                for tool_metadata in registry_tools {
                     system_with_tools.push_str(&format!(
                         "- {}: {}\n",
                         tool_metadata.name, tool_metadata.description
@@ -1333,6 +1361,7 @@ impl Agent {
         messages.push(Message {
             role: Role::System,
             content: Arc::from(system_with_tools.as_str()),
+            tool_calls: vec![],
         });
 
         // Add conversation history
@@ -1340,6 +1369,7 @@ impl Agent {
             messages.push(Message {
                 role: msg.role.clone(),
                 content: msg.content.clone(),
+                tool_calls: vec![],
             });
         }
 
@@ -1347,6 +1377,7 @@ impl Agent {
         messages.push(Message {
             role: Role::User,
             content: Arc::from(user_message),
+            tool_calls: vec![],
         });
 
         // Tool execution loop - allow up to 5 tool calls to prevent infinite loops
@@ -1364,18 +1395,6 @@ impl Agent {
         loop {
             gwt_llm_iteration += 1;
 
-            // Send to LLM
-            let grok_tools = if self.grok_tools.is_empty() {
-                None
-            } else {
-                Some(self.grok_tools.clone())
-            };
-            let openai_tools = if self.openai_tools.is_empty() {
-                None
-            } else {
-                Some(self.openai_tools.clone())
-            };
-
             self.emit(AgentEvent::LLMCallStarted {
                 agent_id: self.id.clone(),
                 agent_name: self.name.clone(),
@@ -1386,7 +1405,7 @@ impl Agent {
             let response = self
                 .session
                 .client()
-                .send_message(&messages, grok_tools, openai_tools)
+                .send_message(&messages, gwt_tools.clone())
                 .await
                 .map_err(|e| {
                     Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -1420,8 +1439,19 @@ impl Agent {
             })
             .await;
 
-            // Check if we have tools and if the response contains a tool call
-            let tool_call = self.parse_tool_call(&current_response);
+            // Primary: native tool calls from provider; fallback: text-parsing
+            let tool_call: Option<ToolCall> = if !response.tool_calls.is_empty() {
+                let ntc = &response.tool_calls[0];
+                Some(ToolCall {
+                    name: ntc.name.clone(),
+                    parameters: ntc.arguments.clone(),
+                    native_id: Some(ntc.id.clone()),
+                })
+            } else {
+                self.parse_tool_call(&current_response)
+                    .map(|tc| ToolCall { native_id: None, ..tc })
+            };
+
             if let Some(tool_call) = tool_call {
                 if tool_iteration >= max_tool_iterations {
                     self.emit(AgentEvent::ToolMaxIterationsReached {
@@ -1440,6 +1470,7 @@ impl Agent {
                 tool_iteration += 1;
 
                 let gwt_params_snapshot = tool_call.parameters.clone();
+                let gwt_native_id = tool_call.native_id.clone();
 
                 self.emit(AgentEvent::ToolCallDetected {
                     agent_id: self.id.clone(),
@@ -1458,10 +1489,11 @@ impl Agent {
                         .await
                 };
 
-                // Add assistant's tool call to messages
+                // Add assistant's message (with tool_calls for native path) to messages
                 messages.push(Message {
                     role: Role::Assistant,
                     content: response.content.clone(),
+                    tool_calls: response.tool_calls.clone(),
                 });
 
                 // Add tool result to messages
@@ -1513,9 +1545,16 @@ impl Agent {
                 })
                 .await;
 
+                // Inject tool result: native path uses Role::Tool; fallback uses Role::User
+                let gwt_result_role = if let Some(call_id) = gwt_native_id {
+                    Role::Tool { call_id }
+                } else {
+                    Role::User
+                };
                 messages.push(Message {
-                    role: Role::User,
+                    role: gwt_result_role,
                     content: Arc::from(tool_result_message.as_str()),
+                    tool_calls: vec![],
                 });
 
                 // Continue loop to get next response
@@ -1618,6 +1657,7 @@ impl Agent {
                             return Some(ToolCall {
                                 name: name.to_string(),
                                 parameters: parameters.clone(),
+                                native_id: None,
                             });
                         }
                     }
