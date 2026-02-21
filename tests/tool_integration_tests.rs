@@ -9,14 +9,13 @@
 //! where the protocol's command format doesn't match what agents send.
 
 use async_trait::async_trait;
-use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage, ToolDefinition};
 use cloudllm::tool_protocol::{
     ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolRegistry, ToolResult,
 };
 use cloudllm::tool_protocols::{BashProtocol, CustomToolProtocol, MemoryProtocol};
 use cloudllm::tools::{BashTool, Calculator, FileSystemTool, HttpClient, Memory, Platform};
 use cloudllm::Agent;
-use openai_rust2 as openai_rust;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -46,8 +45,7 @@ impl ClientWrapper for SequentialMockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        _tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let count = self.call_count.fetch_add(1, Ordering::SeqCst);
         let response = if count == 0 {
@@ -58,6 +56,7 @@ impl ClientWrapper for SequentialMockClient {
         Ok(Message {
             role: Role::Assistant,
             content: Arc::from(response.as_str()),
+            tool_calls: vec![],
         })
     }
 

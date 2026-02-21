@@ -19,11 +19,12 @@ async fn test_streaming_returns_option() {
     let messages = vec![Message {
         role: Role::User,
         content: "Hello".into(),
+        tool_calls: vec![],
     }];
 
     // This will fail with authentication error if fake_key is used,
     // but we're just testing that the API is callable
-    let _ = client.send_message_stream(&messages, None, None).await;
+    let _ = client.send_message_stream(&messages, None).await;
 }
 
 #[tokio::test]
@@ -41,7 +42,7 @@ async fn test_session_streaming_api() {
 
     // Test that send_message_stream is callable
     let _ = session
-        .send_message_stream(Role::User, "Test".to_string(), None, None)
+        .send_message_stream(Role::User, "Test".to_string(), None)
         .await;
 }
 
@@ -61,6 +62,6 @@ async fn test_backward_compatibility_non_streaming() {
 
     // The old non-streaming API should still work
     let _ = session
-        .send_message(Role::User, "Test".to_string(), None, None)
+        .send_message(Role::User, "Test".to_string(), None)
         .await;
 }

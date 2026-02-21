@@ -1,8 +1,7 @@
 use async_trait::async_trait;
-use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage, ToolDefinition};
 use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
 use cloudllm::Agent;
-use openai_rust2 as openai_rust;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -15,12 +14,12 @@ impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        _tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         Ok(Message {
             role: Role::Assistant,
             content: Arc::from(self.response.as_str()),
+            tool_calls: vec![],
         })
     }
 

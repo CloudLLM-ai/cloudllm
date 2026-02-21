@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage, ToolDefinition};
 use cloudllm::event::{EventHandler, PlannerEvent};
 use cloudllm::planner::{
     BasicPlanner, MemoryEntry, MemoryStore, NoopMemory, NoopPolicy, NoopStream, Planner,
@@ -10,7 +10,6 @@ use cloudllm::tool_protocol::{
 };
 use cloudllm::tool_protocols::CustomToolProtocol;
 use cloudllm::LLMSession;
-use openai_rust2 as openai_rust;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -34,8 +33,7 @@ impl ClientWrapper for SequentialMockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        _tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let index = self.call_count.fetch_add(1, Ordering::SeqCst);
         let response = self
@@ -46,6 +44,7 @@ impl ClientWrapper for SequentialMockClient {
         Ok(Message {
             role: Role::Assistant,
             content: Arc::from(response.as_str()),
+            tool_calls: vec![],
         })
     }
 
@@ -93,8 +92,7 @@ impl ClientWrapper for InspectingClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        _tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let found = messages.iter().any(|message| {
             message.content.contains("Relevant memory") && message.content.contains("Remember this")
@@ -106,6 +104,7 @@ impl ClientWrapper for InspectingClient {
         Ok(Message {
             role: Role::Assistant,
             content: Arc::from("OK"),
+            tool_calls: vec![],
         })
     }
 

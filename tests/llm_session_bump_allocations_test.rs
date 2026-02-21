@@ -1,7 +1,6 @@
 use async_trait::async_trait;
-use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage, ToolDefinition};
 use cloudllm::LLMSession;
-use openai_rust2 as openai_rust;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -25,12 +24,12 @@ impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        _tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         Ok(Message {
             role: Role::Assistant,
             content: self.response_content.clone().into(),
+            tool_calls: vec![],
         })
     }
 
@@ -50,7 +49,7 @@ async fn test_arena_allocation() {
 
     // Send a message
     let result = session
-        .send_message(Role::User, "Test user message".to_string(), None, None)
+        .send_message(Role::User, "Test user message".to_string(), None)
         .await;
 
     assert!(result.is_ok());
@@ -80,6 +79,7 @@ fn test_message_content_is_arc_str() {
     let msg = Message {
         role: Role::User,
         content: Arc::from("Test message"),
+        tool_calls: vec![],
     };
 
     let cloned = msg.clone();

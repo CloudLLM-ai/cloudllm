@@ -14,7 +14,6 @@ use cloudllm::cloudllm::image_generation::{
 use cloudllm::init_logger;
 use cloudllm::LLMSession;
 use cloudllm::Message;
-use openai_rust2::chat::GrokTool;
 
 #[test]
 fn test_claude_client() {
@@ -38,7 +37,6 @@ fn test_claude_client() {
                 crate::Role::User,
                 "What is the capital of France?".to_string(),
                 None,
-                None,
             )
             .await;
 
@@ -47,6 +45,7 @@ fn test_claude_client() {
             Message {
                 role: System,
                 content: format!("An error occurred: {:?}", e).into(),
+                tool_calls: vec![],
             }
         })
     });
@@ -80,7 +79,6 @@ fn test_gemini_client() {
             .send_message(
                 Role::User,
                 "What is the square root of 16?".to_string(),
-                None,
                 None,
             )
             .await;
@@ -116,17 +114,12 @@ pub fn test_grok_client() {
     // Create a new Tokio runtime
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    // Use the new xAI Agent Tools API (replaces deprecated Live Search)
-    // See: https://docs.x.ai/docs/guides/tools/overview
-    let grok_tools = vec![GrokTool::web_search(), GrokTool::x_search()];
-
     let response_message: Message = rt.block_on(async {
         let s = llm_session
             .send_message(
                 crate::Role::User,
                 "What's the current price of Bitcoin? Search the web for the latest information."
                     .to_string(),
-                Some(grok_tools),
                 None,
             )
             .await;
@@ -136,6 +129,7 @@ pub fn test_grok_client() {
             Message {
                 role: crate::Role::System,
                 content: format!("An error occurred: {:?}", e).into(),
+                tool_calls: vec![],
             }
         })
     });
@@ -167,7 +161,6 @@ fn test_openai_client() {
                 "If life is a game and you are not an NPC character, what can you while you play to benefit the higher consciousness of your avatar controller?"
                     .to_string(),
                 None,
-                None,
             )
             .await;
 
@@ -176,6 +169,7 @@ fn test_openai_client() {
             Message {
                 role: Role::System,
                 content: format!("An error occurred: {:?}", e).into(),
+                tool_calls: vec![],
             }
         })
     });
