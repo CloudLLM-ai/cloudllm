@@ -109,9 +109,9 @@ use futures_util::stream::StreamExt;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
-use crate::client_wrapper::{MessageChunk, TokenUsage};
+use crate::client_wrapper::{MessageChunk, TokenUsage, ToolDefinition};
 use crate::clients::common::{
-    chunks_to_stream, send_and_track, send_and_track_openai_responses, StreamError,
+    chunks_to_stream, get_shared_http_client, send_and_track, send_with_native_tools, StreamError,
 };
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use crate::cloudllm::image_generation::{
@@ -292,54 +292,88 @@ impl OpenAIClient {
 
 #[async_trait]
 impl ClientWrapper for OpenAIClient {
+    /// Send a chat completion, routing to native tool calling when `tools` is non-empty.
+    ///
+    /// When `tools` is `Some` and non-empty, the request is forwarded to
+    /// [`send_with_native_tools`] which serialises the tools array and parses
+    /// any resulting tool calls from the provider response.  When `tools` is
+    /// `None` or empty, the standard `send_and_track` path is used.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+    /// use cloudllm::clients::openai::{Model, OpenAIClient};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = OpenAIClient::new_with_model_enum(
+    ///     &std::env::var("OPEN_AI_SECRET")?,
+    ///     Model::GPT41Nano,
+    /// );
+    /// let resp = client.send_message(
+    ///     &[Message { role: Role::User, content: Arc::from("Hello"), tool_calls: vec![] }],
+    ///     None,
+    /// ).await?;
+    /// println!("{}", resp.content);
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn send_message(
         &self,
         messages: &[Message],
-        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn Error>> {
-        // Convert the provided messages into the format expected by openai_rust
+        // Route to native tool calling when tools are provided
+        if let Some(tool_defs) = tools.filter(|t| !t.is_empty()) {
+            return send_with_native_tools(
+                &self.base_url,
+                &self.api_key,
+                &self.model,
+                messages,
+                &tool_defs,
+                get_shared_http_client(),
+                &self.token_usage,
+            )
+            .await
+            .map_err(|e| {
+                if log::log_enabled!(log::Level::Error) {
+                    log::error!("OpenAIClient::send_message (native tools): {}", e);
+                }
+                e
+            });
+        }
+
+        // Standard Chat Completions path (no tools)
         let mut formatted_messages = Vec::with_capacity(messages.len());
         for msg in messages {
             formatted_messages.push(chat::Message {
-                role: match msg.role {
+                role: match &msg.role {
                     Role::System => "system".to_owned(),
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
+                    Role::Tool { .. } => "tool".to_owned(),
                 },
                 content: msg.content.to_string(),
             });
         }
 
-        // Use the Responses API when OpenAI tools are provided, otherwise use Chat Completions
-        let result = if let Some(openai_tools) = optional_openai_tools {
-            // Use the Responses API (/v1/responses) for agentic tool calling
-            send_and_track_openai_responses(
-                &self.client,
-                &self.model,
-                formatted_messages,
-                Some("/v1/responses".to_string()),
-                &self.token_usage,
-                openai_tools,
-            )
-            .await
-        } else {
-            // Use the standard Chat Completions API (/v1/chat/completions)
-            send_and_track(
-                &self.client,
-                &self.model,
-                formatted_messages,
-                Some("/v1/chat/completions".to_string()),
-                &self.token_usage,
-                optional_grok_tools,
-            )
-            .await
-        };
+        let result = send_and_track(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            Some("/v1/chat/completions".to_string()),
+            &self.token_usage,
+            None,
+        )
+        .await;
 
         match result {
             Ok(c) => Ok(Message {
                 role: Role::Assistant,
                 content: Arc::from(c.as_str()),
+                tool_calls: vec![],
             }),
             Err(e) => {
                 if log::log_enabled!(log::Level::Error) {
@@ -353,18 +387,18 @@ impl ClientWrapper for OpenAIClient {
     fn send_message_stream<'a>(
         &'a self,
         messages: &'a [Message],
-        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        _tools: Option<Vec<ToolDefinition>>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
         Box::pin(async move {
             // Convert the provided messages into the format expected by openai_rust
             let mut formatted_messages = Vec::with_capacity(messages.len());
             for msg in messages {
                 formatted_messages.push(chat::Message {
-                    role: match msg.role {
+                    role: match &msg.role {
                         Role::System => "system".to_owned(),
                         Role::User => "user".to_owned(),
                         Role::Assistant => "assistant".to_owned(),
+                        Role::Tool { .. } => "tool".to_owned(),
                     },
                     content: msg.content.to_string(),
                 });
@@ -372,11 +406,8 @@ impl ClientWrapper for OpenAIClient {
 
             let url_path_string = "/v1/chat/completions".to_string();
 
-            // Build the chat arguments
-            let mut chat_arguments = chat::ChatArguments::new(&self.model, formatted_messages);
-            if let Some(grok_tools) = optional_grok_tools {
-                chat_arguments = chat_arguments.with_grok_tools(grok_tools);
-            }
+            // Build the chat arguments (streaming does not support native tools)
+            let chat_arguments = chat::ChatArguments::new(&self.model, formatted_messages);
 
             // Create the streaming request
             let stream_result = self

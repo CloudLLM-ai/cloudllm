@@ -31,11 +31,10 @@
 //! }
 //! ```
 
-use crate::client_wrapper::TokenUsage;
+use crate::client_wrapper::{TokenUsage, ToolDefinition};
 use crate::clients::openai::OpenAIClient;
 use crate::{ClientWrapper, Message};
 use async_trait::async_trait;
-use openai_rust2 as openai_rust;
 use std::error::Error;
 use tokio::sync::Mutex;
 
@@ -130,15 +129,36 @@ impl ClientWrapper for ClaudeClient {
         &self.model
     }
 
+    /// Delegates to the inner [`OpenAIClient`] (which routes to native tool calling when
+    /// `tools` is non-empty).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+    /// use cloudllm::clients::claude::{ClaudeClient, Model};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ClaudeClient::new_with_model_enum(
+    ///     &std::env::var("ANTHROPIC_KEY")?,
+    ///     Model::ClaudeSonnet46,
+    /// );
+    /// let resp = client.send_message(
+    ///     &[Message { role: Role::User, content: Arc::from("Hello"), tool_calls: vec![] }],
+    ///     None,
+    /// ).await?;
+    /// println!("{}", resp.content);
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn send_message(
         &self,
         messages: &[Message],
-        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn Error>> {
-        self.delegate_client
-            .send_message(messages, optional_grok_tools, optional_openai_tools)
-            .await
+        self.delegate_client.send_message(messages, tools).await
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {

@@ -63,8 +63,8 @@
 //! }
 //! ```
 
-use crate::client_wrapper::{Role, TokenUsage};
-use crate::clients::common::{get_shared_http_client, send_and_track, send_and_track_responses};
+use crate::client_wrapper::{Role, TokenUsage, ToolDefinition};
+use crate::clients::common::{get_shared_http_client, send_and_track, send_with_native_tools};
 use crate::cloudllm::image_generation::{
     ImageData, ImageGenerationClient, ImageGenerationOptions, ImageGenerationResponse,
 };
@@ -199,54 +199,84 @@ impl ClientWrapper for GrokClient {
         &self.model
     }
 
+    /// Send a chat completion, routing to native tool calling when `tools` is non-empty.
+    ///
+    /// When `tools` is `Some` and non-empty the request is forwarded to
+    /// [`send_with_native_tools`](crate::clients::common::send_with_native_tools).
+    /// Otherwise the standard Chat Completions endpoint is used.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
+    /// use cloudllm::clients::grok::{GrokClient, Model};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = GrokClient::new_with_model_enum(&std::env::var("XAI_KEY")?, Model::Grok3Mini);
+    /// let resp = client.send_message(
+    ///     &[Message { role: Role::User, content: Arc::from("Hello"), tool_calls: vec![] }],
+    ///     None,
+    /// ).await?;
+    /// println!("{}", resp.content);
+    /// # Ok(())
+    /// # }
+    /// ```
     async fn send_message(
         &self,
         messages: &[Message],
-        optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn Error>> {
-        // Convert the provided messages into the format expected by openai_rust
+        // Route to native tool calling when tools are provided
+        if let Some(tool_defs) = tools.filter(|t| !t.is_empty()) {
+            return send_with_native_tools(
+                &self.base_url,
+                &self.api_key,
+                &self.model,
+                messages,
+                &tool_defs,
+                get_shared_http_client(),
+                &self.token_usage,
+            )
+            .await
+            .map_err(|e| {
+                if log::log_enabled!(log::Level::Error) {
+                    log::error!("GrokClient::send_message (native tools): {}", e);
+                }
+                e
+            });
+        }
+
+        // Standard Chat Completions path (no tools)
         let mut formatted_messages = Vec::with_capacity(messages.len());
         for msg in messages {
             formatted_messages.push(chat::Message {
-                role: match msg.role {
+                role: match &msg.role {
                     Role::System => "system".to_owned(),
                     Role::User => "user".to_owned(),
                     Role::Assistant => "assistant".to_owned(),
+                    Role::Tool { .. } => "tool".to_owned(),
                 },
                 content: msg.content.to_string(),
             });
         }
 
-        // Use the Responses API when tools are provided, otherwise use Chat Completions
-        let result = if let Some(grok_tools) = optional_grok_tools {
-            // Use the Responses API (/v1/responses) for agentic tool calling
-            send_and_track_responses(
-                &self.client,
-                &self.model,
-                formatted_messages,
-                Some("/v1/responses".to_string()),
-                &self.token_usage,
-                grok_tools,
-            )
-            .await
-        } else {
-            // Use the standard Chat Completions API (/v1/chat/completions)
-            send_and_track(
-                &self.client,
-                &self.model,
-                formatted_messages,
-                Some("/v1/chat/completions".to_string()),
-                &self.token_usage,
-                None,
-            )
-            .await
-        };
+        let result = send_and_track(
+            &self.client,
+            &self.model,
+            formatted_messages,
+            Some("/v1/chat/completions".to_string()),
+            &self.token_usage,
+            None,
+        )
+        .await;
 
         match result {
             Ok(c) => Ok(Message {
                 role: Role::Assistant,
                 content: Arc::from(c.as_str()),
+                tool_calls: vec![],
             }),
             Err(e) => {
                 if log::log_enabled!(log::Level::Error) {
@@ -260,14 +290,11 @@ impl ClientWrapper for GrokClient {
     fn send_message_stream<'a>(
         &'a self,
         _messages: &'a [Message],
-        _optional_grok_tools: Option<Vec<openai_rust::chat::GrokTool>>,
-        _optional_openai_tools: Option<Vec<openai_rust::chat::OpenAITool>>,
+        _tools: Option<Vec<ToolDefinition>>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
-        // Note: Streaming is not yet supported for the Responses API
-        // For now, return an error indicating streaming is not available
-        Box::pin(
-            async move { Err("Streaming is not yet supported for the xAI Responses API".into()) },
-        )
+        Box::pin(async move {
+            Err("Streaming is not yet supported for GrokClient".into())
+        })
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
