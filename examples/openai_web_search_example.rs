@@ -21,7 +21,6 @@
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::LLMSession;
-use openai_rust2::chat::{OpenAITool, UserLocation};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -55,20 +54,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Message {
             role: Role::System,
             content: Arc::from("You are a helpful research assistant. Search the web for current information and provide a comprehensive answer."),
+            tool_calls: vec![],
         },
         Message {
             role: Role::User,
             content: Arc::from("What are the latest developments in artificial intelligence this week? Provide a brief summary of the top 3 recent developments."),
+            tool_calls: vec![],
         },
     ];
-
-    // Create tools with basic web search (high context for detailed results)
-    let tools_1 = vec![OpenAITool::web_search().with_search_context_size("high")];
 
     println!("Sending request with web_search tool (context: high)...\n");
 
     let response_1 = client
-        .send_message(&messages_1, None, Some(tools_1))
+        .send_message(&messages_1, None)
         .await?;
 
     println!("Response:\n{}\n", response_1.content);
@@ -91,31 +89,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             content: Arc::from(
                 "You are a local events coordinator. Search for current events and news.",
             ),
+            tool_calls: vec![],
         },
         Message {
             role: Role::User,
             content: Arc::from(
                 "What are the major tech events happening in San Francisco this month?",
             ),
+            tool_calls: vec![],
         },
     ];
-
-    // Create tools with geographic filtering for US/San Francisco
-    let location = UserLocation {
-        country: Some("US".to_string()),
-        city: Some("San Francisco".to_string()),
-        region: Some("California".to_string()),
-        timezone: Some("America/Los_Angeles".to_string()),
-    };
-
-    let tools_2 = vec![OpenAITool::web_search()
-        .with_search_context_size("medium")
-        .with_user_location(location)];
 
     println!("Sending request with geographic filtering (SF, CA)...\n");
 
     let response_2 = client
-        .send_message(&messages_2, None, Some(tools_2))
+        .send_message(&messages_2, None)
         .await?;
 
     println!("Response:\n{}\n", response_2.content);
@@ -140,17 +128,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         8192, // max context window
     );
 
-    let web_search_tools = vec![OpenAITool::web_search().with_search_context_size("medium")];
-
     println!("Starting multi-turn conversation with web search capabilities...\n");
 
-    // First message with web search
+    // First message
     let response = session
         .send_message(
             Role::User,
             "What is the current stock price of Tesla and what were the major news stories about Tesla this week?".to_string(),
-            None, // no grok_tools
-            Some(web_search_tools.clone()),
+            None,
         )
         .await?;
 
@@ -168,7 +153,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Role::User,
             "Based on that information, what do you think might happen to Tesla's stock price in the next quarter?".to_string(),
             None,
-            Some(web_search_tools),
         )
         .await?;
 

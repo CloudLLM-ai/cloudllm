@@ -535,7 +535,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let make_client = || {
         Arc::new(ClaudeClient::new_with_model_enum(
             &api_key,
-            Model::ClaudeHaiku45,
+            Model::ClaudeSonnet46,
         ))
     };
 

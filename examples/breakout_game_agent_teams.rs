@@ -678,15 +678,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(1);
     });
 
-    // Factory for creating Claude Haiku 4.5 clients
+    // Factory for creating Claude Sonnet 4.6 clients
     let make_client = || {
         Arc::new(ClaudeClient::new_with_model_enum(
             &claude_key,
-            Model::ClaudeHaiku45,
+            Model::ClaudeSonnet46,
         ))
     };
 
-    // All agents use Claude Haiku 4.5 with shared access to all tools
+    // All agents use Claude Sonnet 4.6 with shared access to all tools
     let architect = Agent::new("architect", "Architect (Claude Haiku 4.5)", make_client())
         .with_expertise("HTML5 structure, CSS layout, Canvas setup, responsive design")
         .with_personality(

@@ -20,7 +20,6 @@
 
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use cloudllm::clients::openai::{Model, OpenAIClient};
-use openai_rust2::chat::OpenAITool;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -53,6 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                  search for the current market data and provide accurate, up-to-date prices. \
                  Include the source of your information and any relevant market context.",
             ),
+            tool_calls: vec![],
         },
         Message {
             role: Role::User,
@@ -60,18 +60,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "What is the current price of Bitcoin in USD? \
                  Please search for the latest price and provide context about recent price movements.",
             ),
+            tool_calls: vec![],
         },
-    ];
-
-    // Create web search tool with high context for detailed financial data
-    let tools = vec![
-        OpenAITool::web_search().with_search_context_size("high"), // High context for detailed results
     ];
 
     println!("📊 Fetching current Bitcoin price...\n");
 
-    // Send request with web search tool
-    let response = client.send_message(&messages, None, Some(tools)).await?;
+    // Send request (no ToolDefinition tools for this example)
+    let response = client.send_message(&messages, None).await?;
 
     // Display the response
     println!("{}", "=".repeat(70));
