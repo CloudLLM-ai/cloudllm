@@ -23,8 +23,8 @@
 //!
 //!     // Send system + user messages.
 //!     let resp = client.send_message(&vec![
-//!         Message { role: Role::System,    content: Arc::<str>::from("You are an assistant.") },
-//!         Message { role: Role::User,      content: Arc::<str>::from("Hello!") },
+//!         Message { role: Role::System,    content: Arc::<str>::from("You are an assistant."), tool_calls: vec![] },
+//!         Message { role: Role::User,      content: Arc::<str>::from("Hello!"), tool_calls: vec![] },
 //!     ], None).await.unwrap();
 //!     println!("Assistant: {}", resp.content);
 //!
@@ -54,6 +54,7 @@
 //!     let request = [Message {
 //!         role: Role::User,
 //!         content: Arc::<str>::from("Stream a limerick about async Rust."),
+//!         tool_calls: vec![],
 //!     }];
 //!
 //!     if let Some(mut stream) = client.send_message_stream(&request, None).await? {
@@ -71,10 +72,10 @@
 //! use std::sync::Arc;
 //!
 //! use cloudllm::clients::openai::{OpenAIClient, Model};
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let key = std::env::var("OPEN_AI_SECRET")?;
 //!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Nano);
 //!

@@ -22,6 +22,7 @@
 //!             &[Message {
 //!                 role: Role::User,
 //!                 content: Arc::<str>::from("List three Claude capabilities."),
+//!                 tool_calls: vec![],
 //!             }],
 //!             None,
 //!         )

@@ -1083,8 +1083,8 @@ mod tests {
 
     #[test]
     fn test_to_json_schema_string() {
-        let param = ToolParameter::new("q", ToolParameterType::String)
-            .with_description("Search query");
+        let param =
+            ToolParameter::new("q", ToolParameterType::String).with_description("Search query");
         let schema = param.to_json_schema();
         assert_eq!(schema["type"], "string");
         assert_eq!(schema["description"], "Search query");
@@ -1142,8 +1142,7 @@ mod tests {
             "age".to_string(),
             ToolParameter::new("age", ToolParameterType::Integer),
         );
-        let param = ToolParameter::new("person", ToolParameterType::Object)
-            .with_properties(props);
+        let param = ToolParameter::new("person", ToolParameterType::Object).with_properties(props);
         let schema = param.to_json_schema();
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["name"].is_object());

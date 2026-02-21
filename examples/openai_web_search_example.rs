@@ -65,9 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Sending request with web_search tool (context: high)...\n");
 
-    let response_1 = client
-        .send_message(&messages_1, None)
-        .await?;
+    let response_1 = client.send_message(&messages_1, None).await?;
 
     println!("Response:\n{}\n", response_1.content);
 
@@ -102,9 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Sending request with geographic filtering (SF, CA)...\n");
 
-    let response_2 = client
-        .send_message(&messages_2, None)
-        .await?;
+    let response_2 = client.send_message(&messages_2, None).await?;
 
     println!("Response:\n{}\n", response_2.content);
 

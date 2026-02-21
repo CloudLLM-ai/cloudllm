@@ -258,8 +258,8 @@
 //!     let response = client
 //!         .send_message(
 //!             &[
-//!                 Message { role: Role::System, content: "You are terse.".into() },
-//!                 Message { role: Role::User, content: "Summarise CloudLLM in one sentence.".into() },
+//!                 Message { role: Role::System, content: "You are terse.".into(), tool_calls: vec![] },
+//!                 Message { role: Role::User, content: "Summarise CloudLLM in one sentence.".into(), tool_calls: vec![] },
 //!             ],
 //!             None,
 //!         )
@@ -300,8 +300,8 @@ pub mod cloudllm;
 pub use cloudllm::agent::Agent;
 pub use cloudllm::client_wrapper;
 pub use cloudllm::client_wrapper::{
-    ClientWrapper, Message, MessageChunk, MessageChunkStream, MessageStreamFuture,
-    NativeToolCall, Role, ToolDefinition,
+    ClientWrapper, Message, MessageChunk, MessageChunkStream, MessageStreamFuture, NativeToolCall,
+    Role, ToolDefinition,
 };
 pub use cloudllm::clients;
 pub use cloudllm::config::CloudLLMConfig;

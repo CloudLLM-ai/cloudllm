@@ -10,10 +10,9 @@
 //! use std::sync::Arc;
 //!
 //! use async_trait::async_trait;
-//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role, TokenUsage};
+//! use cloudllm::client_wrapper::{ClientWrapper, Message, Role, ToolDefinition, TokenUsage};
 //! use cloudllm::clients::common::{get_shared_http_client, send_and_track};
 //! use openai_rust2 as openai_rust;
-//! use openai_rust2::chat::GrokTool;
 //! use tokio::sync::Mutex;
 //!
 //! struct MyHostedClient {
@@ -45,7 +44,7 @@
 //!     async fn send_message(
 //!         &self,
 //!         messages: &[Message],
-//!         optional_grok_tools: Option<Vec<GrokTool>>,
+//!         _tools: Option<Vec<ToolDefinition>>,
 //!     ) -> Result<Message, Box<dyn std::error::Error>> {
 //!         let formatted = messages
 //!             .iter()
@@ -54,6 +53,7 @@
 //!                     Role::System => "system".into(),
 //!                     Role::User => "user".into(),
 //!                     Role::Assistant => "assistant".into(),
+//!                     _ => "user".into(),
 //!                 },
 //!                 content: msg.content.as_ref().to_owned(),
 //!             })
@@ -65,13 +65,14 @@
 //!             formatted,
 //!             Some("/v1/chat/completions".to_string()),
 //!             &self.usage,
-//!             optional_grok_tools,
+//!             None,
 //!         )
 //!         .await?;
 //!
 //!         Ok(Message {
 //!             role: Role::Assistant,
 //!             content: Arc::<str>::from(reply),
+//!             tool_calls: vec![],
 //!         })
 //!     }
 //! }

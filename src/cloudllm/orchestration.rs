@@ -592,7 +592,8 @@ pub enum OrchestrationMode {
     /// use cloudllm::clients::claude::{ClaudeClient, Model};
     /// use std::sync::Arc;
     ///
-    /// # async {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     /// // Define task pool (8 research tasks)
     /// let tasks = vec![
     ///     WorkItem::new("research_nmn", "NMN+ research", "Summarize NAD+ boosting mechanisms"),
@@ -604,6 +605,7 @@ pub enum OrchestrationMode {
     ///     WorkItem::new("synthesis_report", "Report writing", "Synthesize findings into 3-4 page report"),
     ///     WorkItem::new("final_review", "Quality review", "Peer review for accuracy and completeness"),
     /// ];
+    /// let task_count = tasks.len();
     ///
     /// // Create mixed-provider agents (4 specialists)
     /// let openai_key = std::env::var("OPENAI_API_KEY").unwrap();
@@ -647,9 +649,9 @@ pub enum OrchestrationMode {
     ///
     /// println!("Completed: {}/{} tasks",
     ///     (response.convergence_score.unwrap_or(0.0) * response.messages.len() as f32) as usize,
-    ///     tasks.len()
+    ///     task_count
     /// );
-    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    /// # Ok(())
     /// # }
     /// ```
     ///

@@ -244,14 +244,14 @@ impl FileSystemTool {
                             })?;
                         }
                         ancestor = ancestor.parent().ok_or_else(|| {
-                            FileSystemError::InvalidPath(
-                                "No existing ancestor found".to_string(),
-                            )
+                            FileSystemError::InvalidPath("No existing ancestor found".to_string())
                         })?;
                     }
                 };
                 // Reconstruct the non-existent suffix under the canonical parent.
-                let suffix = effective_path.strip_prefix(parent).unwrap_or(&effective_path);
+                let suffix = effective_path
+                    .strip_prefix(parent)
+                    .unwrap_or(&effective_path);
                 canonical_parent.join(suffix)
             };
 
@@ -483,7 +483,7 @@ impl FileSystemTool {
                                 continue;
                             }
                             Err(_) => continue, // Cannot resolve — skip.
-                            Ok(_) => {}          // Within root — proceed.
+                            Ok(_) => {}         // Within root — proceed.
                         }
                     }
                 }

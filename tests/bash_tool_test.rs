@@ -43,7 +43,10 @@ async fn test_stderr_is_captured_separately() {
     let r = bash.execute("echo error_text >&2").await.unwrap();
     assert!(r.success, "command should succeed");
     assert!(r.stdout.trim().is_empty(), "nothing on stdout");
-    assert!(r.stderr.contains("error_text"), "stderr should have the text");
+    assert!(
+        r.stderr.contains("error_text"),
+        "stderr should have the text"
+    );
 }
 
 #[tokio::test]
@@ -125,7 +128,10 @@ async fn test_multiline_output_order_is_preserved() {
 async fn test_unicode_output() {
     let bash = BashTool::new(Platform::Linux);
     // Three-byte UTF-8 characters (box-drawing) must not panic or corrupt output.
-    let r = bash.execute("printf '┌──┐\\n│  │\\n└──┘\\n'").await.unwrap();
+    let r = bash
+        .execute("printf '┌──┐\\n│  │\\n└──┘\\n'")
+        .await
+        .unwrap();
     assert!(r.success);
     assert!(r.stdout.contains('┌'));
     assert!(r.stdout.contains('└'));
@@ -242,8 +248,7 @@ async fn test_fast_command_finishes_before_tight_timeout() {
 
 #[tokio::test]
 async fn test_allowlist_permits_exact_command() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_allowed_commands(vec!["echo".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec!["echo".to_string()]);
     let r = bash.execute("echo ok").await;
     assert!(r.is_ok(), "allowlisted command should be permitted");
     assert!(r.unwrap().success);
@@ -262,8 +267,7 @@ async fn test_allowlist_permits_prefix_with_args() {
 
 #[tokio::test]
 async fn test_allowlist_blocks_unlisted_command() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_allowed_commands(vec!["echo".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec!["echo".to_string()]);
     let result = bash.execute("cat /etc/hostname").await;
     assert!(result.is_err(), "non-allowlisted command must be rejected");
     match result.unwrap_err() {
@@ -275,13 +279,12 @@ async fn test_allowlist_blocks_unlisted_command() {
 #[tokio::test]
 async fn test_allowlist_is_case_insensitive() {
     // The check lowercases both sides, so "ECHO" should match "echo".
-    let bash = BashTool::new(Platform::Linux)
-        .with_allowed_commands(vec!["echo".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec!["echo".to_string()]);
     let r = bash.execute("ECHO hello").await;
     // Whether ECHO exists on the system is irrelevant; the allowlist must NOT block it.
     // If the system doesn't have ECHO uppercase it will give a 127, not a CommandDenied.
     match r {
-        Ok(_) => {}                             // ran, fine
+        Ok(_) => {} // ran, fine
         Err(BashError::CommandDenied(_)) => {
             panic!("case-insensitive allowlist should not block ECHO when echo is listed")
         }
@@ -291,8 +294,11 @@ async fn test_allowlist_is_case_insensitive() {
 
 #[tokio::test]
 async fn test_allowlist_multiple_entries_all_work() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_allowed_commands(vec!["echo".to_string(), "printf".to_string(), "true".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec![
+        "echo".to_string(),
+        "printf".to_string(),
+        "true".to_string(),
+    ]);
     assert!(bash.execute("echo hi").await.is_ok());
     assert!(bash.execute("printf hi").await.is_ok());
     assert!(bash.execute("true").await.is_ok());
@@ -301,8 +307,7 @@ async fn test_allowlist_multiple_entries_all_work() {
 #[tokio::test]
 async fn test_empty_allowlist_blocks_everything() {
     // An empty Vec means "allow nothing".
-    let bash = BashTool::new(Platform::Linux)
-        .with_allowed_commands(vec![]);
+    let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec![]);
     let r = bash.execute("echo hello").await;
     assert!(r.is_err(), "empty allowlist should block all commands");
     match r.unwrap_err() {
@@ -316,10 +321,12 @@ async fn test_empty_allowlist_blocks_everything() {
 #[tokio::test]
 async fn test_denylist_blocks_absolute_path_variant() {
     // "/bin/rm -rf /" must be caught by a denylist entry of "rm".
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec!["rm".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]);
     let r = bash.execute("/bin/rm -rf /").await;
-    assert!(r.is_err(), "/bin/rm must be blocked by a denylist entry of 'rm'");
+    assert!(
+        r.is_err(),
+        "/bin/rm must be blocked by a denylist entry of 'rm'"
+    );
     match r.unwrap_err() {
         BashError::CommandDenied(_) => {}
         other => panic!("expected CommandDenied, got: {}", other),
@@ -329,17 +336,18 @@ async fn test_denylist_blocks_absolute_path_variant() {
 #[tokio::test]
 async fn test_denylist_blocks_relative_path_variant() {
     // "../bin/rm" must also match the "rm" denylist entry.
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec!["rm".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]);
     let r = bash.execute("../bin/rm -rf /").await;
-    assert!(r.is_err(), "../bin/rm must be blocked by a denylist entry of 'rm'");
+    assert!(
+        r.is_err(),
+        "../bin/rm must be blocked by a denylist entry of 'rm'"
+    );
 }
 
 #[tokio::test]
 async fn test_allowlist_permits_absolute_path_variant() {
     // "/bin/echo hello" must be allowed when "echo" is in the allowlist.
-    let bash = BashTool::new(Platform::Linux)
-        .with_allowed_commands(vec!["echo".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec!["echo".to_string()]);
     // We only check the allowlist decision, not that /bin/echo exists.
     match bash.execute("/bin/echo hello").await {
         Err(BashError::CommandDenied(_)) => {
@@ -353,8 +361,7 @@ async fn test_allowlist_permits_absolute_path_variant() {
 
 #[tokio::test]
 async fn test_denylist_blocks_exact_command() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec!["rm".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]);
     let r = bash.execute("rm -rf /").await;
     assert!(r.is_err());
     match r.unwrap_err() {
@@ -366,16 +373,14 @@ async fn test_denylist_blocks_exact_command() {
 #[tokio::test]
 async fn test_denylist_prefix_match_with_args() {
     // "rm" denied means "rm -rf /tmp/x" must also be blocked.
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec!["rm".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]);
     assert!(bash.execute("rm -rf /tmp/x").await.is_err());
     assert!(bash.execute("rm somefile").await.is_err());
 }
 
 #[tokio::test]
 async fn test_denylist_permits_unlisted_command() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec!["rm".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]);
     let r = bash.execute("echo safe").await;
     assert!(r.is_ok());
     assert!(r.unwrap().success);
@@ -383,12 +388,11 @@ async fn test_denylist_permits_unlisted_command() {
 
 #[tokio::test]
 async fn test_denylist_is_case_insensitive() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec!["rm".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]);
     // "RM -rf /" should also be blocked.
     let r = bash.execute("RM -rf /").await;
     match r {
-        Err(BashError::CommandDenied(_)) => {}  // correct
+        Err(BashError::CommandDenied(_)) => {} // correct
         Ok(_) => panic!("RM should be blocked by case-insensitive denylist"),
         Err(other) => panic!("unexpected error: {}", other),
     }
@@ -396,12 +400,11 @@ async fn test_denylist_is_case_insensitive() {
 
 #[tokio::test]
 async fn test_denylist_multiple_entries() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec![
-            "rm".to_string(),
-            "sudo".to_string(),
-            "mkfs".to_string(),
-        ]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec![
+        "rm".to_string(),
+        "sudo".to_string(),
+        "mkfs".to_string(),
+    ]);
     assert!(bash.execute("rm file").await.is_err());
     assert!(bash.execute("sudo su").await.is_err());
     assert!(bash.execute("mkfs.ext4 /dev/sda").await.is_err());
@@ -426,10 +429,12 @@ async fn test_denylist_wins_over_allowlist() {
 #[tokio::test]
 async fn test_leading_whitespace_does_not_bypass_denylist() {
     // is_command_allowed trims the input, so "  rm -rf /" must still be blocked.
-    let bash = BashTool::new(Platform::Linux)
-        .with_denied_commands(vec!["rm".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]);
     let r = bash.execute("   rm -rf /").await;
-    assert!(r.is_err(), "leading whitespace must not bypass the denylist");
+    assert!(
+        r.is_err(),
+        "leading whitespace must not bypass the denylist"
+    );
 }
 
 /// Security note — documented known limitation:
@@ -442,8 +447,7 @@ async fn test_leading_whitespace_does_not_bypass_denylist() {
 /// pledge, containers, etc.).
 #[tokio::test]
 async fn test_allowlist_prefix_only_does_not_stop_chained_commands() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_allowed_commands(vec!["echo".to_string()]);
+    let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec!["echo".to_string()]);
     // "echo hello && date" starts with "echo" so it passes the prefix check,
     // and then the shell also executes `date` — demonstrating that allowlist
     // checking only inspects the command prefix, not the full pipeline.
@@ -466,8 +470,8 @@ async fn test_allowlist_prefix_only_does_not_stop_chained_commands() {
 
 #[tokio::test]
 async fn test_single_env_var_is_visible() {
-    let bash = BashTool::new(Platform::Linux)
-        .with_env_var("MY_VAR".to_string(), "my_value".to_string());
+    let bash =
+        BashTool::new(Platform::Linux).with_env_var("MY_VAR".to_string(), "my_value".to_string());
     let r = bash.execute("echo $MY_VAR").await.unwrap();
     assert!(r.success);
     assert_eq!(r.stdout.trim(), "my_value");
@@ -522,7 +526,11 @@ async fn test_default_platform_is_linux() {
 #[tokio::test]
 async fn test_platform_actually_runs_bash() {
     // Confirm the tool really executes through bash (not sh or zsh).
-    let bash = BashTool::new(if is_macos() { Platform::macOS } else { Platform::Linux });
+    let bash = BashTool::new(if is_macos() {
+        Platform::macOS
+    } else {
+        Platform::Linux
+    });
     let r = bash.execute("echo $BASH_VERSION").await.unwrap();
     assert!(r.success);
     // BASH_VERSION is non-empty only when running under bash.
@@ -537,15 +545,13 @@ async fn test_platform_actually_runs_bash() {
 #[tokio::test]
 async fn test_cwd_restriction_sets_working_directory() {
     // The shell's $PWD must equal the configured restriction.
-    let bash = BashTool::new(Platform::Linux)
-        .with_cwd_restriction(PathBuf::from("/tmp"));
+    let bash = BashTool::new(Platform::Linux).with_cwd_restriction(PathBuf::from("/tmp"));
     let r = bash.execute("pwd").await.unwrap();
     assert!(r.success);
     // On macOS /tmp is a symlink to /private/tmp; canonicalise both sides.
     let got = r.stdout.trim().to_string();
     let got_canon = std::fs::canonicalize(&got).unwrap_or_else(|_| PathBuf::from(&got));
-    let exp_canon =
-        std::fs::canonicalize("/tmp").unwrap_or_else(|_| PathBuf::from("/tmp"));
+    let exp_canon = std::fs::canonicalize("/tmp").unwrap_or_else(|_| PathBuf::from("/tmp"));
     assert_eq!(
         got_canon, exp_canon,
         "cwd restriction must set the process working directory"
@@ -558,9 +564,11 @@ async fn test_cwd_restriction_files_are_relative_to_restricted_dir() {
     let dir = tempfile::tempdir().unwrap();
     let dir_path = dir.path().to_path_buf();
 
-    let bash = BashTool::new(Platform::Linux)
-        .with_cwd_restriction(dir_path.clone());
-    let r = bash.execute("touch cwd_test_marker.txt && echo ok").await.unwrap();
+    let bash = BashTool::new(Platform::Linux).with_cwd_restriction(dir_path.clone());
+    let r = bash
+        .execute("touch cwd_test_marker.txt && echo ok")
+        .await
+        .unwrap();
     assert!(r.success);
     assert!(
         dir_path.join("cwd_test_marker.txt").exists(),
@@ -616,7 +624,10 @@ async fn test_output_exceeding_limit_returns_output_too_large() {
     let bash = BashTool::new(Platform::Linux).with_max_output_size(1024);
     // Generate ~10 KB of output — well over the 1 KB limit.
     let result = bash.execute("yes x | head -c 10000").await;
-    assert!(result.is_err(), "output exceeding the limit must return Err");
+    assert!(
+        result.is_err(),
+        "output exceeding the limit must return Err"
+    );
     match result.unwrap_err() {
         BashError::OutputTooLarge(_) => {}
         other => panic!("expected OutputTooLarge, got: {}", other),
@@ -658,7 +669,10 @@ async fn test_get_tool_metadata_bash() {
     let proto = BashProtocol::new(Arc::new(BashTool::new(Platform::Linux)));
     let meta = proto.get_tool_metadata("bash").await.unwrap();
     assert_eq!(meta.name, "bash");
-    assert!(meta.parameters.iter().any(|p| p.name == "command" && p.required));
+    assert!(meta
+        .parameters
+        .iter()
+        .any(|p| p.name == "command" && p.required));
 }
 
 #[tokio::test]
@@ -708,8 +722,7 @@ async fn test_protocol_execute_nonzero_exit_returns_tool_success() {
 #[tokio::test]
 async fn test_protocol_execute_denied_command_returns_tool_failure() {
     let proto = BashProtocol::new(Arc::new(
-        BashTool::new(Platform::Linux)
-            .with_denied_commands(vec!["rm".to_string()]),
+        BashTool::new(Platform::Linux).with_denied_commands(vec!["rm".to_string()]),
     ));
     let tr = proto
         .execute("bash", serde_json::json!({"command": "rm -rf /"}))
@@ -727,16 +740,21 @@ async fn test_protocol_execute_denied_command_returns_tool_failure() {
 /// Timed-out commands also translate to `Ok(ToolResult::failure)`.
 #[tokio::test]
 async fn test_protocol_execute_timeout_returns_tool_failure() {
-    let proto = BashProtocol::new(Arc::new(
-        BashTool::new(Platform::Linux).with_timeout(1),
-    ));
+    let proto = BashProtocol::new(Arc::new(BashTool::new(Platform::Linux).with_timeout(1)));
     let tr = proto
         .execute("bash", serde_json::json!({"command": "sleep 10"}))
         .await
         .unwrap();
-    assert!(!tr.success, "timed-out command must yield ToolResult failure");
     assert!(
-        tr.error.as_deref().unwrap_or("").to_lowercase().contains("timeout"),
+        !tr.success,
+        "timed-out command must yield ToolResult failure"
+    );
+    assert!(
+        tr.error
+            .as_deref()
+            .unwrap_or("")
+            .to_lowercase()
+            .contains("timeout"),
         "error message should mention timeout; got: {:?}",
         tr.error
     );
@@ -756,10 +774,7 @@ async fn test_protocol_execute_missing_command_param_returns_err() {
 async fn test_protocol_execute_stderr_captured_in_output() {
     let proto = BashProtocol::new(Arc::new(BashTool::new(Platform::Linux)));
     let tr = proto
-        .execute(
-            "bash",
-            serde_json::json!({"command": "echo err_text >&2"}),
-        )
+        .execute("bash", serde_json::json!({"command": "echo err_text >&2"}))
         .await
         .unwrap();
     assert!(tr.success);

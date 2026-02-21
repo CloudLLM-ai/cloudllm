@@ -18,7 +18,7 @@
 //! use cloudllm::LLMSession;
 //!
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! let client = Arc::new(OpenAIClient::new_with_model_enum(
 //!     &std::env::var("OPEN_AI_SECRET")?,
 //!     Model::GPT41Mini,
@@ -521,6 +521,7 @@ pub trait StreamSink: Send + Sync {
     ///     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ///         println!("final: {content}");
     ///         Ok(())
+    ///     }
     /// }
     /// ```
     async fn on_final(&self, _content: &str) -> PlannerResult<()> {
@@ -538,7 +539,7 @@ impl StreamSink for NoopStream {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use cloudllm::planner::NoopStream;
+    /// use cloudllm::planner::{NoopStream, StreamSink};
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     /// let sink = NoopStream;
@@ -555,7 +556,7 @@ impl StreamSink for NoopStream {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use cloudllm::planner::NoopStream;
+    /// use cloudllm::planner::{NoopStream, StreamSink};
     /// use cloudllm::tool_protocol::ToolResult;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -575,7 +576,7 @@ impl StreamSink for NoopStream {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use cloudllm::planner::NoopStream;
+    /// use cloudllm::planner::{NoopStream, StreamSink};
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     /// let sink = NoopStream;
@@ -673,7 +674,7 @@ pub struct PlannerOutcome {
 ///
 /// struct EchoPlanner;
 ///
-/// #[async_trait]
+/// #[async_trait(?Send)]
 /// impl Planner for EchoPlanner {
 ///     async fn plan(
 ///         &self,
@@ -706,7 +707,7 @@ pub trait Planner: Send + Sync {
     ///
     /// struct EchoPlanner;
     ///
-    /// #[async_trait]
+    /// #[async_trait(?Send)]
     /// impl Planner for EchoPlanner {
     ///     async fn plan(
     ///         &self,

@@ -74,14 +74,20 @@ impl EventHandler for TetrisMcpEventHandler {
                 ..
             } => {
                 let preview = message_preview.chars().take(100).collect::<String>();
-                self.log("agent", format!("▶ {agent_name} starting turn: {preview}..."));
+                self.log(
+                    "agent",
+                    format!("▶ {agent_name} starting turn: {preview}..."),
+                );
             }
             AgentEvent::LLMCallStarted {
                 agent_name,
                 iteration,
                 ..
             } => {
-                self.log("agent", format!("  ├─ {agent_name} LLM call #{iteration} started"));
+                self.log(
+                    "agent",
+                    format!("  ├─ {agent_name} LLM call #{iteration} started"),
+                );
             }
             AgentEvent::LLMCallCompleted {
                 agent_name,
@@ -426,9 +432,7 @@ impl EventHandler for TetrisMcpEventHandler {
             } => {
                 self.log(
                     "mcp",
-                    format!(
-                        "💥 {tool_name} error ({duration_ms}ms) [{source}]: {error}"
-                    ),
+                    format!("💥 {tool_name} error ({duration_ms}ms) [{source}]: {error}"),
                 );
             }
             McpEvent::RequestRejected {
@@ -661,7 +665,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                     Err(err) => {
                         eprintln!("[read_file] ERROR reading {}: {}", path, err);
-                        Ok(ToolResult::failure(format!("Failed to read {}: {}", path, err)))
+                        Ok(ToolResult::failure(format!(
+                            "Failed to read {}: {}",
+                            path, err
+                        )))
                     }
                 }
             }),
@@ -717,8 +724,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 if raw_content.trim().is_empty() {
                     eprintln!("[write_tetris_file] ERROR: content is empty");
                     return Ok(ToolResult::failure(
-                        "content cannot be empty - must contain complete HTML document"
-                            .to_string(),
+                        "content cannot be empty - must contain complete HTML document".to_string(),
                     ));
                 }
 
@@ -734,10 +740,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(parent) = target_path.parent() {
                     if parent.as_os_str().len() > 0 {
                         if let Err(err) = fs::create_dir_all(parent) {
-                            eprintln!(
-                                "[write_tetris_file] ERROR creating parent dir: {}",
-                                err
-                            );
+                            eprintln!("[write_tetris_file] ERROR creating parent dir: {}", err);
                             return Ok(ToolResult::failure(format!(
                                 "Failed to create parent directory: {}",
                                 err
@@ -770,7 +773,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                     Err(err) => {
                         eprintln!("[write_tetris_file] ERROR writing to disk: {}", err);
-                        Ok(ToolResult::failure(format!("Failed to write file: {}", err)))
+                        Ok(ToolResult::failure(format!(
+                            "Failed to write file: {}",
+                            err
+                        )))
                     }
                 }
             }),
@@ -785,10 +791,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // ── 7. Start MCP server ───────────────────────────────────────────────────
     println!("🌐 Starting MCP server on localhost:9090...");
     let _server = MCPServerBuilder::new()
-        .with_custom_tool(
-            "memory",
-            memory_protocol as Arc<dyn ToolProtocol>,
-        )
+        .with_custom_tool("memory", memory_protocol as Arc<dyn ToolProtocol>)
         .await
         .with_custom_tool(
             "read_file",
@@ -1129,9 +1132,7 @@ Classic mechanics required: SRS rotation, 7-bag randomizer, hold slot, ghost pie
     if final_file_written {
         println!("  ✅ Open {} in a web browser", output_path.display());
         if !file_written {
-            println!(
-                "     (Rescued from response text — tool flow did not work as intended)"
-            );
+            println!("     (Rescued from response text — tool flow did not work as intended)");
         }
     } else {
         println!("  ❌ No output produced. Check event log above for per-agent tool call counts.");

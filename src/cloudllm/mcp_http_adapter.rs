@@ -203,69 +203,71 @@ impl HttpServerAdapter for AxumHttpAdapter {
         let app = Router::new()
             .route(
                 "/tools/list",
-                post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
-                    let token = token_list.clone();
-                    let allowed = ips_list.clone();
-                    let proto = protocol_list.clone();
-                    let eh = eh_list.clone();
-                    async move {
-                        // Check IP filtering — delegates to IpFilter which handles both
-                        // single IPs and CIDR blocks correctly.
-                        if !allowed.is_allowed(addr.ip()) {
-                            if let Some(ref handler) = eh {
-                                handler
-                                    .on_mcp_event(&McpEvent::RequestRejected {
-                                        client_addr: addr.ip().to_string(),
-                                        reason: "IP not allowed".to_string(),
-                                    })
-                                    .await;
-                            }
-                            return (
-                                StatusCode::FORBIDDEN,
-                                Json(json!({"error": "Access denied"})),
-                            )
-                                .into_response();
-                        }
-
-                        // Validate bearer token (constant-time comparison)
-                        if !check_auth(&token, &headers) {
-                            return (
-                                StatusCode::UNAUTHORIZED,
-                                Json(json!({"error": "Unauthorized"})),
-                            )
-                                .into_response();
-                        }
-
-                        // Fire ToolListRequested
-                        if let Some(ref handler) = eh {
-                            handler
-                                .on_mcp_event(&McpEvent::ToolListRequested {
-                                    client_addr: addr.ip().to_string(),
-                                })
-                                .await;
-                        }
-
-                        match proto.list_tools().await {
-                            Ok(tools) => {
-                                let tool_count = tools.len();
+                post(
+                    move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
+                        let token = token_list.clone();
+                        let allowed = ips_list.clone();
+                        let proto = protocol_list.clone();
+                        let eh = eh_list.clone();
+                        async move {
+                            // Check IP filtering — delegates to IpFilter which handles both
+                            // single IPs and CIDR blocks correctly.
+                            if !allowed.is_allowed(addr.ip()) {
                                 if let Some(ref handler) = eh {
                                     handler
-                                        .on_mcp_event(&McpEvent::ToolListReturned {
+                                        .on_mcp_event(&McpEvent::RequestRejected {
                                             client_addr: addr.ip().to_string(),
-                                            tool_count,
+                                            reason: "IP not allowed".to_string(),
                                         })
                                         .await;
                                 }
-                                (StatusCode::OK, Json(json!({"tools": tools}))).into_response()
+                                return (
+                                    StatusCode::FORBIDDEN,
+                                    Json(json!({"error": "Access denied"})),
+                                )
+                                    .into_response();
                             }
-                            Err(e) => (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({"error": e.to_string()})),
-                            )
-                                .into_response(),
+
+                            // Validate bearer token (constant-time comparison)
+                            if !check_auth(&token, &headers) {
+                                return (
+                                    StatusCode::UNAUTHORIZED,
+                                    Json(json!({"error": "Unauthorized"})),
+                                )
+                                    .into_response();
+                            }
+
+                            // Fire ToolListRequested
+                            if let Some(ref handler) = eh {
+                                handler
+                                    .on_mcp_event(&McpEvent::ToolListRequested {
+                                        client_addr: addr.ip().to_string(),
+                                    })
+                                    .await;
+                            }
+
+                            match proto.list_tools().await {
+                                Ok(tools) => {
+                                    let tool_count = tools.len();
+                                    if let Some(ref handler) = eh {
+                                        handler
+                                            .on_mcp_event(&McpEvent::ToolListReturned {
+                                                client_addr: addr.ip().to_string(),
+                                                tool_count,
+                                            })
+                                            .await;
+                                    }
+                                    (StatusCode::OK, Json(json!({"tools": tools}))).into_response()
+                                }
+                                Err(e) => (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(json!({"error": e.to_string()})),
+                                )
+                                    .into_response(),
+                            }
                         }
-                    }
-                }),
+                    },
+                ),
             )
             .route(
                 "/tools/execute",
@@ -352,10 +354,7 @@ impl HttpServerAdapter for AxumHttpAdapter {
                                             })
                                             .await;
                                     }
-                                    (
-                                        StatusCode::BAD_REQUEST,
-                                        Json(json!({"error": err_msg})),
-                                    )
+                                    (StatusCode::BAD_REQUEST, Json(json!({"error": err_msg})))
                                         .into_response()
                                 }
                             }
@@ -365,51 +364,53 @@ impl HttpServerAdapter for AxumHttpAdapter {
             )
             .route(
                 "/resources/list",
-                post(move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
-                    let token = token_res_list.clone();
-                    let allowed = ips_res_list.clone();
-                    let proto = protocol_res_list.clone();
-                    async move {
-                        // Check IP filtering — delegates to IpFilter which handles both
-                        // single IPs and CIDR blocks correctly.
-                        if !allowed.is_allowed(addr.ip()) {
-                            return (
-                                StatusCode::FORBIDDEN,
-                                Json(json!({"error": "Access denied"})),
-                            )
-                                .into_response();
-                        }
-
-                        // Validate bearer token (constant-time comparison)
-                        if !check_auth(&token, &headers) {
-                            return (
-                                StatusCode::UNAUTHORIZED,
-                                Json(json!({"error": "Unauthorized"})),
-                            )
-                                .into_response();
-                        }
-
-                        if !proto.supports_resources() {
-                            return (
-                                StatusCode::NOT_IMPLEMENTED,
-                                Json(json!({"error": "Resources not supported"})),
-                            )
-                                .into_response();
-                        }
-
-                        match proto.list_resources().await {
-                            Ok(resources) => {
-                                (StatusCode::OK, Json(json!({"resources": resources})))
-                                    .into_response()
+                post(
+                    move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
+                        let token = token_res_list.clone();
+                        let allowed = ips_res_list.clone();
+                        let proto = protocol_res_list.clone();
+                        async move {
+                            // Check IP filtering — delegates to IpFilter which handles both
+                            // single IPs and CIDR blocks correctly.
+                            if !allowed.is_allowed(addr.ip()) {
+                                return (
+                                    StatusCode::FORBIDDEN,
+                                    Json(json!({"error": "Access denied"})),
+                                )
+                                    .into_response();
                             }
-                            Err(e) => (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({"error": e.to_string()})),
-                            )
-                                .into_response(),
+
+                            // Validate bearer token (constant-time comparison)
+                            if !check_auth(&token, &headers) {
+                                return (
+                                    StatusCode::UNAUTHORIZED,
+                                    Json(json!({"error": "Unauthorized"})),
+                                )
+                                    .into_response();
+                            }
+
+                            if !proto.supports_resources() {
+                                return (
+                                    StatusCode::NOT_IMPLEMENTED,
+                                    Json(json!({"error": "Resources not supported"})),
+                                )
+                                    .into_response();
+                            }
+
+                            match proto.list_resources().await {
+                                Ok(resources) => {
+                                    (StatusCode::OK, Json(json!({"resources": resources})))
+                                        .into_response()
+                                }
+                                Err(e) => (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(json!({"error": e.to_string()})),
+                                )
+                                    .into_response(),
+                            }
                         }
-                    }
-                }),
+                    },
+                ),
             )
             .route(
                 "/resources/read",

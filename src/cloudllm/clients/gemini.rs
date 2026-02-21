@@ -23,6 +23,7 @@
 //!             &[Message {
 //!                 role: Role::User,
 //!                 content: Arc::<str>::from("What industries benefit most from Gemini?"),
+//!                 tool_calls: vec![],
 //!             }],
 //!             None,
 //!         )
@@ -38,10 +39,10 @@
 //! use std::sync::Arc;
 //!
 //! use cloudllm::clients::gemini::GeminiClient;
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let key = std::env::var("GEMINI_KEY")?;
 //!     let client = GeminiClient::new_with_model_string(&key, "gemini-2.5-flash-image");
 //!

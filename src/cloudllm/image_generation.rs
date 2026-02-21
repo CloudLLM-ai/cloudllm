@@ -14,13 +14,13 @@
 //! # Basic Example
 //!
 //! ```rust,no_run
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     // Create a client (e.g., OpenAI)
-//!     let client: Arc<dyn ImageGenerationClient> = /* ... */;
+//!     # let client: Arc<dyn ImageGenerationClient> = unimplemented!();
 //!
 //!     let options = ImageGenerationOptions {
 //!         aspect_ratio: Some("16:9".to_string()),
@@ -45,12 +45,12 @@
 //! # Handling Different Response Formats
 //!
 //! ```rust,no_run
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client: Arc<dyn ImageGenerationClient> = /* ... */;
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     # let client: Arc<dyn ImageGenerationClient> = unimplemented!();
 //!
 //!     // Request Base64-encoded images instead of URLs
 //!     let options = ImageGenerationOptions {
@@ -77,12 +77,12 @@
 //! # Landscape Mode with Aspect Ratios
 //!
 //! ```rust,no_run
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client: Arc<dyn ImageGenerationClient> = /* ... */;
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     # let client: Arc<dyn ImageGenerationClient> = unimplemented!();
 //!
 //!     let options = ImageGenerationOptions {
 //!         aspect_ratio: Some("16:9".to_string()), // Landscape
@@ -103,12 +103,12 @@
 //! # Multiple Images
 //!
 //! ```rust,no_run
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client: Arc<dyn ImageGenerationClient> = /* ... */;
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     # let client: Arc<dyn ImageGenerationClient> = unimplemented!();
 //!
 //!     let options = ImageGenerationOptions {
 //!         aspect_ratio: None,
@@ -133,12 +133,12 @@
 //! # Accessing Revised Prompts (Grok-specific)
 //!
 //! ```rust,no_run
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client: Arc<dyn ImageGenerationClient> = /* ... */;
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     # let client: Arc<dyn ImageGenerationClient> = unimplemented!();
 //!
 //!     let options = ImageGenerationOptions::default();
 //!
@@ -164,13 +164,13 @@
 //! use std::sync::Arc;
 //! use cloudllm::Agent;
 //! use cloudllm::clients::openai::{OpenAIClient, Model};
-//! use cloudllm::image_generation::register_image_generation_tool;
+//! use cloudllm::cloudllm::image_generation::register_image_generation_tool;
 //! use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
 //! use cloudllm::tool_protocols::CustomToolProtocol;
 //! use cloudllm::tool_protocol::ToolRegistry;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let api_key = std::env::var("OPEN_AI_SECRET")?;
 //!
 //!     // Create image generation client
@@ -184,10 +184,11 @@
 //!
 //!     // Register image generation tool in ONE LINE!
 //!     let rt = tokio::runtime::Runtime::new()?;
-//!     rt.block_on(register_image_generation_tool(&protocol, image_client))?;
+//!     rt.block_on(register_image_generation_tool(&protocol, image_client))
+//!         .map_err(|e| e.to_string())?;
 //!
 //!     // Create agent with image generation capability
-//!     let registry = Arc::new(ToolRegistry::new(protocol));
+//!     let registry = ToolRegistry::new(protocol);
 //!     let agent = Agent::new(
 //!         "designer",
 //!         "Creative Designer",
@@ -195,7 +196,7 @@
 //!     )
 //!     .with_tools(registry);
 //!
-//!     println!("✓ Agent can now generate images!");
+//!     println!("Agent can now generate images!");
 //!     Ok(())
 //! }
 //! ```
@@ -218,7 +219,7 @@ use std::error::Error;
 ///
 /// Minimal options with defaults:
 /// ```
-/// use cloudllm::image_generation::ImageGenerationOptions;
+/// use cloudllm::cloudllm::image_generation::ImageGenerationOptions;
 ///
 /// let options = ImageGenerationOptions {
 ///     aspect_ratio: None,
@@ -229,7 +230,7 @@ use std::error::Error;
 ///
 /// Custom landscape format:
 /// ```
-/// use cloudllm::image_generation::ImageGenerationOptions;
+/// use cloudllm::cloudllm::image_generation::ImageGenerationOptions;
 ///
 /// let options = ImageGenerationOptions {
 ///     aspect_ratio: Some("16:9".to_string()),
@@ -270,7 +271,7 @@ pub struct ImageGenerationOptions {
 ///
 /// Accessing a URL-based image:
 /// ```
-/// use cloudllm::image_generation::ImageData;
+/// use cloudllm::cloudllm::image_generation::ImageData;
 ///
 /// let image = ImageData {
 ///     url: Some("https://example.com/image.png".to_string()),
@@ -284,7 +285,7 @@ pub struct ImageGenerationOptions {
 ///
 /// Processing Base64 data:
 /// ```
-/// use cloudllm::image_generation::ImageData;
+/// use cloudllm::cloudllm::image_generation::{ImageData, decode_base64};
 ///
 /// let image = ImageData {
 ///     url: None,
@@ -293,8 +294,8 @@ pub struct ImageGenerationOptions {
 ///
 /// if let Some(b64) = image.b64_json {
 ///     // Decode and save to file
-///     let decoded = base64::decode(&b64).unwrap();
-///     std::fs::write("image.png", decoded).unwrap();
+///     let decoded = decode_base64(&b64).unwrap();
+///     // std::fs::write("image.png", decoded).unwrap();
 /// }
 /// ```
 #[derive(Clone, Debug)]
@@ -316,7 +317,7 @@ pub struct ImageData {
 ///
 /// Iterating over generated images:
 /// ```
-/// use cloudllm::image_generation::{ImageGenerationResponse, ImageData};
+/// use cloudllm::cloudllm::image_generation::{ImageGenerationResponse, ImageData};
 ///
 /// let response = ImageGenerationResponse {
 ///     images: vec![
@@ -333,7 +334,7 @@ pub struct ImageData {
 ///
 /// Checking for revised prompt:
 /// ```
-/// use cloudllm::image_generation::{ImageGenerationResponse, ImageData};
+/// use cloudllm::cloudllm::image_generation::{ImageGenerationResponse, ImageData};
 ///
 /// let response = ImageGenerationResponse {
 ///     images: vec![ImageData { url: Some("url".to_string()), b64_json: None }],
@@ -364,7 +365,7 @@ pub struct ImageGenerationResponse {
 /// # Examples
 ///
 /// ```
-/// use cloudllm::image_generation::get_image_extension_from_base64;
+/// use cloudllm::cloudllm::image_generation::get_image_extension_from_base64;
 ///
 /// // PNG magic bytes in base64
 /// let b64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -398,7 +399,7 @@ pub fn get_image_extension_from_base64(b64_data: &str) -> &str {
 /// # Examples
 ///
 /// ```
-/// use cloudllm::image_generation::decode_base64;
+/// use cloudllm::cloudllm::image_generation::decode_base64;
 ///
 /// let b64 = "SGVsbG8gV29ybGQ="; // "Hello World" in base64
 /// let decoded = decode_base64(b64).expect("Failed to decode");
@@ -487,12 +488,12 @@ pub trait ImageGenerationClient: Send + Sync {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+    /// use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client: Arc<dyn ImageGenerationClient> = /* ... */;
+    ///     # let client: Arc<dyn ImageGenerationClient> = unimplemented!();
     ///
     ///     let prompt = "A serene Japanese garden with a koi pond, \
     ///                   morning light filtering through cherry blossoms";
@@ -529,12 +530,12 @@ pub trait ImageGenerationClient: Send + Sync {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use cloudllm::image_generation::ImageGenerationClient;
+    /// use cloudllm::cloudllm::image_generation::ImageGenerationClient;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let client: Arc<dyn ImageGenerationClient> = /* ... */;
+    ///     # let client: Arc<dyn ImageGenerationClient> = unimplemented!();
     ///     println!("Using model: {}", client.model_name());
     ///     Ok(())
     /// }
@@ -555,7 +556,7 @@ pub trait ImageGenerationClient: Send + Sync {
 /// # Example
 ///
 /// ```rust,no_run
-/// use cloudllm::image_generation::register_image_generation_tool;
+/// use cloudllm::cloudllm::image_generation::register_image_generation_tool;
 /// use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client};
 /// use cloudllm::tool_protocols::CustomToolProtocol;
 /// use cloudllm::tool_protocol::ToolRegistry;
@@ -579,7 +580,7 @@ pub trait ImageGenerationClient: Send + Sync {
 ///     rt.block_on(register_image_generation_tool(&protocol, image_client))?;
 ///
 ///     // Create agent with image generation capability
-///     let registry = Arc::new(ToolRegistry::new(protocol));
+///     let registry = ToolRegistry::new(protocol);
 ///     let agent = Agent::new(
 ///         "designer",
 ///         "Creative Designer",
@@ -588,7 +589,7 @@ pub trait ImageGenerationClient: Send + Sync {
 ///     .with_tools(registry);
 ///
 ///     // Agent can now generate images!
-///     println!("✓ Agent ready with image generation tool");
+///     println!("Agent ready with image generation tool");
 ///     Ok(())
 /// }
 /// ```

@@ -50,18 +50,21 @@ impl EventHandler for TetrisEventHandler {
                 message_preview,
                 ..
             } => {
-                let preview = message_preview
-                    .chars()
-                    .take(100)
-                    .collect::<String>();
-                self.log("agent", format!("▶ {agent_name} starting turn: {preview}..."));
+                let preview = message_preview.chars().take(100).collect::<String>();
+                self.log(
+                    "agent",
+                    format!("▶ {agent_name} starting turn: {preview}..."),
+                );
             }
             AgentEvent::LLMCallStarted {
                 agent_name,
                 iteration,
                 ..
             } => {
-                self.log("agent", format!("  ├─ {agent_name} LLM call #{iteration} started"));
+                self.log(
+                    "agent",
+                    format!("  ├─ {agent_name} LLM call #{iteration} started"),
+                );
             }
             AgentEvent::LLMCallCompleted {
                 agent_name,
@@ -70,10 +73,7 @@ impl EventHandler for TetrisEventHandler {
                 tokens_used,
                 ..
             } => {
-                let tokens = tokens_used
-                    .as_ref()
-                    .map(|u| u.total_tokens)
-                    .unwrap_or(0);
+                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
                 self.log(
                     "agent",
                     format!("  ├─ {agent_name} LLM call #{iteration} done ({response_length} chars, {tokens} tokens)"),
@@ -86,8 +86,8 @@ impl EventHandler for TetrisEventHandler {
                 iteration,
                 ..
             } => {
-                let param_str = serde_json::to_string(&parameters)
-                    .unwrap_or_else(|_| "??".to_string());
+                let param_str =
+                    serde_json::to_string(&parameters).unwrap_or_else(|_| "??".to_string());
                 let param_preview = if param_str.len() > 60 {
                     format!("{}...", &param_str[..60])
                 } else {
@@ -95,7 +95,9 @@ impl EventHandler for TetrisEventHandler {
                 };
                 self.log(
                     "agent",
-                    format!("  ├─ {agent_name} tool call #{iteration}: {tool_name}({param_preview})"),
+                    format!(
+                        "  ├─ {agent_name} tool call #{iteration}: {tool_name}({param_preview})"
+                    ),
                 );
             }
             AgentEvent::ToolExecutionCompleted {
@@ -175,14 +177,8 @@ impl EventHandler for TetrisEventHandler {
                 plan_id,
                 message_preview,
             } => {
-                let preview = message_preview
-                    .chars()
-                    .take(80)
-                    .collect::<String>();
-                self.log(
-                    "planner",
-                    format!("▶ Plan {}: {preview}...", plan_id),
-                );
+                let preview = message_preview.chars().take(80).collect::<String>();
+                self.log("planner", format!("▶ Plan {}: {preview}...", plan_id));
             }
             PlannerEvent::LLMCallStarted { iteration, .. } => {
                 self.log("planner", format!("  ├─ LLM call #{iteration} started"));
@@ -235,10 +231,7 @@ impl EventHandler for TetrisEventHandler {
                 tokens_used,
                 ..
             } => {
-                let tokens = tokens_used
-                    .as_ref()
-                    .map(|u| u.total_tokens)
-                    .unwrap_or(0);
+                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
                 self.log(
                     "planner",
                     format!(
@@ -459,19 +452,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     custom_protocol
         .register_tool(
-            ToolMetadata::new("read_file", "Read a UTF-8 text file from disk (returns content)")
-                .with_parameter(
-                    ToolParameter::new("path", ToolParameterType::String)
-                        .with_description("Absolute or relative file path to read")
-                        .required(),
-                ),
+            ToolMetadata::new(
+                "read_file",
+                "Read a UTF-8 text file from disk (returns content)",
+            )
+            .with_parameter(
+                ToolParameter::new("path", ToolParameterType::String)
+                    .with_description("Absolute or relative file path to read")
+                    .required(),
+            ),
             Arc::new(|params| {
-                let path = params
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
                 if path.is_empty() {
-                    return Ok(ToolResult::failure("path parameter is required and cannot be empty".to_string()));
+                    return Ok(ToolResult::failure(
+                        "path parameter is required and cannot be empty".to_string(),
+                    ));
                 }
                 match fs::read_to_string(path) {
                     Ok(content) => {
@@ -484,7 +479,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                     Err(err) => {
                         eprintln!("[read_file] ERROR reading {}: {}", path, err);
-                        Ok(ToolResult::failure(format!("Failed to read {}: {}", path, err)))
+                        Ok(ToolResult::failure(format!(
+                            "Failed to read {}: {}",
+                            path, err
+                        )))
                     }
                 }
             }),
@@ -790,7 +788,14 @@ Classic mechanics required: SRS rotation, 7-bag randomizer, hold slot, ghost pie
         elapsed.as_secs() / 60,
         elapsed.as_secs() % 60
     );
-    println!("  Status              : {}", if response.is_complete { "✅ COMPLETE" } else { "⏳ INCOMPLETE" });
+    println!(
+        "  Status              : {}",
+        if response.is_complete {
+            "✅ COMPLETE"
+        } else {
+            "⏳ INCOMPLETE"
+        }
+    );
     println!();
 
     // Show which agents did what (messages use display names, not IDs)
@@ -803,11 +808,15 @@ Classic mechanics required: SRS rotation, 7-bag randomizer, hold slot, ghost pie
     }
     for (display_name, id) in &[
         ("Gameplay Researcher", "tetris-researcher"),
-        ("System Architect",    "tetris-architect"),
+        ("System Architect", "tetris-architect"),
         ("Gameplay Programmer", "tetris-programmer"),
-        ("QA & Polish",         "tetris-playtester"),
+        ("QA & Polish", "tetris-playtester"),
     ] {
-        let marker = if agents_worked.contains(*display_name) { "✓" } else { "✗" };
+        let marker = if agents_worked.contains(*display_name) {
+            "✓"
+        } else {
+            "✗"
+        };
         println!("  {} {} ({})", marker, display_name, id);
     }
     println!();
@@ -898,9 +907,16 @@ Classic mechanics required: SRS rotation, 7-bag randomizer, hold slot, ghost pie
         let has_gameloop =
             normalized.contains("requestAnimationFrame") || normalized.contains("gameLoop");
         let has_pieces = normalized.contains("pieces") || normalized.contains("PIECES");
-        println!("  {} lines, game_loop={}, pieces={}", lines, has_gameloop, has_pieces);
+        println!(
+            "  {} lines, game_loop={}, pieces={}",
+            lines, has_gameloop, has_pieces
+        );
         fs::write(&output_path, normalized.as_bytes())?;
-        println!("  ✅ Written {} bytes to {}", normalized.len(), output_path.display());
+        println!(
+            "  ✅ Written {} bytes to {}",
+            normalized.len(),
+            output_path.display()
+        );
         final_file_written = true;
     } else if !file_written {
         println!("  ❌ Nothing to save — agents produced no usable HTML in this run");
@@ -915,7 +931,11 @@ Classic mechanics required: SRS rotation, 7-bag randomizer, hold slot, ghost pie
         }
     } else {
         println!("  ❌ No output produced. Check event log above for per-agent tool call counts.");
-        println!("     Context: {}k tokens used across {} iterations", response.total_tokens_used / 1000, response.round);
+        println!(
+            "     Context: {}k tokens used across {} iterations",
+            response.total_tokens_used / 1000,
+            response.round
+        );
     }
     println!();
     Ok(())

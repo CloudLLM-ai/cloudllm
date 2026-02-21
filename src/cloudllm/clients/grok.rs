@@ -23,6 +23,7 @@
 //!             &[Message {
 //!                 role: Role::User,
 //!                 content: Arc::<str>::from("Give me a witty coding tip."),
+//!                 tool_calls: vec![],
 //!             }],
 //!             None,
 //!         )
@@ -38,10 +39,10 @@
 //! use std::sync::Arc;
 //!
 //! use cloudllm::clients::grok::GrokClient;
-//! use cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
+//! use cloudllm::cloudllm::image_generation::{ImageGenerationClient, ImageGenerationOptions};
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let key = std::env::var("XAI_KEY")?;
 //!     let client = GrokClient::new_with_model_str(&key, "grok-3-mini");
 //!
@@ -292,9 +293,7 @@ impl ClientWrapper for GrokClient {
         _messages: &'a [Message],
         _tools: Option<Vec<ToolDefinition>>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
-        Box::pin(async move {
-            Err("Streaming is not yet supported for GrokClient".into())
-        })
+        Box::pin(async move { Err("Streaming is not yet supported for GrokClient".into()) })
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
@@ -366,13 +365,13 @@ impl ImageGenerationClient for GrokClient {
                 response_text
             );
             if let Some(error) = response_json.get("error") {
-                return Err(
-                    format!("Grok Imagine API error (HTTP {}): {}", status, error).into(),
-                );
+                return Err(format!("Grok Imagine API error (HTTP {}): {}", status, error).into());
             }
-            return Err(
-                format!("Grok Imagine API error (HTTP {}): {}", status, response_text).into(),
-            );
+            return Err(format!(
+                "Grok Imagine API error (HTTP {}): {}",
+                status, response_text
+            )
+            .into());
         }
 
         // Parse the response - Grok returns: { "data": [{ "url": "..." }, ...] }
