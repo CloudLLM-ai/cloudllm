@@ -1169,18 +1169,20 @@ use std::sync::Arc;
 use cloudllm::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
 use cloudllm::tool_protocols::CustomToolProtocol;
-use cloudllm::tool_protocol::{ToolMetadata, ToolParameterType, ToolParameter, ToolRegistry, ToolResult};
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("OPEN_AI_SECRET")?;
 
-    // 1. Register tools as usual
+    // 1. Register tools with parameter schemas so the provider understands them
     let protocol = Arc::new(CustomToolProtocol::new());
     protocol.register_tool(
-        ToolMetadata::new("add", "Add two numbers")
-            .with_parameter(ToolParameter::new("a", ToolParameterType::Number).required())
-            .with_parameter(ToolParameter::new("b", ToolParameterType::Number).required()),
+        ToolMetadata::new("add", "Add two numbers and return the sum")
+            .with_parameter(ToolParameter::new("a", ToolParameterType::Number)
+                .with_description("First number").required())
+            .with_parameter(ToolParameter::new("b", ToolParameterType::Number)
+                .with_description("Second number").required()),
         Arc::new(|params| {
             let a = params["a"].as_f64().unwrap_or(0.0);
             let b = params["b"].as_f64().unwrap_or(0.0);
@@ -1188,32 +1190,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     ).await;
 
-    let registry = ToolRegistry::new(protocol);
+    // 2. Build registry and attach it to the agent
+    let mut registry = ToolRegistry::new(protocol);
+    registry.discover_tools_from_primary().await?;
 
-    // 2. Convert registry to ToolDefinitions for native calling
-    let tool_defs = registry.to_tool_definitions().await;
+    // to_tool_definitions() is a synchronous method — no .await needed
+    let defs = registry.to_tool_definitions();
+    println!("{} tool(s) will be sent to the provider as JSON Schema", defs.len());
 
-    // 3. Agent automatically passes tool_defs to send_message — the provider
-    //    returns NativeToolCall objects that the agent executes directly.
-    let agent = Agent::new(
+    // 3. Agent.send() calls registry.to_tool_definitions() automatically and passes
+    //    the resulting Vec<ToolDefinition> to send_message().  The provider returns
+    //    structured NativeToolCall objects; the agent executes them and feeds results
+    //    back as Role::Tool { call_id } messages — all without manual wiring.
+    let mut agent = Agent::new(
         "calculator",
         "Calculator Agent",
         Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini)),
     )
     .with_tools(registry);
 
-    // Agent.send() internally calls:
-    //   session.send_message(role, content, Some(tool_defs))
-    // and handles NativeToolCall responses from the provider.
-    println!("Agent ready with native tool calling");
+    let response = agent.send("What is 123 multiplied by 456?").await?;
+    println!("{}", response.content);
     Ok(())
 }
 ```
 
-The agent's `send()` loop handles the full native tool-calling cycle automatically: it passes
-tool definitions to the provider, receives `NativeToolCall` responses, executes the matching
-tools, and feeds results back as `Role::Tool { call_id }` messages until the provider produces
-a final text response.
+**What the agent loop does automatically:**
+1. Calls `registry.to_tool_definitions()` to build the JSON Schema `tools` array.
+2. Passes the definitions to `send_message(messages, Some(tool_defs))`.
+3. Checks `response.tool_calls` — if the provider returned a `NativeToolCall`, executes the
+   matching tool and injects the result as a `Role::Tool { call_id }` message.
+4. Calls the LLM again with the updated history until the provider returns a final text
+   response (no more tool calls).
+5. Falls back to text-parsing (`{"tool_call": {...}}` in the response body) for any provider
+   or model that does not support native function calling.
 
 ---
 
@@ -1265,20 +1275,29 @@ maintain state across sessions.
 
 ### Simple Tool Creation: Rust Closures
 
-Register Rust functions or closures as tools. Perfect for quick prototyping:
+Register Rust functions or closures as tools. Add `ToolParameter` descriptions to unlock
+native function-calling on all providers (OpenAI, Claude, Grok, Gemini):
 
 ```rust,no_run
 use std::sync::Arc;
 use cloudllm::tool_protocols::CustomToolProtocol;
-use cloudllm::tool_protocol::{ToolMetadata, ToolResult};
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let protocol = Arc::new(CustomToolProtocol::new());
 
-    // Synchronous tool
+    // Synchronous tool — describe parameters for native function calling
     protocol.register_tool(
-        ToolMetadata::new("add", "Add two numbers"),
+        ToolMetadata::new("add", "Add two numbers and return the sum")
+            .with_parameter(
+                ToolParameter::new("a", ToolParameterType::Number)
+                    .with_description("First number").required()
+            )
+            .with_parameter(
+                ToolParameter::new("b", ToolParameterType::Number)
+                    .with_description("Second number").required()
+            ),
         Arc::new(|params| {
             let a = params["a"].as_f64().unwrap_or(0.0);
             let b = params["b"].as_f64().unwrap_or(0.0);
@@ -1288,11 +1307,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Asynchronous tool
     protocol.register_async_tool(
-        ToolMetadata::new("fetch_url", "Fetch data from a URL"),
+        ToolMetadata::new("fetch_url", "Fetch the content of a URL")
+            .with_parameter(
+                ToolParameter::new("url", ToolParameterType::String)
+                    .with_description("The URL to fetch").required()
+            ),
         Arc::new(|params| {
             Box::pin(async {
                 let url = params["url"].as_str().unwrap_or("");
-                // Perform async operation
                 Ok(ToolResult::success(serde_json::json!({"url": url, "status": "ok"})))
             })
         }),
@@ -1301,6 +1323,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+> **Tip**: Always add `.with_description()` to parameters. The JSON Schema the provider
+> receives is built directly from `ToolParameter` — richer descriptions improve tool-selection
+> accuracy and reduce hallucinated parameter names.
 
 ### Advanced Tool Creation: Custom Protocol Implementation
 
@@ -1349,21 +1375,32 @@ impl ToolProtocol for DatabaseAdapter {
 
 ### Using Tools with Agents
 
-Agents use tools through a registry. Connect any tool source to an agent:
+Agents use tools through a registry. Since v0.11.1, tool schemas are automatically converted
+to `ToolDefinition` (JSON Schema) and forwarded to the provider's native function-calling API —
+no manual wiring required. Add `ToolParameter` descriptions so the LLM knows how to call each
+tool correctly:
 
 ```rust,no_run
 use std::sync::Arc;
 use cloudllm::Agent;
 use cloudllm::clients::openai::{OpenAIClient, Model};
 use cloudllm::tool_protocols::CustomToolProtocol;
-use cloudllm::tool_protocol::{ToolMetadata, ToolRegistry, ToolResult};
+use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create tools
+    // Describe parameters so the provider builds a valid function call
     let protocol = Arc::new(CustomToolProtocol::new());
     protocol.register_tool(
-        ToolMetadata::new("add", "Add two numbers"),
+        ToolMetadata::new("add", "Add two numbers and return the sum")
+            .with_parameter(
+                ToolParameter::new("a", ToolParameterType::Number)
+                    .with_description("First operand").required()
+            )
+            .with_parameter(
+                ToolParameter::new("b", ToolParameterType::Number)
+                    .with_description("Second operand").required()
+            ),
         Arc::new(|params| {
             let a = params["a"].as_f64().unwrap_or(0.0);
             let b = params["b"].as_f64().unwrap_or(0.0);
@@ -1371,10 +1408,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     ).await;
 
-    let registry = ToolRegistry::new(protocol);
+    let mut registry = ToolRegistry::new(protocol);
+    registry.discover_tools_from_primary().await?;
 
-    // Create agent with tool access
-    let agent = Agent::new(
+    // Attach registry — agent.send() automatically uses native tool calling
+    let mut agent = Agent::new(
         "calculator",
         "Calculator Agent",
         Arc::new(OpenAIClient::new_with_model_enum(
@@ -1382,10 +1420,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Model::GPT41Mini
         )),
     )
-    .with_expertise("Performs calculations")
+    .with_expertise("Mathematical calculations")
     .with_tools(registry);
 
-    println!("Agent ready with tools");
+    let result = agent.send("What is 17 plus 29?").await?;
+    println!("{}", result.content); // "The sum of 17 and 29 is 46."
     Ok(())
 }
 ```
@@ -1471,14 +1510,17 @@ use cloudllm::tools::Calculator;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let calc = Calculator::new();
 
-    // Arithmetic
-    println!("{}", calc.evaluate("2 + 2 * 3").await?);  // 8.0
+    // Arithmetic — evaluate() returns Result<f64, CalculatorError>
+    let result = calc.evaluate("2 + 2 * 3").await?;
+    println!("{result}"); // 8
 
     // Trigonometry (radians)
-    println!("{}", calc.evaluate("sin(pi/2)").await?);  // 1.0
+    let sin_val = calc.evaluate("sin(pi/2)").await?;
+    println!("{sin_val}"); // 1
 
     // Statistical functions
-    println!("{}", calc.evaluate("mean([1, 2, 3, 4, 5])").await?);  // 3.0
+    let mean = calc.evaluate("mean([1, 2, 3, 4, 5])").await?;
+    println!("{mean}"); // 3
 
     Ok(())
 }
@@ -1595,6 +1637,7 @@ The Memory tool uses a token-efficient protocol designed for LLM communication:
 
 ```rust,no_run
 use std::sync::Arc;
+use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::tools::Memory;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tool_protocol::ToolRegistry;
@@ -1603,28 +1646,29 @@ use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create shared memory (all agents access same instance)
-    let shared_memory = Arc::new(Memory::new());
+    let api_key = std::env::var("OPEN_AI_SECRET")?;
+    let make_client = || Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Mini));
 
+    // Create shared memory — all agents read and write the same store
+    let shared_memory = Arc::new(Memory::new());
     let protocol = Arc::new(MemoryProtocol::new(shared_memory));
     let shared_registry = Arc::new(RwLock::new(ToolRegistry::new(protocol)));
 
-    // Create orchestration of agents — shared registry is visible to both
-    let agent1 = Agent::new(...)
+    // Both agents share the same registry; mutations are immediately visible to both
+    let agent1 = Agent::new("researcher-a", "Researcher A", make_client())
         .with_shared_tools(shared_registry.clone());
 
-    let agent2 = Agent::new(...)
+    let agent2 = Agent::new("researcher-b", "Researcher B", make_client())
         .with_shared_tools(shared_registry.clone());
 
-    // Both agents access same memory
     let mut orchestration = Orchestration::new("research", "Collaborative Research");
     orchestration.add_agent(agent1)?;
     orchestration.add_agent(agent2)?;
 
-    // Agents can:
-    // 1. Coordinate: Agent A stores findings, Agent B retrieves
-    // 2. Consensus: Store decisions that others can see
-    // 3. Progress: Track overall research advancement
+    // Agents coordinate via memory:
+    // 1. Agent A stores findings:  P research_findings "Found 5 papers" 7200
+    // 2. Agent B retrieves them:   G research_findings META
+    // 3. Either agent lists state: L
 
     Ok(())
 }
@@ -1710,26 +1754,32 @@ Safe file and directory operations with path traversal protection and optional e
 use cloudllm::tools::FileSystemTool;
 use std::path::PathBuf;
 
-// Create tool with root path restriction
-let fs = FileSystemTool::new()
-    .with_root_path(PathBuf::from("/home/user/documents"))
-    .with_allowed_extensions(vec!["txt".to_string(), "md".to_string()]);
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create tool with root path restriction
+    let fs = FileSystemTool::new()
+        .with_root_path(PathBuf::from("/home/user/documents"))
+        .with_allowed_extensions(vec!["txt".to_string(), "md".to_string()]);
 
-// Write a file
-fs.write_file("notes.txt", "Important information").await?;
+    // Write a file
+    fs.write_file("notes.txt", "Important information").await?;
 
-// Read a file
-let content = fs.read_file("notes.txt").await?;
+    // Read a file
+    let content = fs.read_file("notes.txt").await?;
+    println!("{content}");
 
-// List directory contents
-let entries = fs.read_directory(".", false).await?;
-for entry in entries {
-    println!("{}: {} bytes", entry.name, entry.size);
+    // List directory contents
+    let entries = fs.read_directory(".", false).await?;
+    for entry in entries {
+        println!("{}: {} bytes", entry.name, entry.size);
+    }
+
+    // Get metadata
+    let metadata = fs.get_file_metadata("notes.txt").await?;
+    println!("Size: {} bytes, Modified: {}", metadata.size, metadata.modified);
+
+    Ok(())
 }
-
-// Get metadata
-let metadata = fs.get_file_metadata("notes.txt").await?;
-println!("Size: {} bytes, Modified: {}", metadata.size, metadata.modified);
 ```
 
 For comprehensive documentation, see the [`FileSystemTool` API docs](https://docs.rs/cloudllm/latest/cloudllm/tools/struct.FileSystemTool.html) and `examples/filesystem_example.rs`.
@@ -1780,12 +1830,22 @@ impl ToolProtocol for MyCustomAdapter {
 
 ### Best Practices for Tools
 
-1. **Clear Names & Descriptions**: Make tool purposes obvious to LLMs
-2. **Comprehensive Parameters**: Document all required and optional parameters
-3. **Error Handling**: Return meaningful error messages in ToolResult
-4. **Atomicity**: Each tool should do one thing well
-5. **Documentation**: Include examples in tool descriptions
-6. **Testing**: Test tool execution in isolation before integration
+1. **Clear Names & Descriptions**: Make tool purposes obvious to LLMs — names and descriptions
+   are included verbatim in the JSON Schema sent to the provider.
+2. **Parameter Schemas**: Always add `ToolParameter` entries with `.with_description()` and
+   mark required parameters with `.required()`. The provider uses this schema to construct
+   valid function calls; missing descriptions lead to hallucinated parameter names.
+3. **Type Accuracy**: Use the most specific `ToolParameterType` — prefer `Integer` over
+   `Number` when the argument must be whole, and `Object`/`Array` with nested properties for
+   complex inputs.
+4. **Error Handling**: Return `ToolResult::failure("...")` with a clear message — the agent
+   feeds this back to the LLM so it can retry or explain the problem.
+5. **Atomicity**: Each tool should do one thing well. Compose multi-step operations in the
+   agent loop, not inside individual tools.
+6. **Testing**: Test `ToolProtocol::execute()` in isolation (see `tests/tool_integration_tests.rs`
+   for patterns) before wiring to an agent.
+7. **Discovery**: Call `registry.discover_tools_from_primary().await?` after registering tools
+   via `ToolRegistry::new(protocol)` to populate the registry's tool map.
 
 For more examples, see the `examples/` directory and run `cargo doc --open` for complete API documentation.
 
