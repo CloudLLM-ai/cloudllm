@@ -79,16 +79,13 @@ use tokio::sync::Mutex;
 
 /// Image generation model identifiers for Grok.
 pub enum ImageModel {
-    /// `grok-2-image-1212` – legacy Grok image generation model
-    Grok2Image,
-    /// `grok-imagine-image` – current Grok Imagine image generation model
+    /// `grok-imagine-image` – Grok Imagine image generation model
     GrokImagineImage,
 }
 
 /// Convert a [`ImageModel`] variant into the string identifier expected by the API.
 fn image_model_to_string(model: ImageModel) -> String {
     match model {
-        ImageModel::Grok2Image => "grok-2-image-1212".to_string(),
         ImageModel::GrokImagineImage => "grok-imagine-image".to_string(),
     }
 }

@@ -1,4 +1,13 @@
-0.11.0 FEB/21/2026
+0.11.2 FEB/25/2026
+ - maint: Remove deprecated grok-2-image-1212 image generation model
+   - [REMOVED] ImageModel::Grok2Image enum variant mapped to deprecated grok-2-image-1212
+   - xAI deprecated grok-2-image-1212 model effective FEB/28/2026; now exclusively use grok-imagine-image
+   - Simplified ImageModel enum to single GrokImagineImage variant
+   - Simplified image_model_to_string() to single pattern match (no breaking change; function is private)
+ - docs: Updated README.md Grok Imagine model table from grok-2-image-1212 to grok-imagine-image
+ - test: Updated image generation tests to expect grok-imagine-image model name
+
+0.11.1 FEB/20/2026
  - security: Fix 3 Critical and 4 High vulnerabilities (full audit by ai-systems-security-engineer)
    - [CRITICAL] C1: Bearer token auth was dead code — all MCP HTTP endpoints were unauthenticated
      - Added check_auth() wired into all four routes: /tools/list, /tools/execute, /resources/list, /resources/read

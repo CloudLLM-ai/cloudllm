@@ -1907,7 +1907,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Provider | Model | Supported Ratios |
 |----------|-------|------------------|
 | OpenAI (DALL-E 3) | `gpt-image-1.5` | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3 |
-| Grok Imagine | `grok-2-image-1212` | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3, and more |
+| Grok Imagine | `grok-imagine-image` | 1:1, 16:9, 4:3, 3:2, 9:16, 3:4, 2:3, and more |
 | Google Gemini | `gemini-2.5-flash-image` | 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 |
 
 ### Using Different Providers

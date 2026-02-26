@@ -417,11 +417,11 @@ fn test_grok_image_generation_model_name() {
     let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
-    // The model name should be grok-2-image for image generation
+    // The model name should be grok-imagine-image for image generation
     assert_eq!(
         client.model_name(),
-        "grok-2-image",
-        "Expected image generation model to be grok-2-image"
+        "grok-imagine-image",
+        "Expected image generation model to be grok-imagine-image"
     );
 
     log::info!("✓ test_grok_image_generation_model_name succeeded");
@@ -915,13 +915,13 @@ fn test_grok_image_generation_types() {
 
     // This test verifies types and trait implementations without making API calls
     let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
-    let client = GrokClient::new_with_model_str(&api_key, "grok-2-image-1212");
+    let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     // Test that ImageGenerationClient trait is properly implemented
     let _: &dyn ImageGenerationClient = &client;
 
     // Test that model_name returns the correct value
-    assert_eq!(client.model_name(), "grok-2-image");
+    assert_eq!(client.model_name(), "grok-imagine-image");
 
     // Test that we can create ImageGenerationOptions
     let options = ImageGenerationOptions {
