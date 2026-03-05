@@ -1,3 +1,8 @@
+0.11.3 MAR/05/2026
+ - feat: Add GPT-5.4 model support for OpenAI client
+   - [ADDED] Model::GPT54 enum variant mapped to "gpt-5.4"
+   - Added match arm in model_to_string() for Model::GPT54
+
 0.11.2 FEB/25/2026
  - maint: Remove deprecated grok-2-image-1212 image generation model
    - [REMOVED] ImageModel::Grok2Image enum variant mapped to deprecated grok-2-image-1212

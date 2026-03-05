@@ -137,6 +137,8 @@ pub fn image_model_to_string(model: ImageModel) -> String {
 /// Official model identifiers supported by OpenAI's Chat Completions API.
 #[allow(non_camel_case_types)]
 pub enum Model {
+    /// `gpt-5.4` – Latest GPT-5 generation model.
+    GPT54,
     /// `gpt-5.2` – Complex reasoning, broad world knowledge, and code-heavy or multi-step agentic tasks
     GPT52,
     /// `gpt-5.2-chat-latest` – ChatGPT's production deployment of GPT-5.2.
@@ -192,6 +194,7 @@ pub enum Model {
 /// Convert a [`Model`] variant into the string identifier expected by the REST API.
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT54 => "gpt-5.4".to_string(),
         Model::GPT52 => "gpt-5.2".to_string(),
         Model::GPT52ChatLatest => "gpt-5.2-chat-latest".to_string(),
         Model::GPT52Pro => "gpt-5.2-pro".to_string(),
