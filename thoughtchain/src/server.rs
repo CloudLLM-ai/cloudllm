@@ -21,9 +21,12 @@
 //! - `POST /v1/recent-context`
 //! - `POST /v1/memory-markdown`
 //! - `POST /v1/head`
+//! - `GET /v1/chains`
+//! - `POST /v1/agents`
 
 use crate::{
-    StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRole, ThoughtType,
+    chain_key_from_storage_filename, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput,
+    ThoughtQuery, ThoughtRole, ThoughtType,
 };
 use async_trait::async_trait;
 use axum::extract::State;
@@ -38,7 +41,7 @@ use mcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -348,6 +351,8 @@ pub fn rest_router(config: ThoughtChainServiceConfig) -> Router {
         .route("/v1/recent-context", post(rest_recent_context_handler))
         .route("/v1/memory-markdown", post(rest_memory_markdown_handler))
         .route("/v1/head", post(rest_head_handler))
+        .route("/v1/chains", get(rest_list_chains_handler))
+        .route("/v1/agents", post(rest_list_agents_handler))
         .with_state(service)
 }
 
@@ -421,6 +426,10 @@ impl ToolProtocol for ThoughtChainMcpProtocol {
             }
             "thoughtchain_search" => {
                 parse_and_call(parameters, |request| self.service.search(request)).await
+            }
+            "thoughtchain_list_chains" => self.service.list_chains_json().await,
+            "thoughtchain_list_agents" => {
+                parse_and_call(parameters, |request| self.service.list_agents(request)).await
             }
             "thoughtchain_recent_context" => {
                 parse_and_call(parameters, |request| self.service.recent_context(request)).await
@@ -632,6 +641,68 @@ impl ThoughtChainService {
         Ok(SearchResponse { thoughts })
     }
 
+    async fn list_chains_json(&self) -> Result<Value, Box<dyn Error + Send + Sync>> {
+        Ok(serde_json::to_value(self.list_chains().await?)?)
+    }
+
+    async fn list_chains(&self) -> Result<ListChainsResponse, Box<dyn Error + Send + Sync>> {
+        let mut chain_keys = BTreeSet::new();
+
+        if self.config.chain_dir.exists() {
+            for entry in std::fs::read_dir(&self.config.chain_dir)? {
+                let entry = entry?;
+                if !entry.file_type()?.is_file() {
+                    continue;
+                }
+                let file_name = entry.file_name();
+                let Some(file_name) = file_name.to_str() else {
+                    continue;
+                };
+                if let Some(chain_key) = chain_key_from_storage_filename(file_name) {
+                    chain_keys.insert(chain_key);
+                }
+            }
+        }
+
+        for chain_key in self.chains.read().await.keys() {
+            chain_keys.insert(chain_key.clone());
+        }
+
+        Ok(ListChainsResponse {
+            default_chain_key: self.config.default_chain_key.clone(),
+            chain_keys: chain_keys.into_iter().collect(),
+        })
+    }
+
+    async fn list_agents(
+        &self,
+        request: ListAgentsRequest,
+    ) -> Result<ListAgentsResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = chain.read().await;
+        let mut identities = BTreeSet::new();
+
+        for thought in chain.thoughts() {
+            identities.insert((
+                thought.agent_name.clone(),
+                thought.agent_id.clone(),
+                thought.agent_owner.clone(),
+            ));
+        }
+
+        let agents = identities
+            .into_iter()
+            .map(|(agent_name, agent_id, agent_owner)| AgentIdentitySummary {
+                agent_id,
+                agent_name,
+                agent_owner,
+            })
+            .collect();
+
+        Ok(ListAgentsResponse { chain_key, agents })
+    }
+
     async fn recent_context(
         &self,
         request: RecentContextRequest,
@@ -805,6 +876,30 @@ struct SearchResponse {
     thoughts: Vec<Value>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct ListAgentsRequest {
+    chain_key: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ListChainsResponse {
+    default_chain_key: String,
+    chain_keys: Vec<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct AgentIdentitySummary {
+    agent_id: String,
+    agent_name: String,
+    agent_owner: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ListAgentsResponse {
+    chain_key: String,
+    agents: Vec<AgentIdentitySummary>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RecentContextRequest {
     chain_key: Option<String>,
@@ -928,6 +1023,19 @@ async fn rest_search_handler(
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<Value>)> {
     service_call(service.search(request).await)
+}
+
+async fn rest_list_chains_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+) -> Result<Json<ListChainsResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.list_chains().await)
+}
+
+async fn rest_list_agents_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<ListAgentsRequest>,
+) -> Result<Json<ListAgentsResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.list_agents(request).await)
 }
 
 async fn rest_recent_context_handler(
@@ -1063,6 +1171,15 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("agent_owners", ToolParameterType::Array).with_description("Optional producing agent owners to match.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("min_importance", ToolParameterType::Number).with_description("Optional minimum importance threshold."))
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of results.")),
+        ToolMetadata::new(
+            "thoughtchain_list_chains",
+            "List the durable chain keys currently available in ThoughtChain storage, together with the server default chain key.",
+        ),
+        ToolMetadata::new(
+            "thoughtchain_list_agents",
+            "List the distinct agent identities that have written to a particular chain key. Use this to discover participating agents on a shared brain before filtering searches by agent.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain.")),
         ToolMetadata::new(
             "thoughtchain_recent_context",
             "Render recent ThoughtChain context as a prompt snippet suitable for resuming work.",

@@ -1614,6 +1614,41 @@ pub fn chain_storage_filename(chain_key: &str, kind: StorageAdapterKind) -> Stri
     format!("{safe_key}-{fingerprint}.{}", kind.file_extension())
 }
 
+/// Recover the stable chain key portion from a ThoughtChain storage filename.
+///
+/// This reverses the filename convention used by [`chain_storage_filename`]
+/// and returns the durable chain key prefix as stored in the filename. The
+/// returned value matches the filename-safe key, so callers should treat it as
+/// the persisted chain identifier rather than as an exact reconstruction of an
+/// arbitrary original input string.
+///
+/// # Example
+///
+/// ```
+/// use thoughtchain::{chain_key_from_storage_filename, chain_storage_filename, StorageAdapterKind};
+///
+/// let filename = chain_storage_filename("borganism-brain", StorageAdapterKind::Jsonl);
+/// let chain_key = chain_key_from_storage_filename(&filename).unwrap();
+///
+/// assert_eq!(chain_key, "borganism-brain");
+/// ```
+pub fn chain_key_from_storage_filename(filename: &str) -> Option<String> {
+    let (stem, extension) = filename.rsplit_once('.')?;
+    if extension != StorageAdapterKind::Jsonl.file_extension()
+        && extension != StorageAdapterKind::Binary.file_extension()
+    {
+        return None;
+    }
+
+    let (chain_key, fingerprint) = stem.rsplit_once('-')?;
+    if fingerprint.len() != 16 || !fingerprint.chars().all(|character| character.is_ascii_hexdigit())
+    {
+        return None;
+    }
+
+    Some(chain_key.to_string())
+}
+
 fn append_memory_section(
     markdown: &mut String,
     title: &str,

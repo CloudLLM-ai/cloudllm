@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use thoughtchain::{
-    chain_filename, BinaryStorageAdapter, StorageAdapter, StorageAdapterKind, Thought,
-    ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole,
-    ThoughtType,
+    chain_filename, chain_key_from_storage_filename, chain_storage_filename,
+    BinaryStorageAdapter, StorageAdapter, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput,
+    ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
 };
 use uuid::Uuid;
 
@@ -373,4 +373,13 @@ fn filename_depends_only_on_chain_key() {
 
     assert_eq!(first, second);
     assert_ne!(first, third);
+}
+
+#[test]
+fn chain_key_can_be_recovered_from_storage_filename() {
+    let filename = chain_storage_filename("borganism-brain", StorageAdapterKind::Binary);
+    let recovered = chain_key_from_storage_filename(&filename).unwrap();
+
+    assert_eq!(recovered, "borganism-brain");
+    assert!(chain_key_from_storage_filename("not-a-thoughtchain-file.txt").is_none());
 }

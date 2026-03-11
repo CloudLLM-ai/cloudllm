@@ -59,6 +59,12 @@ async fn mcp_router_lists_thoughtchain_tools() {
     assert!(tools
         .iter()
         .any(|tool| tool["name"] == "thoughtchain_append_retrospective"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_list_chains"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_list_agents"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -241,6 +247,120 @@ async fn rest_router_appends_retrospective_with_defaults() {
 }
 
 #[tokio::test]
+async fn rest_router_lists_chains_and_agents() {
+    let dir = unique_chain_dir();
+    let router = rest_router(ThoughtChainServiceConfig::new(
+        dir.clone(),
+        "shared-brain",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    let append_one = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "shared-brain",
+                        "agent_id": "astro",
+                        "agent_name": "Astro",
+                        "thought_type": "Decision",
+                        "content": "Use the shared chain for memory."
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(append_one.status(), StatusCode::OK);
+
+    let append_two = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "shared-brain",
+                        "agent_id": "apollo",
+                        "agent_name": "Apollo",
+                        "agent_owner": "@gubatron",
+                        "thought_type": "Insight",
+                        "content": "Shared memory helps future agents resume."
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(append_two.status(), StatusCode::OK);
+
+    let chains = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/chains")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(chains.status(), StatusCode::OK);
+    let chains_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(chains.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let chain_keys = chains_json["chain_keys"].as_array().unwrap();
+    assert!(chain_keys.iter().any(|value| value == "shared-brain"));
+    assert_eq!(chains_json["default_chain_key"], "shared-brain");
+
+    let agents = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "shared-brain"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agents.status(), StatusCode::OK);
+    let agents_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(agents.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let agent_entries = agents_json["agents"].as_array().unwrap();
+    assert!(agent_entries
+        .iter()
+        .any(|agent| agent["agent_name"] == "Astro" && agent["agent_id"] == "astro"));
+    assert!(agent_entries.iter().any(|agent| {
+        agent["agent_name"] == "Apollo"
+            && agent["agent_id"] == "apollo"
+            && agent["agent_owner"] == "@gubatron"
+    }));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     let dir = unique_chain_dir();
     let router = standard_mcp_router(ThoughtChainServiceConfig::new(
@@ -346,6 +466,12 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     assert!(tools
         .iter()
         .any(|tool| tool["name"] == "thoughtchain_append_retrospective"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_list_chains"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_list_agents"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);
