@@ -14,6 +14,8 @@ pub mod http;
 pub mod protocol;
 pub mod resources;
 pub mod server;
+#[cfg(feature = "server")]
+pub mod streamable_http;
 
 pub use builder::MCPServerBuilder;
 pub use builder_utils::{AuthConfig, IpFilter};
@@ -26,3 +28,8 @@ pub use protocol::{
 };
 pub use resources::{ResourceError, ResourceMetadata, ResourceProtocol};
 pub use server::UnifiedMcpServer;
+#[cfg(feature = "server")]
+pub use streamable_http::{
+    streamable_http_router, StreamableHttpConfig, CURRENT_MCP_PROTOCOL_VERSION,
+    SUPPORTED_MCP_PROTOCOL_VERSIONS,
+};

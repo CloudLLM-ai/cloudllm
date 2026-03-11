@@ -22,12 +22,17 @@
 use crate::{
     StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRole, ThoughtType,
 };
+use async_trait::async_trait;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
-use mcp::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
+use mcp::http::axum_router as shared_mcp_router;
+use mcp::{
+    HttpServerConfig, IpFilter, ToolError, ToolMetadata, ToolParameter, ToolParameterType,
+    ToolProtocol, ToolResult, StreamableHttpConfig, streamable_http_router,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -258,7 +263,12 @@ pub async fn start_mcp_server(
     addr: SocketAddr,
     config: ThoughtChainServiceConfig,
 ) -> Result<ServerHandle, Box<dyn Error + Send + Sync>> {
-    start_router(addr, mcp_router(config)).await
+    let service = Arc::new(ThoughtChainService::new(config));
+    start_router(
+        addr,
+        standard_and_legacy_mcp_router(service, addr),
+    )
+    .await
 }
 
 /// Start a standalone ThoughtChain REST server.
@@ -312,6 +322,15 @@ pub fn mcp_router(config: ThoughtChainServiceConfig) -> Router {
         .with_state(service)
 }
 
+/// Build a standard streamable HTTP MCP router without binding a socket.
+///
+/// This exposes the modern MCP root endpoint used by remote MCP clients such as
+/// Codex and Claude Code. It is primarily useful for testing and embedding.
+pub fn standard_mcp_router(config: ThoughtChainServiceConfig) -> Router {
+    let service = Arc::new(ThoughtChainService::new(config));
+    standard_mcp_only_router(service, SocketAddr::from(([127, 0, 0, 1], 0)))
+}
+
 /// Build the REST router without binding a socket.
 ///
 /// This is useful for embedding the service inside another process or testing
@@ -333,6 +352,101 @@ pub fn rest_router(config: ThoughtChainServiceConfig) -> Router {
 struct ThoughtChainService {
     config: ThoughtChainServiceConfig,
     chains: Arc<RwLock<HashMap<String, Arc<RwLock<ThoughtChain>>>>>,
+}
+
+#[derive(Clone)]
+struct ThoughtChainMcpProtocol {
+    service: Arc<ThoughtChainService>,
+}
+
+impl ThoughtChainMcpProtocol {
+    fn new(service: Arc<ThoughtChainService>) -> Self {
+        Self { service }
+    }
+}
+
+fn standard_and_legacy_mcp_router(service: Arc<ThoughtChainService>, addr: SocketAddr) -> Router {
+    standard_mcp_only_router(service.clone(), addr).merge(shared_mcp_router(
+        &HttpServerConfig {
+            addr,
+            bearer_token: None,
+            ip_filter: IpFilter::new(),
+            event_handler: None,
+        },
+        Arc::new(ThoughtChainMcpProtocol::new(service)),
+    ))
+}
+
+fn standard_mcp_only_router(service: Arc<ThoughtChainService>, addr: SocketAddr) -> Router {
+    Router::new()
+        .route("/health", get(health_handler))
+        .merge(streamable_http_router(
+            &HttpServerConfig {
+                addr,
+                bearer_token: None,
+                ip_filter: IpFilter::new(),
+                event_handler: None,
+            },
+            &StreamableHttpConfig::new("thoughtchain", env!("CARGO_PKG_VERSION"))
+                .with_server_title("ThoughtChain")
+                .with_instructions(
+                    "ThoughtChain provides semantic, append-only memory tools for durable agent context, memory search, handoff, and auditability.",
+                ),
+            Arc::new(ThoughtChainMcpProtocol::new(service)),
+        ))
+}
+
+#[async_trait]
+impl ToolProtocol for ThoughtChainMcpProtocol {
+    async fn execute(
+        &self,
+        tool_name: &str,
+        parameters: Value,
+    ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
+        let output = match tool_name {
+            "thoughtchain_bootstrap" => {
+                parse_and_call(parameters, |request| self.service.bootstrap(request)).await
+            }
+            "thoughtchain_append" => {
+                parse_and_call(parameters, |request| self.service.append(request)).await
+            }
+            "thoughtchain_search" => {
+                parse_and_call(parameters, |request| self.service.search(request)).await
+            }
+            "thoughtchain_recent_context" => {
+                parse_and_call(parameters, |request| self.service.recent_context(request)).await
+            }
+            "thoughtchain_memory_markdown" => {
+                parse_and_call(parameters, |request| self.service.memory_markdown(request)).await
+            }
+            "thoughtchain_head" => {
+                parse_and_call(parameters, |request| self.service.head(request)).await
+            }
+            _ => {
+                return Err(Box::new(ToolError::NotFound(tool_name.to_string())));
+            }
+        }?;
+
+        Ok(ToolResult::success(output))
+    }
+
+    async fn list_tools(&self) -> Result<Vec<ToolMetadata>, Box<dyn Error + Send + Sync>> {
+        Ok(mcp_tool_metadata())
+    }
+
+    async fn get_tool_metadata(
+        &self,
+        tool_name: &str,
+    ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+        mcp_tool_metadata()
+            .into_iter()
+            .find(|tool| tool.name == tool_name)
+            .ok_or_else(|| Box::new(ToolError::NotFound(tool_name.to_string())) as _)
+    }
+
+    fn protocol_name(&self) -> &str {
+        "thoughtchain"
+    }
 }
 
 impl ThoughtChainService {
@@ -681,7 +795,10 @@ async fn start_router(
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     tokio::spawn(async move {
-        let _ = axum::serve(listener, router.into_make_service())
+        let _ = axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
             .with_graceful_shutdown(async move {
                 let _ = shutdown_rx.await;
             })
@@ -706,39 +823,10 @@ async fn mcp_execute_handler(
     State(service): State<Arc<ThoughtChainService>>,
     Json(request): Json<McpExecuteRequest>,
 ) -> (StatusCode, Json<Value>) {
-    let result = match request.tool.as_str() {
-        "thoughtchain_bootstrap" => {
-            parse_and_call(request.parameters, |request| service.bootstrap(request)).await
-        }
-        "thoughtchain_append" => {
-            parse_and_call(request.parameters, |request| service.append(request)).await
-        }
-        "thoughtchain_search" => {
-            parse_and_call(request.parameters, |request| service.search(request)).await
-        }
-        "thoughtchain_recent_context" => {
-            parse_and_call(request.parameters, |request| {
-                service.recent_context(request)
-            })
-            .await
-        }
-        "thoughtchain_memory_markdown" => {
-            parse_and_call(request.parameters, |request| {
-                service.memory_markdown(request)
-            })
-            .await
-        }
-        "thoughtchain_head" => {
-            parse_and_call(request.parameters, |request| service.head(request)).await
-        }
-        _ => Err(format!("Unknown tool '{}'", request.tool).into()),
-    };
+    let protocol = ThoughtChainMcpProtocol::new(service);
 
-    match result {
-        Ok(output) => (
-            StatusCode::OK,
-            Json(json!({ "result": ToolResult::success(output) })),
-        ),
+    match protocol.execute(&request.tool, request.parameters).await {
+        Ok(result) => (StatusCode::OK, Json(json!({ "result": result }))),
         Err(error) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "result": ToolResult::failure(error.to_string()) })),

@@ -27,6 +27,9 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+#[cfg(feature = "server")]
+use axum::Router;
+
 /// Configuration for an HTTP MCP server
 pub struct HttpServerConfig {
     /// Socket address to bind to (e.g., "127.0.0.1:8080")
@@ -126,6 +129,321 @@ pub trait HttpServerAdapter: Send + Sync {
     }
 }
 
+/// Build an Axum router that exposes a [`ToolProtocol`] over the shared HTTP MCP surface.
+///
+/// The returned router serves:
+/// - `POST /tools/list`
+/// - `POST /tools/execute`
+/// - `POST /resources/list`
+/// - `POST /resources/read`
+///
+/// This helper is useful when a crate wants to reuse the shared MCP transport
+/// but still compose extra routes of its own, such as a `/health` endpoint.
+#[cfg(feature = "server")]
+pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -> Router {
+    use crate::events::McpEvent;
+    use axum::{
+        extract::ConnectInfo, http::HeaderMap, http::StatusCode, response::IntoResponse,
+        routing::post, Json, Router,
+    };
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    use subtle::ConstantTimeEq;
+
+    /// Validate the Authorization header against the configured bearer token.
+    ///
+    /// Returns `true` when no token is configured (open server) or when the
+    /// provided `Bearer <token>` matches the expected token. Uses
+    /// `subtle::ConstantTimeEq` on SHA-256 digests so the compiler cannot
+    /// short-circuit the comparison and leak token length via timing.
+    fn check_auth(expected_token: &Option<String>, headers: &HeaderMap) -> bool {
+        match expected_token.as_deref() {
+            None => true,
+            Some(expected) => {
+                let provided = headers
+                    .get("Authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.strip_prefix("Bearer "))
+                    .unwrap_or("");
+                let expected_hash = Sha256::digest(expected.as_bytes());
+                let provided_hash = Sha256::digest(provided.as_bytes());
+                expected_hash.ct_eq(&provided_hash).into()
+            }
+        }
+    }
+
+    let bearer_token = Arc::new(config.bearer_token.clone());
+    let ip_filter = Arc::new(config.ip_filter.clone());
+
+    let token_list = bearer_token.clone();
+    let ips_list = ip_filter.clone();
+    let token_exec = bearer_token.clone();
+    let ips_exec = ip_filter.clone();
+    let token_res_list = bearer_token.clone();
+    let ips_res_list = ip_filter.clone();
+    let token_res_read = bearer_token.clone();
+    let ips_res_read = ip_filter.clone();
+
+    let eh_list = config.event_handler.clone();
+    let eh_exec = config.event_handler.clone();
+
+    let protocol_list = protocol.clone();
+    let protocol_exec = protocol.clone();
+    let protocol_res_list = protocol.clone();
+    let protocol_res_read = protocol.clone();
+
+    Router::new()
+        .route(
+            "/tools/list",
+            post(
+                move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
+                    let token = token_list.clone();
+                    let allowed = ips_list.clone();
+                    let proto = protocol_list.clone();
+                    let eh = eh_list.clone();
+                    async move {
+                        if !allowed.is_allowed(addr.ip()) {
+                            if let Some(ref handler) = eh {
+                                handler
+                                    .on_mcp_event(&McpEvent::RequestRejected {
+                                        client_addr: addr.ip().to_string(),
+                                        reason: "IP not allowed".to_string(),
+                                    })
+                                    .await;
+                            }
+                            return (
+                                StatusCode::FORBIDDEN,
+                                Json(json!({"error": "Access denied"})),
+                            )
+                                .into_response();
+                        }
+
+                        if !check_auth(&token, &headers) {
+                            return (
+                                StatusCode::UNAUTHORIZED,
+                                Json(json!({"error": "Unauthorized"})),
+                            )
+                                .into_response();
+                        }
+
+                        if let Some(ref handler) = eh {
+                            handler
+                                .on_mcp_event(&McpEvent::ToolListRequested {
+                                    client_addr: addr.ip().to_string(),
+                                })
+                                .await;
+                        }
+
+                        match proto.list_tools().await {
+                            Ok(tools) => {
+                                let tool_count = tools.len();
+                                if let Some(ref handler) = eh {
+                                    handler
+                                        .on_mcp_event(&McpEvent::ToolListReturned {
+                                            client_addr: addr.ip().to_string(),
+                                            tool_count,
+                                        })
+                                        .await;
+                                }
+                                (StatusCode::OK, Json(json!({"tools": tools}))).into_response()
+                            }
+                            Err(e) => (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({"error": e.to_string()})),
+                            )
+                                .into_response(),
+                        }
+                    }
+                },
+            ),
+        )
+        .route(
+            "/tools/execute",
+            post(
+                move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
+                      headers: HeaderMap,
+                      Json(payload): Json<serde_json::Value>| {
+                    let token = token_exec.clone();
+                    let allowed = ips_exec.clone();
+                    let proto = protocol_exec.clone();
+                    let eh = eh_exec.clone();
+                    async move {
+                        if !allowed.is_allowed(addr.ip()) {
+                            if let Some(ref handler) = eh {
+                                handler
+                                    .on_mcp_event(&McpEvent::RequestRejected {
+                                        client_addr: addr.ip().to_string(),
+                                        reason: "IP not allowed".to_string(),
+                                    })
+                                    .await;
+                            }
+                            return (
+                                StatusCode::FORBIDDEN,
+                                Json(json!({"error": "Access denied"})),
+                            )
+                                .into_response();
+                        }
+
+                        if !check_auth(&token, &headers) {
+                            return (
+                                StatusCode::UNAUTHORIZED,
+                                Json(json!({"error": "Unauthorized"})),
+                            )
+                                .into_response();
+                        }
+
+                        let tool_name = payload["tool"].as_str().unwrap_or("").to_string();
+                        let params = payload["parameters"].clone();
+
+                        if let Some(ref handler) = eh {
+                            handler
+                                .on_mcp_event(&McpEvent::ToolCallReceived {
+                                    client_addr: addr.ip().to_string(),
+                                    tool_name: tool_name.clone(),
+                                    parameters: params.clone(),
+                                })
+                                .await;
+                        }
+
+                        let exec_start = std::time::Instant::now();
+                        match proto.execute(&tool_name, params).await {
+                            Ok(result) => {
+                                let duration_ms = exec_start.elapsed().as_millis() as u64;
+                                let success = result.success;
+                                let error = result.error.clone();
+                                if let Some(ref handler) = eh {
+                                    handler
+                                        .on_mcp_event(&McpEvent::ToolCallCompleted {
+                                            client_addr: addr.ip().to_string(),
+                                            tool_name: tool_name.clone(),
+                                            success,
+                                            error,
+                                            duration_ms,
+                                        })
+                                        .await;
+                                }
+                                (StatusCode::OK, Json(json!({"result": result}))).into_response()
+                            }
+                            Err(e) => {
+                                let duration_ms = exec_start.elapsed().as_millis() as u64;
+                                let err_msg = e.to_string();
+                                if let Some(ref handler) = eh {
+                                    handler
+                                        .on_mcp_event(&McpEvent::ToolError {
+                                            source: addr.ip().to_string(),
+                                            tool_name: tool_name.clone(),
+                                            error: err_msg.clone(),
+                                            duration_ms,
+                                        })
+                                        .await;
+                                }
+                                (StatusCode::BAD_REQUEST, Json(json!({"error": err_msg})))
+                                    .into_response()
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+        .route(
+            "/resources/list",
+            post(
+                move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
+                    let token = token_res_list.clone();
+                    let allowed = ips_res_list.clone();
+                    let proto = protocol_res_list.clone();
+                    async move {
+                        if !allowed.is_allowed(addr.ip()) {
+                            return (
+                                StatusCode::FORBIDDEN,
+                                Json(json!({"error": "Access denied"})),
+                            )
+                                .into_response();
+                        }
+
+                        if !check_auth(&token, &headers) {
+                            return (
+                                StatusCode::UNAUTHORIZED,
+                                Json(json!({"error": "Unauthorized"})),
+                            )
+                                .into_response();
+                        }
+
+                        if !proto.supports_resources() {
+                            return (
+                                StatusCode::NOT_IMPLEMENTED,
+                                Json(json!({"error": "Resources not supported"})),
+                            )
+                                .into_response();
+                        }
+
+                        match proto.list_resources().await {
+                            Ok(resources) => {
+                                (StatusCode::OK, Json(json!({"resources": resources}))).into_response()
+                            }
+                            Err(e) => (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({"error": e.to_string()})),
+                            )
+                                .into_response(),
+                        }
+                    }
+                },
+            ),
+        )
+        .route(
+            "/resources/read",
+            post(
+                move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
+                      headers: HeaderMap,
+                      Json(payload): Json<serde_json::Value>| {
+                    let token = token_res_read.clone();
+                    let allowed = ips_res_read.clone();
+                    let proto = protocol_res_read.clone();
+                    async move {
+                        if !allowed.is_allowed(addr.ip()) {
+                            return (
+                                StatusCode::FORBIDDEN,
+                                Json(json!({"error": "Access denied"})),
+                            )
+                                .into_response();
+                        }
+
+                        if !check_auth(&token, &headers) {
+                            return (
+                                StatusCode::UNAUTHORIZED,
+                                Json(json!({"error": "Unauthorized"})),
+                            )
+                                .into_response();
+                        }
+
+                        if !proto.supports_resources() {
+                            return (
+                                StatusCode::NOT_IMPLEMENTED,
+                                Json(json!({"error": "Resources not supported"})),
+                            )
+                                .into_response();
+                        }
+
+                        let uri = payload["uri"].as_str().unwrap_or("");
+
+                        match proto.read_resource(uri).await {
+                            Ok(content) => (
+                                StatusCode::OK,
+                                Json(json!({"uri": uri, "content": content})),
+                            )
+                                .into_response(),
+                            Err(e) => {
+                                (StatusCode::NOT_FOUND, Json(json!({"error": e.to_string()})))
+                                    .into_response()
+                            }
+                        }
+                    }
+                },
+            ),
+        )
+}
+
 /// Default Axum-based HTTP server adapter
 ///
 /// Provides a full MCP-compatible HTTP server using the Axum framework.
@@ -142,330 +460,8 @@ impl HttpServerAdapter for AxumHttpAdapter {
         protocol: Arc<dyn ToolProtocol>,
     ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>> {
         use crate::events::McpEvent;
-        use axum::{
-            extract::ConnectInfo, http::HeaderMap, http::StatusCode, response::IntoResponse,
-            routing::post, Json, Router,
-        };
-        use serde_json::json;
-        use sha2::{Digest, Sha256};
-        use subtle::ConstantTimeEq;
         use tokio::net::TcpListener;
-
-        /// Validate the Authorization header against the configured bearer token.
-        ///
-        /// Returns `true` when no token is configured (open server) or when the
-        /// provided `Bearer <token>` matches the expected token. Uses
-        /// `subtle::ConstantTimeEq` on SHA-256 digests so the compiler cannot
-        /// short-circuit the comparison and leak token length via timing.
-        fn check_auth(expected_token: &Option<String>, headers: &HeaderMap) -> bool {
-            match expected_token.as_deref() {
-                None => true, // No auth configured — open server
-                Some(expected) => {
-                    let provided = headers
-                        .get("Authorization")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|v| v.strip_prefix("Bearer "))
-                        .unwrap_or("");
-                    let expected_hash = Sha256::digest(expected.as_bytes());
-                    let provided_hash = Sha256::digest(provided.as_bytes());
-                    // subtle::ConstantTimeEq resists compiler-level short-circuit optimisation.
-                    expected_hash.ct_eq(&provided_hash).into()
-                }
-            }
-        }
-
-        let bearer_token = Arc::new(config.bearer_token.clone());
-        // Use the fully-constructed IpFilter directly — it correctly handles both single IPs
-        // and CIDR blocks via IpFilter::is_allowed(), replacing the previous Vec<IpAddr>
-        // that silently dropped CIDR entries.
-        let ip_filter = Arc::new(config.ip_filter.clone());
-
-        // Clone per-route: token, IP filter, protocol, event handler
-        let token_list = bearer_token.clone();
-        let ips_list = ip_filter.clone();
-        let token_exec = bearer_token.clone();
-        let ips_exec = ip_filter.clone();
-        let token_res_list = bearer_token.clone();
-        let ips_res_list = ip_filter.clone();
-        let token_res_read = bearer_token.clone();
-        let ips_res_read = ip_filter.clone();
-
-        let eh_list = config.event_handler.clone();
-        let eh_exec = config.event_handler.clone();
-
-        let protocol_list = protocol.clone();
-        let protocol_exec = protocol.clone();
-        let protocol_res_list = protocol.clone();
-        let protocol_res_read = protocol.clone();
-
-        // Build router with endpoints
-        let app = Router::new()
-            .route(
-                "/tools/list",
-                post(
-                    move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
-                        let token = token_list.clone();
-                        let allowed = ips_list.clone();
-                        let proto = protocol_list.clone();
-                        let eh = eh_list.clone();
-                        async move {
-                            // Check IP filtering — delegates to IpFilter which handles both
-                            // single IPs and CIDR blocks correctly.
-                            if !allowed.is_allowed(addr.ip()) {
-                                if let Some(ref handler) = eh {
-                                    handler
-                                        .on_mcp_event(&McpEvent::RequestRejected {
-                                            client_addr: addr.ip().to_string(),
-                                            reason: "IP not allowed".to_string(),
-                                        })
-                                        .await;
-                                }
-                                return (
-                                    StatusCode::FORBIDDEN,
-                                    Json(json!({"error": "Access denied"})),
-                                )
-                                    .into_response();
-                            }
-
-                            // Validate bearer token (constant-time comparison)
-                            if !check_auth(&token, &headers) {
-                                return (
-                                    StatusCode::UNAUTHORIZED,
-                                    Json(json!({"error": "Unauthorized"})),
-                                )
-                                    .into_response();
-                            }
-
-                            // Fire ToolListRequested
-                            if let Some(ref handler) = eh {
-                                handler
-                                    .on_mcp_event(&McpEvent::ToolListRequested {
-                                        client_addr: addr.ip().to_string(),
-                                    })
-                                    .await;
-                            }
-
-                            match proto.list_tools().await {
-                                Ok(tools) => {
-                                    let tool_count = tools.len();
-                                    if let Some(ref handler) = eh {
-                                        handler
-                                            .on_mcp_event(&McpEvent::ToolListReturned {
-                                                client_addr: addr.ip().to_string(),
-                                                tool_count,
-                                            })
-                                            .await;
-                                    }
-                                    (StatusCode::OK, Json(json!({"tools": tools}))).into_response()
-                                }
-                                Err(e) => (
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    Json(json!({"error": e.to_string()})),
-                                )
-                                    .into_response(),
-                            }
-                        }
-                    },
-                ),
-            )
-            .route(
-                "/tools/execute",
-                post(
-                    move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
-                          headers: HeaderMap,
-                          Json(payload): Json<serde_json::Value>| {
-                        let token = token_exec.clone();
-                        let allowed = ips_exec.clone();
-                        let proto = protocol_exec.clone();
-                        let eh = eh_exec.clone();
-                        async move {
-                            // Check IP filtering — delegates to IpFilter which handles both
-                            // single IPs and CIDR blocks correctly.
-                            if !allowed.is_allowed(addr.ip()) {
-                                if let Some(ref handler) = eh {
-                                    handler
-                                        .on_mcp_event(&McpEvent::RequestRejected {
-                                            client_addr: addr.ip().to_string(),
-                                            reason: "IP not allowed".to_string(),
-                                        })
-                                        .await;
-                                }
-                                return (
-                                    StatusCode::FORBIDDEN,
-                                    Json(json!({"error": "Access denied"})),
-                                )
-                                    .into_response();
-                            }
-
-                            // Validate bearer token (constant-time comparison)
-                            if !check_auth(&token, &headers) {
-                                return (
-                                    StatusCode::UNAUTHORIZED,
-                                    Json(json!({"error": "Unauthorized"})),
-                                )
-                                    .into_response();
-                            }
-
-                            let tool_name = payload["tool"].as_str().unwrap_or("").to_string();
-                            let params = payload["parameters"].clone();
-
-                            // Fire ToolCallReceived
-                            if let Some(ref handler) = eh {
-                                handler
-                                    .on_mcp_event(&McpEvent::ToolCallReceived {
-                                        client_addr: addr.ip().to_string(),
-                                        tool_name: tool_name.clone(),
-                                        parameters: params.clone(),
-                                    })
-                                    .await;
-                            }
-
-                            let exec_start = std::time::Instant::now();
-                            match proto.execute(&tool_name, params).await {
-                                Ok(result) => {
-                                    let duration_ms = exec_start.elapsed().as_millis() as u64;
-                                    let success = result.success;
-                                    let error = result.error.clone();
-                                    if let Some(ref handler) = eh {
-                                        handler
-                                            .on_mcp_event(&McpEvent::ToolCallCompleted {
-                                                client_addr: addr.ip().to_string(),
-                                                tool_name: tool_name.clone(),
-                                                success,
-                                                error,
-                                                duration_ms,
-                                            })
-                                            .await;
-                                    }
-                                    (StatusCode::OK, Json(json!({"result": result})))
-                                        .into_response()
-                                }
-                                Err(e) => {
-                                    let duration_ms = exec_start.elapsed().as_millis() as u64;
-                                    let err_msg = e.to_string();
-                                    if let Some(ref handler) = eh {
-                                        handler
-                                            .on_mcp_event(&McpEvent::ToolError {
-                                                source: addr.ip().to_string(),
-                                                tool_name: tool_name.clone(),
-                                                error: err_msg.clone(),
-                                                duration_ms,
-                                            })
-                                            .await;
-                                    }
-                                    (StatusCode::BAD_REQUEST, Json(json!({"error": err_msg})))
-                                        .into_response()
-                                }
-                            }
-                        }
-                    },
-                ),
-            )
-            .route(
-                "/resources/list",
-                post(
-                    move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
-                        let token = token_res_list.clone();
-                        let allowed = ips_res_list.clone();
-                        let proto = protocol_res_list.clone();
-                        async move {
-                            // Check IP filtering — delegates to IpFilter which handles both
-                            // single IPs and CIDR blocks correctly.
-                            if !allowed.is_allowed(addr.ip()) {
-                                return (
-                                    StatusCode::FORBIDDEN,
-                                    Json(json!({"error": "Access denied"})),
-                                )
-                                    .into_response();
-                            }
-
-                            // Validate bearer token (constant-time comparison)
-                            if !check_auth(&token, &headers) {
-                                return (
-                                    StatusCode::UNAUTHORIZED,
-                                    Json(json!({"error": "Unauthorized"})),
-                                )
-                                    .into_response();
-                            }
-
-                            if !proto.supports_resources() {
-                                return (
-                                    StatusCode::NOT_IMPLEMENTED,
-                                    Json(json!({"error": "Resources not supported"})),
-                                )
-                                    .into_response();
-                            }
-
-                            match proto.list_resources().await {
-                                Ok(resources) => {
-                                    (StatusCode::OK, Json(json!({"resources": resources})))
-                                        .into_response()
-                                }
-                                Err(e) => (
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    Json(json!({"error": e.to_string()})),
-                                )
-                                    .into_response(),
-                            }
-                        }
-                    },
-                ),
-            )
-            .route(
-                "/resources/read",
-                post(
-                    move |ConnectInfo(addr): ConnectInfo<SocketAddr>,
-                          headers: HeaderMap,
-                          Json(payload): Json<serde_json::Value>| {
-                        let token = token_res_read.clone();
-                        let allowed = ips_res_read.clone();
-                        let proto = protocol_res_read.clone();
-                        async move {
-                            // Check IP filtering — delegates to IpFilter which handles both
-                            // single IPs and CIDR blocks correctly.
-                            if !allowed.is_allowed(addr.ip()) {
-                                return (
-                                    StatusCode::FORBIDDEN,
-                                    Json(json!({"error": "Access denied"})),
-                                )
-                                    .into_response();
-                            }
-
-                            // Validate bearer token (constant-time comparison)
-                            if !check_auth(&token, &headers) {
-                                return (
-                                    StatusCode::UNAUTHORIZED,
-                                    Json(json!({"error": "Unauthorized"})),
-                                )
-                                    .into_response();
-                            }
-
-                            if !proto.supports_resources() {
-                                return (
-                                    StatusCode::NOT_IMPLEMENTED,
-                                    Json(json!({"error": "Resources not supported"})),
-                                )
-                                    .into_response();
-                            }
-
-                            let uri = payload["uri"].as_str().unwrap_or("");
-
-                            match proto.read_resource(uri).await {
-                                Ok(content) => (
-                                    StatusCode::OK,
-                                    Json(json!({"uri": uri, "content": content})),
-                                )
-                                    .into_response(),
-                                Err(e) => {
-                                    (StatusCode::NOT_FOUND, Json(json!({"error": e.to_string()})))
-                                        .into_response()
-                                }
-                            }
-                        }
-                    },
-                ),
-            )
-            .into_make_service_with_connect_info::<SocketAddr>();
+        let app = axum_router(&config, protocol).into_make_service_with_connect_info::<SocketAddr>();
 
         // Bind and start server
         let listener = TcpListener::bind(config.addr).await?;
