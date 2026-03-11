@@ -24,7 +24,7 @@ use persistent_agent_tools::build_persistent_agent_registry;
 use serde_json::json;
 use thoughtchain::server::{default_thoughtchain_dir, start_mcp_server, ThoughtChainServiceConfig};
 
-const DEFAULT_CHAIN_KEY: &str = "persistent-chat-agent";
+const DEFAULT_CHAIN_KEY: &str = "borganism-brain";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

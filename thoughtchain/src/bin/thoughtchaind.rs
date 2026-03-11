@@ -29,6 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let handles = start_servers(config.clone()).await?;
 
     println!("{}", THOUGHTCHAIN_BANNER);
+    println!("thoughtchain v{}", env!("CARGO_PKG_VERSION"));
     println!("thoughtchaind running");
     println!("Configuration:");
     print_env_var(

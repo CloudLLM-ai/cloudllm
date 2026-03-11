@@ -126,7 +126,7 @@ Example:
 curl -s http://127.0.0.1:9472/v1/bootstrap \
   -H 'content-type: application/json' \
   -d '{
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "agent_id": "bootstrap",
     "agent_name": "Bootstrap",
     "agent_owner": "cloudllm",
@@ -246,7 +246,7 @@ Example:
 curl -s http://127.0.0.1:9472/v1/thoughts \
   -H 'content-type: application/json' \
   -d '{
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "agent_id": "agent-42",
     "agent_name": "Planner",
     "agent_owner": "ops-team",
@@ -316,7 +316,7 @@ Example:
 curl -s http://127.0.0.1:9472/v1/search \
   -H 'content-type: application/json' \
   -d '{
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "text": "rate limit",
     "agent_names": ["Planner"],
     "thought_types": ["Insight", "Mistake", "Correction"],
@@ -369,7 +369,7 @@ Example:
 curl -s http://127.0.0.1:9472/v1/recent-context \
   -H 'content-type: application/json' \
   -d '{
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "last_n": 10
   }'
 ```
@@ -411,7 +411,7 @@ Example:
 curl -s http://127.0.0.1:9472/v1/memory-markdown \
   -H 'content-type: application/json' \
   -d '{
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "thought_types": ["PreferenceUpdate", "Constraint", "Decision", "Summary"],
     "min_importance": 0.75
   }'
@@ -446,7 +446,7 @@ Example:
 curl -s http://127.0.0.1:9472/v1/head \
   -H 'content-type: application/json' \
   -d '{
-    "chain_key": "persistent-chat-agent"
+    "chain_key": "borganism-brain"
   }'
 ```
 

@@ -96,7 +96,7 @@ It prints the active chain directory, default chain key, and bound MCP/REST addr
 - `THOUGHTCHAIN_DIR`
   Directory where ThoughtChain storage adapters store chain files.
 - `THOUGHTCHAIN_DEFAULT_KEY`
-  Default `chain_key` used when requests omit one.
+  Default `chain_key` used when requests omit one. Default: `borganism-brain`
 - `THOUGHTCHAIN_STORAGE_ADAPTER`
   Storage backend for newly opened chains. Supported values: `jsonl`, `binary`.
   Default: `jsonl`
@@ -111,7 +111,7 @@ Example:
 
 ```bash
 THOUGHTCHAIN_DIR=/tmp/thoughtchain \
-THOUGHTCHAIN_DEFAULT_KEY=shared-project \
+THOUGHTCHAIN_DEFAULT_KEY=borganism-brain \
 THOUGHTCHAIN_STORAGE_ADAPTER=jsonl \
 THOUGHTCHAIN_BIND_HOST=127.0.0.1 \
 THOUGHTCHAIN_MCP_PORT=9471 \

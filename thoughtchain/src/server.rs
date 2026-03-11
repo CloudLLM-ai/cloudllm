@@ -54,10 +54,10 @@ use tokio::sync::{oneshot, RwLock};
 ///
 /// let config = ThoughtChainServiceConfig::new(
 ///     PathBuf::from("/tmp/thoughtchain"),
-///     "persistent-chat-agent",
+///     "borganism-brain",
 ///     StorageAdapterKind::Jsonl,
 /// );
-/// assert_eq!(config.default_chain_key, "persistent-chat-agent");
+/// assert_eq!(config.default_chain_key, "borganism-brain");
 /// ```
 #[derive(Debug, Clone)]
 pub struct ThoughtChainServiceConfig {
@@ -133,7 +133,7 @@ impl ThoughtChainServerConfig {
                     .map(PathBuf::from)
                     .unwrap_or_else(|_| default_thoughtchain_dir()),
                 std::env::var("THOUGHTCHAIN_DEFAULT_KEY")
-                    .unwrap_or_else(|_| "persistent-chat-agent".to_string()),
+                    .unwrap_or_else(|_| "borganism-brain".to_string()),
                 storage_adapter,
             ),
             mcp_addr: SocketAddr::new(bind_host, mcp_port),

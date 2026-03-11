@@ -94,7 +94,7 @@ Example:
 {
   "tool": "thoughtchain_bootstrap",
   "arguments": {
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "agent_id": "bootstrap",
     "agent_name": "Bootstrap",
     "agent_owner": "cloudllm",
@@ -195,7 +195,7 @@ Example:
 {
   "tool": "thoughtchain_append",
   "arguments": {
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "agent_id": "agent-42",
     "agent_name": "Planner",
     "agent_owner": "ops-team",
@@ -246,7 +246,7 @@ Example:
 {
   "tool": "thoughtchain_search",
   "arguments": {
-    "chain_key": "persistent-chat-agent",
+    "chain_key": "borganism-brain",
     "text": "rate limit",
     "agent_names": ["Planner"],
     "thought_types": ["Insight", "Mistake", "Correction"],
