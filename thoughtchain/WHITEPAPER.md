@@ -54,6 +54,7 @@ Examples include:
 - preferences
 - user traits
 - insights
+- lessons learned
 - facts learned
 - hypotheses
 - mistakes
@@ -157,8 +158,21 @@ For example:
 
 - `Decision` is a thought type
 - `Checkpoint` is usually a thought role
+- `LessonLearned` is a thought type
+- `Retrospective` is a thought role
 
 That separation avoids mixing semantics with workflow mechanics.
+
+This distinction is especially useful for reflective agent loops. A hard-won
+fix might be stored as:
+
+- `Mistake`
+- `Correction`
+- `LessonLearned`
+
+with the final distilled guidance marked using the `Retrospective` role. That
+lets future agents retrieve not just what happened, but what they should do
+differently next time.
 
 ### ThoughtQuery
 

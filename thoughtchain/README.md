@@ -7,6 +7,7 @@ log through a swappable storage adapter layer. The current default backend is
 JSONL, but the chain model is no longer tied to that format. Agents can:
 
 - persist important insights, decisions, constraints, and checkpoints
+- record retrospectives and lessons learned after hard failures or non-obvious fixes
 - relate new thoughts to earlier thoughts with typed graph edges
 - query memory by type, role, agent, tags, concepts, text, and importance
 - reconstruct context for agent resumption
@@ -133,6 +134,7 @@ REST endpoints:
 - `GET /health`
 - `POST /v1/bootstrap`
 - `POST /v1/thoughts`
+- `POST /v1/retrospectives`
 - `POST /v1/search`
 - `POST /v1/recent-context`
 - `POST /v1/memory-markdown`
@@ -167,6 +169,26 @@ codex mcp get thoughtchain
 ```
 
 This connects Codex to the daemon's standard MCP root endpoint.
+
+### Qwen Code
+
+Qwen Code uses the same HTTP MCP transport model:
+
+```bash
+qwen mcp add --transport http thoughtchain http://127.0.0.1:9471
+```
+
+Useful follow-up commands:
+
+```bash
+qwen mcp list
+```
+
+For user-scoped configuration:
+
+```bash
+qwen mcp add --scope user --transport http thoughtchain http://127.0.0.1:9471
+```
 
 ### Claude Code
 
@@ -204,9 +226,52 @@ Important:
 - `/mcp` inside Claude Code is mainly for managing or authenticating MCP
   servers that are already configured
 - the server itself must already be running at the configured URL
-  MCP transport
-- until ThoughtChain exposes standard MCP HTTP or SSE transport, use its
-  current HTTP endpoints directly
+
+### GitHub Copilot CLI
+
+GitHub Copilot CLI can also connect to `thoughtchaind` as a remote HTTP MCP
+server.
+
+From interactive mode:
+
+1. Run `/mcp add`
+2. Set `Server Name` to `thoughtchain`
+3. Set `Server Type` to `HTTP`
+4. Set `URL` to `http://127.0.0.1:9471`
+5. Leave headers empty unless you add auth later
+6. Save the config
+
+You can also configure it manually in `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "thoughtchain": {
+      "type": "http",
+      "url": "http://127.0.0.1:9471",
+      "headers": {},
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+## Retrospective Memory
+
+ThoughtChain supports a dedicated retrospective workflow for lessons learned.
+
+- Use `thoughtchain_append` for ordinary durable facts, constraints, decisions,
+  plans, and summaries.
+- Use `thoughtchain_append_retrospective` after a repeated failure, a long snag,
+  or a non-obvious fix when future agents should avoid repeating the same
+  struggle.
+
+The retrospective helper:
+
+- defaults `thought_type` to `LessonLearned`
+- always stores the thought with `role = Retrospective`
+- still supports tags, concepts, confidence, importance, and `refs` to earlier
+  thoughts such as the original mistake or correction
 
 ## Shared-Chain Multi-Agent Use
 
@@ -236,4 +301,5 @@ At the repository root:
 
 - `THOUGHTCHAIN_MCP.md`
 - `THOUGHTCHAIN_REST.md`
+- `thoughtchain/WHITEPAPER.md`
 - `thoughtchain/changelog.txt`

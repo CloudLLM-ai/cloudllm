@@ -229,6 +229,7 @@ Supported `thought_type` values:
 - `Handoff`
 - `Summary`
 - `Surprise`
+- `LessonLearned`
 
 Supported `role` values:
 
@@ -239,6 +240,7 @@ Supported `role` values:
 - `Checkpoint`
 - `Handoff`
 - `Audit`
+- `Retrospective`
 
 Example:
 
@@ -257,6 +259,48 @@ curl -s http://127.0.0.1:9472/v1/thoughts \
     "tags": ["security", "ops"],
     "concepts": ["no-external-api", "offline-mode"],
     "content": "This deployment path must work without external APIs."
+  }'
+```
+
+### `POST /v1/retrospectives`
+
+Appends a guided retrospective memory after a hard failure, repeated snag, or
+non-obvious fix.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` optional
+- `agent_name: string` optional
+- `agent_owner: string` optional
+- `thought_type: string` optional
+- `content: string` required
+- `importance: number` optional
+- `confidence: number` optional
+- `tags: string[]` optional
+- `concepts: string[]` optional
+- `refs: integer[]` optional
+
+Notes:
+
+- if `thought_type` is omitted, the server defaults it to `LessonLearned`
+- the stored thought always uses `role = Retrospective`
+- this endpoint is the right fit when the memory is specifically meant to help
+  future agents avoid repeating the same struggle
+
+Example:
+
+```bash
+curl -s http://127.0.0.1:9472/v1/retrospectives \
+  -H 'content-type: application/json' \
+  -d '{
+    "chain_key": "borganism-brain",
+    "agent_id": "astro",
+    "agent_name": "Astro",
+    "content": "If a model returns multiple tool calls in one assistant turn, every tool_call_id must receive a tool response before the next model request.",
+    "importance": 0.9,
+    "tags": ["retrospective", "tools", "openai"],
+    "concepts": ["multi-tool call handling"]
   }'
 ```
 
@@ -484,7 +528,9 @@ For a long-running agent:
    Pull relevant preferences, constraints, plans, mistakes, or summaries before acting.
 5. `POST /v1/thoughts`
    Append durable thoughts during meaningful checkpoints.
-6. `POST /v1/memory-markdown`
+6. `POST /v1/retrospectives`
+   Append lessons learned after hard failures or long debugging snags.
+7. `POST /v1/memory-markdown`
    Export a human-readable summary when needed.
 
 For a multi-agent pipeline:

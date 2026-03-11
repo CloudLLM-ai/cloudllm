@@ -1,3 +1,17 @@
+0.2.0 MAR/11/2026
+ - feat: Add retrospective memory support
+   - Added `ThoughtType::LessonLearned`
+   - Added `ThoughtRole::Retrospective`
+   - Markdown memory export now surfaces non-default roles such as retrospectives
+ - feat: Add guided retrospective append APIs
+   - Added MCP tool `thoughtchain_append_retrospective`
+   - Added REST endpoint `POST /v1/retrospectives`
+   - Retrospective append defaults to `LessonLearned` and always stores thoughts with role `Retrospective`
+ - docs: Update daemon and protocol documentation
+   - Updated `thoughtchain/README.md` with retrospective guidance and MCP setup for Codex, Claude Code, Qwen Code, and GitHub Copilot CLI
+   - Updated the white paper and protocol docs to explain retrospective memory and lessons learned
+ - test: Add coverage for retrospective type/role queries and server append behavior
+
 0.1.0 MAR/11/2026
  - feat: First public release of `thoughtchain`
    - Standalone Rust crate for semantic, hash-chained memory in long-running and multi-agent systems

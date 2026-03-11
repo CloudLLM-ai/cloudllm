@@ -1,3 +1,17 @@
+0.13.0 MAR/11/2026
+ - feat: Deepen ThoughtChain as an effectively unbounded agent memory primitive
+   - Updated CloudLLM positioning and README guidance to present ThoughtChain as a first-class durable memory layer rather than a small persistence helper
+   - Documented the standalone `thoughtchaind` daemon more explicitly, including standard MCP, legacy MCP compatibility, REST, and the new retrospective endpoint
+ - feat: Add retrospective memory workflow support in ThoughtChain integrations
+   - Added support for `ThoughtType::LessonLearned`
+   - Added support for `ThoughtRole::Retrospective`
+   - Added `thoughtchain_append_retrospective` to the ThoughtChain MCP surface for hard failures, long debugging snags, and non-obvious fixes
+   - Updated the persistent agent chat example to teach agents when to use retrospective memory instead of ordinary append
+ - docs: Expand cross-project ThoughtChain documentation
+   - Updated root `README.md`
+   - Updated `thoughtchain/README.md` with Qwen Code and GitHub Copilot CLI MCP setup instructions
+   - Updated `THOUGHTCHAIN_MCP.md`, `THOUGHTCHAIN_REST.md`, and the ThoughtChain white paper for retrospective memory guidance
+
 0.12.0 MAR/11/2026
  - feat: Extract ThoughtChain into a standalone workspace crate
    - Moved semantic memory out of CloudLLM internals into `thoughtchain/`

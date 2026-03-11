@@ -2,10 +2,11 @@
 
 `ThoughtChain` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
 
-At the moment, the ThoughtChain MCP server exposes 6 tools:
+At the moment, the ThoughtChain MCP server exposes 7 tools:
 
 - `thoughtchain_bootstrap`
 - `thoughtchain_append`
+- `thoughtchain_append_retrospective`
 - `thoughtchain_search`
 - `thoughtchain_recent_context`
 - `thoughtchain_memory_markdown`
@@ -178,6 +179,7 @@ The returned `thought` includes useful fields for later reference:
 - `Handoff`
 - `Summary`
 - `Surprise`
+- `LessonLearned`
 
 #### Supported `role` values
 
@@ -188,6 +190,7 @@ The returned `thought` includes useful fields for later reference:
 - `Checkpoint`
 - `Handoff`
 - `Audit`
+- `Retrospective`
 
 Example:
 
@@ -206,6 +209,59 @@ Example:
     "tags": ["security", "ops"],
     "concepts": ["no-external-api", "offline-mode"],
     "content": "This deployment path must work without external APIs."
+  }
+}
+```
+
+### `thoughtchain_append_retrospective`
+
+Appends a guided retrospective memory after a hard failure, repeated snag, or
+non-obvious fix.
+
+This is the tool agents should prefer when they want to store:
+
+- a lesson learned from a tough debugging session
+- a durable rule that prevents future rework
+- a correction distilled after several failed attempts
+
+Use `thoughtchain_append` for ordinary durable facts and decisions.
+Use `thoughtchain_append_retrospective` when the memory exists specifically to
+help future agents avoid repeating the same struggle.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` optional
+- `agent_name: string` optional
+- `agent_owner: string` optional
+- `thought_type: string` optional
+- `content: string` required
+- `importance: number` optional, clamped to `0.0..=1.0`
+- `confidence: number` optional, clamped to `0.0..=1.0`
+- `tags: string[]` optional
+- `concepts: string[]` optional
+- `refs: integer[]` optional
+
+Behavior:
+
+- defaults `thought_type` to `LessonLearned`
+- always records the thought with `role = Retrospective`
+- is ideal for linking back to the triggering mistake or correction through
+  `refs`
+
+Example:
+
+```json
+{
+  "tool": "thoughtchain_append_retrospective",
+  "arguments": {
+    "chain_key": "borganism-brain",
+    "agent_id": "astro",
+    "agent_name": "Astro",
+    "content": "If a model returns multiple tool calls in one assistant turn, every tool_call_id must receive a tool response before the next model request.",
+    "importance": 0.9,
+    "tags": ["retrospective", "tools", "openai"],
+    "concepts": ["multi-tool call handling"]
   }
 }
 ```
@@ -428,11 +484,10 @@ Search for the mistake, get its `index`, then append the lesson:
 
 ```json
 {
-  "tool": "thoughtchain_append",
+  "tool": "thoughtchain_append_retrospective",
   "arguments": {
     "chain_key": "project-alpha",
-    "thought_type": "Correction",
-    "role": "Memory",
+    "thought_type": "LessonLearned",
     "importance": 0.95,
     "confidence": 0.97,
     "tags": ["deployment", "lesson"],
@@ -482,7 +537,7 @@ A thought should usually refer to earlier thoughts when one of these is true:
 Mistake followed by lesson learned:
 
 1. append a `Mistake`
-2. later append a `Correction`, `Insight`, or `Summary`
+2. later append a `LessonLearned`, `Correction`, `Insight`, or `Summary`
 3. include `refs` pointing to the mistake
 
 Hypothesis followed by experiment:
@@ -525,11 +580,10 @@ Future thought referring back to it:
 
 ```json
 {
-  "tool": "thoughtchain_append",
+  "tool": "thoughtchain_append_retrospective",
   "arguments": {
     "chain_key": "project-alpha",
-    "thought_type": "Insight",
-    "role": "Memory",
+    "thought_type": "LessonLearned",
     "refs": [23],
     "importance": 0.94,
     "tags": ["lesson", "config"],

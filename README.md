@@ -11,8 +11,8 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
   multi-protocol tool system (local, remote MCP, Memory, custom protocols) with runtime hot-swapping,
 * **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/orchestration/index.html) engine
   supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, AnthropicAgentTeams, and Ralph collaboration patterns,
-* **ThoughtChain**: Persistent, SHA-256 hash-chained agent memory with back-references for graph-based
-  context resolution and tamper-evident integrity verification,
+* **ThoughtChain**: An effectively unbounded semantic memory primitive for agents, with SHA-256
+  hash-chained persistence, graph-based context resolution, and tamper-evident integrity verification,
 * **Context Strategies**: Pluggable strategies for handling context window exhaustion — Trim,
   SelfCompression (LLM writes its own save file), and NoveltyAware (entropy-based trigger),
 * **Image Generation**: Unified image generation across OpenAI (DALL-E), Grok, and Google Gemini with the
@@ -78,7 +78,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.12.0"
+cloudllm = "0.13.0"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.
@@ -680,6 +680,8 @@ adapter-backed through a `StorageAdapter` interface. The built-in backends today
 Use `ThoughtChain::verify_integrity()` to detect tampering, `ThoughtChain::search(...)` to query
 semantic memory, `ThoughtChain::resolve_context(index)` to reconstruct the minimal dependency graph
 for a thought, and `ThoughtChain::to_memory_markdown(...)` to export a `MEMORY.md`-style snapshot.
+For hard debugging snags or repeated failures, ThoughtChain now also supports dedicated
+retrospective memory via `ThoughtType::LessonLearned` and `ThoughtRole::Retrospective`.
 
 Resume a previously running agent from its chain:
 
@@ -723,7 +725,7 @@ cargo run --features server --bin thoughtchaind
 
 - standard MCP at `POST /`
 - legacy CloudLLM-compatible MCP endpoints at `POST /tools/list` and `POST /tools/execute`
-- REST endpoints at `/v1/bootstrap`, `/v1/thoughts`, `/v1/search`, `/v1/recent-context`,
+- REST endpoints at `/v1/bootstrap`, `/v1/thoughts`, `/v1/retrospectives`, `/v1/search`, `/v1/recent-context`,
   `/v1/memory-markdown`, and `/v1/head`
 - `GET /health` on both server surfaces
 
