@@ -43,7 +43,7 @@ Rather than storing raw chain-of-thought, ThoughtChain stores durable cognitive 
 
 ## Core Design
 
-ThoughtChain combines four ideas.
+ThoughtChain combines five ideas.
 
 ### 1. Semantic Memory
 
