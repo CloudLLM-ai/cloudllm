@@ -151,7 +151,7 @@ async fn test_agent_with_tool_execution() {
         async fn send_message(
             &self,
             messages: &[Message],
-            _tools: Option<Vec<ToolDefinition>>,
+            tools: Option<Vec<ToolDefinition>>,
         ) -> Result<Message, Box<dyn std::error::Error>> {
             let mut count = self.call_count.lock().await;
             *count += 1;
@@ -159,14 +159,15 @@ async fn test_agent_with_tool_execution() {
             // First call: return a tool call
             // Second call: return final response
             let response = if *count == 1 {
-                // Check that system message includes tool information
-                let system_msg = &messages[0];
-                // The system message should contain the tool name and description
-                let system_content = system_msg.content.as_ref();
-                if !system_content.contains("add") || !system_content.contains("Adds two numbers") {
+                let tools = tools.expect("native tool definitions should be provided");
+                let add_tool = tools
+                    .iter()
+                    .find(|tool| tool.name == "add")
+                    .expect("expected add tool definition");
+                if add_tool.description != "Adds two numbers" {
                     panic!(
-                        "System message doesn't contain tool information. Content:\n{}",
-                        system_content
+                        "Unexpected add tool description: {}",
+                        add_tool.description
                     );
                 }
 

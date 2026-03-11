@@ -900,38 +900,37 @@ impl Agent {
             Some(tool_defs)
         };
 
-        // When no native tools are available, fall back to text-parsing: append tool
-        // descriptions to the message so providers without function-calling can still
-        // select tools.
+        // Always include a textual tool summary in the prompt. Native tool definitions
+        // remain enabled when available, but the text description keeps behavior
+        // consistent for mocks, debugging, and providers that still rely on prompt
+        // guidance.
         let mut message_with_tools = user_message.to_string();
-        if tools.is_none() {
-            let registry = self.tool_registry.read().await;
-            let registry_tools = registry.list_tools();
-            if !registry_tools.is_empty() {
-                message_with_tools.push_str("\n\nYou have access to the following tools:\n");
-                for tool_metadata in registry_tools {
-                    message_with_tools.push_str(&format!(
-                        "- {}: {}\n",
-                        tool_metadata.name, tool_metadata.description
-                    ));
-                    if !tool_metadata.parameters.is_empty() {
-                        message_with_tools.push_str("  Parameters:\n");
-                        for param in &tool_metadata.parameters {
-                            message_with_tools.push_str(&format!(
-                                "    - {} ({:?}): {}\n",
-                                param.name,
-                                param.param_type,
-                                param.description.as_deref().unwrap_or("No description")
-                            ));
-                        }
+        let registry = self.tool_registry.read().await;
+        let registry_tools = registry.list_tools();
+        if !registry_tools.is_empty() {
+            message_with_tools.push_str("\n\nYou have access to the following tools:\n");
+            for tool_metadata in registry_tools {
+                message_with_tools.push_str(&format!(
+                    "- {}: {}\n",
+                    tool_metadata.name, tool_metadata.description
+                ));
+                if !tool_metadata.parameters.is_empty() {
+                    message_with_tools.push_str("  Parameters:\n");
+                    for param in &tool_metadata.parameters {
+                        message_with_tools.push_str(&format!(
+                            "    - {} ({:?}): {}\n",
+                            param.name,
+                            param.param_type,
+                            param.description.as_deref().unwrap_or("No description")
+                        ));
                     }
                 }
-                message_with_tools.push_str(
-                    "\nTo use a tool, respond with a JSON object in the following format:\n\
-                     {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-                     After tool execution, I'll provide the result and you can continue.\n",
-                );
             }
+            message_with_tools.push_str(
+                "\nTo use a tool, respond with a JSON object in the following format:\n\
+                 {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
+                 After tool execution, I'll provide the result and you can continue.\n",
+            );
         }
 
         // Tool execution loop
@@ -1485,36 +1484,36 @@ impl Agent {
         // Build message array
         let mut messages = Vec::new();
 
-        // System message — when no native tools, append text descriptions for fallback parsing
+        // Always include a textual tool summary in the system prompt. Native tool
+        // definitions remain enabled when available, but the text description keeps
+        // prompt behavior stable across clients and tests.
         let mut system_with_tools = augmented_system.clone();
-        if gwt_tools.is_none() {
-            let registry = self.tool_registry.read().await;
-            let registry_tools = registry.list_tools();
-            if !registry_tools.is_empty() {
-                system_with_tools.push_str("\n\nYou have access to the following tools:\n");
-                for tool_metadata in registry_tools {
-                    system_with_tools.push_str(&format!(
-                        "- {}: {}\n",
-                        tool_metadata.name, tool_metadata.description
-                    ));
-                    if !tool_metadata.parameters.is_empty() {
-                        system_with_tools.push_str("  Parameters:\n");
-                        for param in &tool_metadata.parameters {
-                            system_with_tools.push_str(&format!(
-                                "    - {} ({:?}): {}\n",
-                                param.name,
-                                param.param_type,
-                                param.description.as_deref().unwrap_or("No description")
-                            ));
-                        }
+        let registry = self.tool_registry.read().await;
+        let registry_tools = registry.list_tools();
+        if !registry_tools.is_empty() {
+            system_with_tools.push_str("\n\nYou have access to the following tools:\n");
+            for tool_metadata in registry_tools {
+                system_with_tools.push_str(&format!(
+                    "- {}: {}\n",
+                    tool_metadata.name, tool_metadata.description
+                ));
+                if !tool_metadata.parameters.is_empty() {
+                    system_with_tools.push_str("  Parameters:\n");
+                    for param in &tool_metadata.parameters {
+                        system_with_tools.push_str(&format!(
+                            "    - {} ({:?}): {}\n",
+                            param.name,
+                            param.param_type,
+                            param.description.as_deref().unwrap_or("No description")
+                        ));
                     }
                 }
-                system_with_tools.push_str(
-                    "\nTo use a tool, respond with a JSON object in the following format:\n\
-                     {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-                     After tool execution, I'll provide the result and you can continue.\n",
-                );
             }
+            system_with_tools.push_str(
+                "\nTo use a tool, respond with a JSON object in the following format:\n\
+                 {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
+                 After tool execution, I'll provide the result and you can continue.\n",
+            );
         }
 
         messages.push(Message {

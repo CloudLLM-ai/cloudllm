@@ -95,7 +95,10 @@ impl ClientWrapper for InspectingClient {
         _tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let found = messages.iter().any(|message| {
-            message.content.contains("Relevant memory") && message.content.contains("Remember this")
+            message
+                .content
+                .contains("RELEVANT MEMORY (context from prior work):")
+                && message.content.contains("Remember this")
         });
         self.saw_memory.store(found, Ordering::SeqCst);
         if !found {

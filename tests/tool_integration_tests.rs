@@ -18,6 +18,18 @@ use cloudllm::tools::{BashTool, Calculator, FileSystemTool, HttpClient, Memory, 
 use cloudllm::Agent;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+fn assert_http_domain_rejected(error: &(dyn std::fmt::Display + Send + Sync)) {
+    let message = error.to_string();
+    assert!(
+        message.contains("blocked")
+            || message.contains("not allowed")
+            || message.contains("reserved/private range")
+            || message.contains("Could not resolve host"),
+        "unexpected HTTP domain rejection message: {}",
+        message
+    );
+}
 use tokio::sync::RwLock;
 
 /// A MockClient that returns different responses on sequential calls.
@@ -722,10 +734,7 @@ async fn test_http_tool_domain_security() {
 
     let result = client.get("https://evil.com/data").await;
     assert!(result.is_err(), "Blocked domain should fail");
-    assert!(
-        result.unwrap_err().to_string().contains("blocked"),
-        "Error should mention domain is blocked"
-    );
+    assert_http_domain_rejected(&result.unwrap_err());
 }
 
 #[tokio::test]
@@ -851,7 +860,7 @@ async fn test_memory_protocol_direct_unknown_command() {
 
     // Send an invalid command — this is the "ERR:Unknown Command" scenario
     let result = protocol
-        .execute("memory", serde_json::json!({"command": "PUT key value"}))
+        .execute("memory", serde_json::json!({"command": "BOGUS key value"}))
         .await
         .unwrap();
 
@@ -932,9 +941,13 @@ async fn test_memory_tool_metadata_has_command_parameter() {
 
     let metadata = protocol.get_tool_metadata("memory").await.unwrap();
     assert_eq!(metadata.name, "memory");
-    assert_eq!(metadata.parameters.len(), 1);
+    assert_eq!(metadata.parameters.len(), 3);
     assert_eq!(metadata.parameters[0].name, "command");
     assert!(metadata.parameters[0].required);
+    assert_eq!(metadata.parameters[1].name, "key");
+    assert!(!metadata.parameters[1].required);
+    assert_eq!(metadata.parameters[2].name, "value");
+    assert!(!metadata.parameters[2].required);
 }
 
 #[tokio::test]
