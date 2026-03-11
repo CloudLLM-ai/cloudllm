@@ -3,8 +3,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use thoughtchain::{
-    chain_filename, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
-    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
+    chain_filename, BinaryStorageAdapter, StorageAdapter, StorageAdapterKind, Thought,
+    ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole,
+    ThoughtType,
 };
 use uuid::Uuid;
 
@@ -193,6 +194,38 @@ fn custom_storage_adapter_can_back_a_chain() {
         reloaded.thoughts()[0].content,
         "Adapter-backed thought persisted."
     );
+}
+
+#[test]
+fn binary_storage_adapter_persists_and_reloads() {
+    let dir = unique_chain_dir();
+    let adapter = BinaryStorageAdapter::for_chain_key(&dir, "binary-demo");
+    let expected_path = dir.join(thoughtchain::chain_storage_filename(
+        "binary-demo",
+        StorageAdapterKind::Binary,
+    ));
+
+    let mut chain = ThoughtChain::open_with_storage(Box::new(adapter.clone())).unwrap();
+    chain
+        .append(
+            "agent1",
+            ThoughtType::Checkpoint,
+            "Persist this in the binary adapter.",
+        )
+        .unwrap();
+
+    let reloaded = ThoughtChain::open_with_storage(Box::new(adapter)).unwrap();
+    assert_eq!(reloaded.thoughts().len(), 1);
+    assert_eq!(
+        reloaded.thoughts()[0].content,
+        "Persist this in the binary adapter."
+    );
+    assert_eq!(
+        reloaded.storage_location(),
+        expected_path.display().to_string()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

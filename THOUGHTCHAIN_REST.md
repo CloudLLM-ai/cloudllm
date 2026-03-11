@@ -38,9 +38,12 @@ cargo run -p thoughtchain --features server --bin thoughtchaind
 Environment variables:
 
 - `THOUGHTCHAIN_DIR`
-  Directory where the default JSONL storage adapter stores chain files.
+  Directory where ThoughtChain storage adapters store chain files.
 - `THOUGHTCHAIN_DEFAULT_KEY`
   Default `chain_key` used when a request omits one.
+- `THOUGHTCHAIN_STORAGE_ADAPTER`
+  Storage backend for newly opened chains. Supported values: `jsonl`, `binary`.
+  Default: `jsonl`
 - `THOUGHTCHAIN_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
 - `THOUGHTCHAIN_MCP_PORT`

@@ -19,7 +19,9 @@
 //! - `POST /v1/memory-markdown`
 //! - `POST /v1/head`
 
-use crate::{Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRole, ThoughtType};
+use crate::{
+    StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRole, ThoughtType,
+};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -41,28 +43,37 @@ use tokio::sync::{oneshot, RwLock};
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
+/// use thoughtchain::StorageAdapterKind;
 /// use thoughtchain::server::ThoughtChainServiceConfig;
 ///
 /// let config = ThoughtChainServiceConfig::new(
 ///     PathBuf::from("/tmp/thoughtchain"),
 ///     "persistent-chat-agent",
+///     StorageAdapterKind::Jsonl,
 /// );
 /// assert_eq!(config.default_chain_key, "persistent-chat-agent");
 /// ```
 #[derive(Debug, Clone)]
 pub struct ThoughtChainServiceConfig {
-    /// Directory containing chain storage files for the default JSONL adapter.
+    /// Directory containing chain storage files.
     pub chain_dir: PathBuf,
     /// Default chain key used when requests omit `chain_key`.
     pub default_chain_key: String,
+    /// Storage adapter used for newly opened chains.
+    pub storage_adapter: StorageAdapterKind,
 }
 
 impl ThoughtChainServiceConfig {
     /// Create a new service configuration.
-    pub fn new(chain_dir: PathBuf, default_chain_key: impl Into<String>) -> Self {
+    pub fn new(
+        chain_dir: PathBuf,
+        default_chain_key: impl Into<String>,
+        storage_adapter: StorageAdapterKind,
+    ) -> Self {
         Self {
             chain_dir,
             default_chain_key: default_chain_key.into(),
+            storage_adapter,
         }
     }
 }
@@ -73,6 +84,7 @@ impl ThoughtChainServiceConfig {
 ///
 /// - `THOUGHTCHAIN_DIR`
 /// - `THOUGHTCHAIN_DEFAULT_KEY`
+/// - `THOUGHTCHAIN_STORAGE_ADAPTER`
 /// - `THOUGHTCHAIN_BIND_HOST`
 /// - `THOUGHTCHAIN_MCP_PORT`
 /// - `THOUGHTCHAIN_REST_PORT`
@@ -102,6 +114,10 @@ impl ThoughtChainServerConfig {
             .ok()
             .and_then(|value| value.parse::<IpAddr>().ok())
             .unwrap_or(IpAddr::from([127, 0, 0, 1]));
+        let storage_adapter = std::env::var("THOUGHTCHAIN_STORAGE_ADAPTER")
+            .ok()
+            .map(|value| value.parse().unwrap_or(StorageAdapterKind::Jsonl))
+            .unwrap_or(StorageAdapterKind::Jsonl);
         let mcp_port = env_u16("THOUGHTCHAIN_MCP_PORT").unwrap_or(9471);
         let rest_port = env_u16("THOUGHTCHAIN_REST_PORT").unwrap_or(9472);
 
@@ -112,6 +128,7 @@ impl ThoughtChainServerConfig {
                     .unwrap_or_else(|_| default_thoughtchain_dir()),
                 std::env::var("THOUGHTCHAIN_DEFAULT_KEY")
                     .unwrap_or_else(|_| "persistent-chat-agent".to_string()),
+                storage_adapter,
             ),
             mcp_addr: SocketAddr::new(bind_host, mcp_port),
             rest_addr: SocketAddr::new(bind_host, rest_port),
@@ -221,11 +238,16 @@ pub fn default_thoughtchain_dir() -> PathBuf {
 /// ```rust,no_run
 /// use std::net::SocketAddr;
 /// use std::path::PathBuf;
+/// use thoughtchain::StorageAdapterKind;
 /// use thoughtchain::server::{start_mcp_server, ThoughtChainServiceConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// let config = ThoughtChainServiceConfig::new(PathBuf::from("/tmp/tc"), "agent-memory");
+/// let config = ThoughtChainServiceConfig::new(
+///     PathBuf::from("/tmp/tc"),
+///     "agent-memory",
+///     StorageAdapterKind::Jsonl,
+/// );
 /// let server = start_mcp_server(SocketAddr::from(([127, 0, 0, 1], 0)), config).await?;
 /// println!("{}", server.local_addr());
 /// # Ok(())
@@ -245,11 +267,16 @@ pub async fn start_mcp_server(
 /// ```rust,no_run
 /// use std::net::SocketAddr;
 /// use std::path::PathBuf;
+/// use thoughtchain::StorageAdapterKind;
 /// use thoughtchain::server::{start_rest_server, ThoughtChainServiceConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// let config = ThoughtChainServiceConfig::new(PathBuf::from("/tmp/tc"), "agent-memory");
+/// let config = ThoughtChainServiceConfig::new(
+///     PathBuf::from("/tmp/tc"),
+///     "agent-memory",
+///     StorageAdapterKind::Jsonl,
+/// );
 /// let server = start_rest_server(SocketAddr::from(([127, 0, 0, 1], 0)), config).await?;
 /// println!("{}", server.local_addr());
 /// # Ok(())
@@ -327,9 +354,10 @@ impl ThoughtChainService {
             return Ok(existing);
         }
 
-        let chain = Arc::new(RwLock::new(ThoughtChain::open_with_key(
-            &self.config.chain_dir,
-            &chain_key,
+        let chain = Arc::new(RwLock::new(ThoughtChain::open_with_storage(
+            self.config
+                .storage_adapter
+                .for_chain_key(&self.config.chain_dir, &chain_key),
         )?));
 
         let mut chains = self.chains.write().await;

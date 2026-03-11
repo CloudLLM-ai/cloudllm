@@ -7,6 +7,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use serde_json::json;
 use thoughtchain::server::{mcp_router, rest_router, ThoughtChainServiceConfig};
+use thoughtchain::StorageAdapterKind;
 use tower::util::ServiceExt;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -25,7 +26,11 @@ fn unique_chain_dir() -> PathBuf {
 #[tokio::test]
 async fn mcp_router_lists_thoughtchain_tools() {
     let dir = unique_chain_dir();
-    let router = mcp_router(ThoughtChainServiceConfig::new(dir.clone(), "server-test"));
+    let router = mcp_router(ThoughtChainServiceConfig::new(
+        dir.clone(),
+        "server-test",
+        StorageAdapterKind::Jsonl,
+    ));
 
     let response = router
         .oneshot(
@@ -56,7 +61,11 @@ async fn mcp_router_lists_thoughtchain_tools() {
 #[tokio::test]
 async fn rest_router_bootstraps_and_reports_head() {
     let dir = unique_chain_dir();
-    let router = rest_router(ThoughtChainServiceConfig::new(dir.clone(), "server-test"));
+    let router = rest_router(ThoughtChainServiceConfig::new(
+        dir.clone(),
+        "server-test",
+        StorageAdapterKind::Jsonl,
+    ));
 
     let health = router
         .clone()
@@ -122,7 +131,11 @@ async fn rest_router_bootstraps_and_reports_head() {
 #[tokio::test]
 async fn rest_router_supports_shared_chain_agent_identity() {
     let dir = unique_chain_dir();
-    let router = rest_router(ThoughtChainServiceConfig::new(dir.clone(), "shared-chain"));
+    let router = rest_router(ThoughtChainServiceConfig::new(
+        dir.clone(),
+        "shared-chain",
+        StorageAdapterKind::Jsonl,
+    ));
 
     let append = router
         .clone()

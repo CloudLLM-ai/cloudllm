@@ -14,9 +14,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use uuid::Uuid;
 
 /// Persistence interface for ThoughtChain storage backends.
@@ -45,6 +47,92 @@ pub trait StorageAdapter: Send + Sync {
 
     /// Return a human-readable storage location or descriptor.
     fn storage_location(&self) -> String;
+}
+
+/// Supported durable storage formats for ThoughtChain.
+///
+/// This enum lets applications select a backend without hard-coding a concrete
+/// adapter type. `Jsonl` remains the most human-inspectable option, while
+/// `Binary` stores length-prefixed serialized thoughts for more compact and
+/// efficient loading.
+///
+/// # Example
+///
+/// ```
+/// use std::str::FromStr;
+/// use thoughtchain::StorageAdapterKind;
+///
+/// let kind = StorageAdapterKind::from_str("binary").unwrap();
+/// assert_eq!(kind.as_str(), "binary");
+/// ```
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub enum StorageAdapterKind {
+    /// Newline-delimited JSON storage.
+    #[default]
+    Jsonl,
+    /// Length-prefixed binary serialization of `Thought` records.
+    Binary,
+}
+
+impl StorageAdapterKind {
+    /// Return the stable lowercase name of this adapter kind.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Jsonl => "jsonl",
+            Self::Binary => "binary",
+        }
+    }
+
+    /// Return the file extension used by this adapter kind.
+    pub fn file_extension(self) -> &'static str {
+        match self {
+            Self::Jsonl => "jsonl",
+            Self::Binary => "tcbin",
+        }
+    }
+
+    /// Create a boxed storage adapter for a durable chain key.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::path::PathBuf;
+    /// use thoughtchain::{StorageAdapter, StorageAdapterKind};
+    ///
+    /// let adapter = StorageAdapterKind::Binary
+    ///     .for_chain_key(PathBuf::from("/tmp/tc_kind"), "demo");
+    /// assert!(adapter.storage_location().ends_with(".tcbin"));
+    /// ```
+    pub fn for_chain_key<P: AsRef<Path>>(
+        self,
+        chain_dir: P,
+        chain_key: &str,
+    ) -> Box<dyn StorageAdapter> {
+        match self {
+            Self::Jsonl => Box::new(JsonlStorageAdapter::for_chain_key(chain_dir, chain_key)),
+            Self::Binary => Box::new(BinaryStorageAdapter::for_chain_key(chain_dir, chain_key)),
+        }
+    }
+}
+
+impl fmt::Display for StorageAdapterKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for StorageAdapterKind {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "jsonl" => Ok(Self::Jsonl),
+            "binary" => Ok(Self::Binary),
+            other => Err(format!(
+                "Unsupported ThoughtChain storage adapter '{other}'. Expected 'jsonl' or 'binary'"
+            )),
+        }
+    }
 }
 
 /// Append-only JSONL storage adapter for ThoughtChain.
@@ -113,6 +201,60 @@ impl StorageAdapter for JsonlStorageAdapter {
 
     fn append_thought(&self, thought: &Thought) -> io::Result<()> {
         persist_jsonl_thought(&self.file_path, thought)
+    }
+
+    fn storage_location(&self) -> String {
+        self.file_path.display().to_string()
+    }
+}
+
+/// Append-only binary storage adapter for ThoughtChain.
+///
+/// Each record is stored as a length-prefixed serialized [`Thought`], which
+/// keeps append operations simple while avoiding JSON parse overhead on reload.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use std::path::PathBuf;
+/// use thoughtchain::{BinaryStorageAdapter, StorageAdapter};
+///
+/// let adapter = BinaryStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_bin"), "agent-memory");
+/// assert!(adapter.storage_location().ends_with(".tcbin"));
+/// ```
+#[derive(Debug, Clone)]
+pub struct BinaryStorageAdapter {
+    file_path: PathBuf,
+}
+
+impl BinaryStorageAdapter {
+    /// Create a binary adapter for an explicit file path.
+    pub fn new(file_path: PathBuf) -> Self {
+        Self { file_path }
+    }
+
+    /// Create a binary adapter using the stable ThoughtChain filename for a chain key.
+    pub fn for_chain_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> Self {
+        let file_path = chain_dir.as_ref().join(chain_storage_filename(
+            chain_key,
+            StorageAdapterKind::Binary,
+        ));
+        Self::new(file_path)
+    }
+
+    /// Return the underlying binary path.
+    pub fn file_path(&self) -> &PathBuf {
+        &self.file_path
+    }
+}
+
+impl StorageAdapter for BinaryStorageAdapter {
+    fn load_thoughts(&self) -> io::Result<Vec<Thought>> {
+        load_binary_thoughts(&self.file_path)
+    }
+
+    fn append_thought(&self, thought: &Thought) -> io::Result<()> {
+        persist_binary_thought(&self.file_path, thought)
     }
 
     fn storage_location(&self) -> String {
@@ -260,6 +402,15 @@ pub enum ThoughtRelationKind {
 
 /// Typed edge in the thought graph.
 ///
+/// A relation explains why one thought points to another thought. This avoids
+/// a common misconception: not every link is just a generic "reference". A
+/// later thought may correct, summarize, support, or continue an earlier one,
+/// and that semantic meaning matters during replay, inspection, and retrieval.
+///
+/// `ThoughtRelation` is more expressive than raw `refs`. Use `refs` when a
+/// simple positional backlink is enough. Use relations when the meaning of the
+/// link should survive into downstream tools, summaries, and audits.
+///
 /// # Example
 ///
 /// ```
@@ -283,7 +434,27 @@ pub struct ThoughtRelation {
 
 /// Builder-like input struct used to append rich thoughts.
 ///
-/// Use `ThoughtInput` when you want to attach richer metadata than the simple
+/// `ThoughtInput` is the caller-authored description of a memory to be
+/// committed. It is not yet part of the durable chain. Callers use it to say
+/// what the thought means, how important it is, which earlier thoughts it
+/// refers to, and which optional metadata should accompany it.
+///
+/// ThoughtChain then turns that input into a persisted [`Thought`] by adding
+/// the system-managed fields that callers should not forge directly, such as:
+///
+/// - the stable thought `id`
+/// - the chain `index`
+/// - the commit `timestamp`
+/// - the writer `agent_id`
+/// - the `prev_hash`
+/// - the final `hash`
+///
+/// In short:
+///
+/// - `ThoughtInput` is the proposed memory payload
+/// - [`Thought`] is the committed memory record
+///
+/// Use `ThoughtInput` when you want richer metadata than the simple
 /// [`ThoughtChain::append`] helper allows.
 ///
 /// # Example
@@ -302,28 +473,57 @@ pub struct ThoughtRelation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThoughtInput {
     /// Optional session identifier associated with the thought.
+    ///
+    /// This groups related thoughts from one run without changing the chain's
+    /// durable identity.
     pub session_id: Option<Uuid>,
     /// Optional human-readable name of the producing agent.
+    ///
+    /// This is display metadata. The stable producer identity is `agent_id`,
+    /// which is supplied separately when appending.
     pub agent_name: Option<String>,
     /// Optional owner or grouping label for the producing agent.
+    ///
+    /// Useful for shared chains, tenants, or human ownership models.
     pub agent_owner: Option<String>,
     /// Semantic meaning of the thought.
+    ///
+    /// This answers "what kind of memory is this?"
     pub thought_type: ThoughtType,
     /// Operational role played by this thought.
+    ///
+    /// This answers "why is the system emitting or using this memory?"
     pub role: ThoughtRole,
     /// Primary human-readable content.
+    ///
+    /// This should be a durable memory statement, not hidden chain-of-thought.
     pub content: String,
     /// Optional confidence score between `0.0` and `1.0`.
+    ///
+    /// Use this when the content is uncertain or speculative.
     pub confidence: Option<f32>,
     /// Importance score between `0.0` and `1.0`.
+    ///
+    /// Higher values indicate memories that should matter more during
+    /// retrieval, summarization, or pruning.
     pub importance: f32,
     /// Free-form tags for retrieval.
+    ///
+    /// Tags are lightweight labels supplied by the caller.
     pub tags: Vec<String>,
     /// Concept labels or semantic anchors for retrieval.
+    ///
+    /// Concepts are intended to be more semantic and reusable than ad hoc
+    /// tags, though both can coexist.
     pub concepts: Vec<String>,
     /// Back-references to prior thought indices.
+    ///
+    /// These are compact positional links into the same chain.
     pub refs: Vec<u64>,
     /// Typed graph relations to prior thoughts.
+    ///
+    /// These preserve the meaning of the link, not just the fact that a link
+    /// exists.
     pub relations: Vec<ThoughtRelation>,
 }
 
@@ -433,8 +633,15 @@ impl ThoughtInput {
 
 /// A single durable thought record.
 ///
-/// `Thought` is the persisted form written to disk. It carries both semantic
-/// metadata and the integrity fields required for hash-chain verification.
+/// `Thought` is the committed record that ThoughtChain stores and returns. It
+/// contains the semantic memory payload together with the fields required for
+/// ordering, attribution, and integrity verification.
+///
+/// A caller typically does not construct this type directly. Instead, the
+/// caller provides a [`ThoughtInput`], and ThoughtChain produces a `Thought`
+/// with system-managed fields filled in. This distinction prevents accidental
+/// confusion between "memory content proposed by an agent" and "memory record
+/// accepted into the chain".
 ///
 /// # Example
 ///
@@ -453,16 +660,26 @@ impl ThoughtInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thought {
     /// Stable unique identifier for this thought.
+    ///
+    /// This is the canonical target for future semantic relations.
     pub id: Uuid,
     /// Zero-based position within the chain.
+    ///
+    /// This reflects append order inside one chain. It is not a global ID.
     pub index: u64,
     /// UTC timestamp when the thought was recorded.
+    ///
+    /// Assigned at commit time by ThoughtChain.
     pub timestamp: DateTime<Utc>,
     /// Optional session identifier associated with the thought.
     pub session_id: Option<Uuid>,
     /// Stable identifier of the producing agent.
+    ///
+    /// This answers who wrote the record in a shared chain.
     pub agent_id: String,
     /// Human-readable name of the producing agent.
+    ///
+    /// Friendly display label associated with `agent_id`.
     #[serde(default)]
     pub agent_name: String,
     /// Optional owner or grouping label for the producing agent.
@@ -487,8 +704,12 @@ pub struct Thought {
     /// Typed graph relations to prior thoughts.
     pub relations: Vec<ThoughtRelation>,
     /// Hash of the previous thought in the chain.
+    ///
+    /// This links the record to the prior committed chain state.
     pub prev_hash: String,
     /// SHA-256 hash of this thought's canonical contents.
+    ///
+    /// This is the record's integrity fingerprint.
     pub hash: String,
 }
 
@@ -496,6 +717,17 @@ pub struct Thought {
 ///
 /// `ThoughtQuery` lets callers ask for slices of memory without replaying the
 /// entire chain.
+///
+/// `ThoughtQuery` is read-only. It does not create or modify thoughts. Its job
+/// is to select already-committed [`Thought`] records by semantic type,
+/// operational role, agent identity, tags, concepts, text, confidence,
+/// importance, and time range.
+///
+/// The relationship between the three main data shapes is:
+///
+/// - `ThoughtInput`: proposed memory to append
+/// - `Thought`: committed durable memory
+/// - `ThoughtQuery`: retrieval filter over committed memory
 ///
 /// # Example
 ///
@@ -1341,6 +1573,23 @@ pub fn chain_filename(
     _expertise: Option<&str>,
     _personality: Option<&str>,
 ) -> String {
+    chain_storage_filename(chain_key, StorageAdapterKind::Jsonl)
+}
+
+/// Stable filename derived from a chain key and storage adapter kind.
+///
+/// # Example
+///
+/// ```
+/// use thoughtchain::{chain_storage_filename, StorageAdapterKind};
+///
+/// let jsonl = chain_storage_filename("agent1", StorageAdapterKind::Jsonl);
+/// let binary = chain_storage_filename("agent1", StorageAdapterKind::Binary);
+///
+/// assert!(jsonl.ends_with(".jsonl"));
+/// assert!(binary.ends_with(".tcbin"));
+/// ```
+pub fn chain_storage_filename(chain_key: &str, kind: StorageAdapterKind) -> String {
     let mut hasher = Sha256::new();
     hasher.update(chain_key.as_bytes());
     let digest = format!("{:x}", hasher.finalize());
@@ -1357,7 +1606,7 @@ pub fn chain_filename(
         })
         .collect();
 
-    format!("{safe_key}-{fingerprint}.jsonl")
+    format!("{safe_key}-{fingerprint}.{}", kind.file_extension())
 }
 
 fn append_memory_section(
@@ -1460,6 +1709,9 @@ fn dedupe_relations(relations: &mut Vec<ThoughtRelation>) {
 }
 
 fn persist_jsonl_thought(file_path: &Path, thought: &Thought) -> io::Result<()> {
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -1467,6 +1719,52 @@ fn persist_jsonl_thought(file_path: &Path, thought: &Thought) -> io::Result<()> 
     let json = serde_json::to_string(thought)
         .map_err(|error| io::Error::other(format!("Failed to serialize thought: {error}")))?;
     writeln!(file, "{json}")?;
+    Ok(())
+}
+
+fn load_binary_thoughts(file_path: &Path) -> io::Result<Vec<Thought>> {
+    if !file_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut file = fs::File::open(file_path)?;
+    let mut thoughts = Vec::new();
+
+    loop {
+        let mut length_bytes = [0_u8; 8];
+        match file.read_exact(&mut length_bytes) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => break,
+            Err(error) => return Err(error),
+        }
+
+        let length = u64::from_le_bytes(length_bytes) as usize;
+        let mut payload = vec![0_u8; length];
+        file.read_exact(&mut payload)?;
+        let thought: Thought = bincode::deserialize(&payload).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to deserialize binary thought: {error}"),
+            )
+        })?;
+        thoughts.push(thought);
+    }
+
+    Ok(thoughts)
+}
+
+fn persist_binary_thought(file_path: &Path, thought: &Thought) -> io::Result<()> {
+    let payload = bincode::serialize(thought)
+        .map_err(|error| io::Error::other(format!("Failed to serialize thought: {error}")))?;
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+    file.write_all(&(payload.len() as u64).to_le_bytes())?;
+    file.write_all(&payload)?;
     Ok(())
 }
 

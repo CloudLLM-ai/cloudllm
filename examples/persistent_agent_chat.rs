@@ -48,7 +48,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } else {
         let server = start_mcp_server(
             SocketAddr::from(([127, 0, 0, 1], 0)),
-            ThoughtChainServiceConfig::new(chain_dir.clone(), chain_key.clone()),
+            ThoughtChainServiceConfig::new(
+                chain_dir.clone(),
+                chain_key.clone(),
+                thoughtchain::StorageAdapterKind::Jsonl,
+            ),
         )
         .await?;
         let endpoint = format!("http://{}", server.local_addr());

@@ -104,9 +104,67 @@ ThoughtChain now separates the chain model from the storage backend.
 
 - A `StorageAdapter` interface handles persistence.
 - A `JsonlStorageAdapter` provides the current default implementation.
-- Additional adapters, such as efficient binary formats, can be added without changing the core memory model.
+- A `BinaryStorageAdapter` provides a more compact serialized format.
+- Additional adapters can be added without changing the core memory model.
 
 This keeps the system simple today while allowing more efficient storage engines in the future.
+
+## Data Model
+
+ThoughtChain deliberately separates memory creation, memory storage, and memory retrieval.
+
+### ThoughtInput
+
+`ThoughtInput` is the caller-authored memory proposal.
+
+It contains the semantic payload:
+
+- the thought content
+- the thought type
+- the thought role
+- tags and concepts
+- confidence and importance
+- references and semantic relations
+- optional session and display metadata
+
+It does not contain the final chain-managed fields such as index, timestamp, or hashes.
+
+This is important because an agent should be able to say what memory it wants to record, but it should not directly forge the chain mechanics that make the ledger trustworthy.
+
+### Thought
+
+`Thought` is the committed durable record written into the chain.
+
+ThoughtChain derives it from a `ThoughtInput` and adds the system-managed fields:
+
+- `id`
+- `index`
+- `timestamp`
+- `agent_id`
+- `prev_hash`
+- `hash`
+
+This prevents confusion between proposed memory content and accepted memory state.
+
+### ThoughtType And ThoughtRole
+
+These two concepts are intentionally different.
+
+- `ThoughtType` describes what the memory means
+- `ThoughtRole` describes how the system is using that memory
+
+For example:
+
+- `Decision` is a thought type
+- `Checkpoint` is usually a thought role
+
+That separation avoids mixing semantics with workflow mechanics.
+
+### ThoughtQuery
+
+`ThoughtQuery` is the read-side filter over committed thoughts.
+
+It does not create memories and it does not modify the chain. It simply retrieves relevant thoughts by type, role, agent identity, text, tags, concepts, importance, confidence, and time range.
 
 ## Use Cases
 
