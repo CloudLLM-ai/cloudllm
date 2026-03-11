@@ -1641,7 +1641,10 @@ pub fn chain_key_from_storage_filename(filename: &str) -> Option<String> {
     }
 
     let (chain_key, fingerprint) = stem.rsplit_once('-')?;
-    if fingerprint.len() != 16 || !fingerprint.chars().all(|character| character.is_ascii_hexdigit())
+    if fingerprint.len() != 16
+        || !fingerprint
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
     {
         return None;
     }
@@ -1784,12 +1787,15 @@ fn load_binary_thoughts(file_path: &Path) -> io::Result<Vec<Thought>> {
         let length = u64::from_le_bytes(length_bytes) as usize;
         let mut payload = vec![0_u8; length];
         file.read_exact(&mut payload)?;
-        let thought: Thought = bincode::deserialize(&payload).map_err(|error| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to deserialize binary thought: {error}"),
-            )
-        })?;
+        let (thought, _bytes_read): (Thought, usize) =
+            bincode::serde::decode_from_slice(&payload, bincode::config::standard()).map_err(
+                |error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Failed to deserialize binary thought: {error}"),
+                    )
+                },
+            )?;
         thoughts.push(thought);
     }
 
@@ -1797,7 +1803,7 @@ fn load_binary_thoughts(file_path: &Path) -> io::Result<Vec<Thought>> {
 }
 
 fn persist_binary_thought(file_path: &Path, thought: &Thought) -> io::Result<()> {
-    let payload = bincode::serialize(thought)
+    let payload = bincode::serde::encode_to_vec(thought, bincode::config::standard())
         .map_err(|error| io::Error::other(format!("Failed to serialize thought: {error}")))?;
     if let Some(parent) = file_path.parent() {
         fs::create_dir_all(parent)?;

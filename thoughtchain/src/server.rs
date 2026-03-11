@@ -64,6 +64,7 @@ use tokio::sync::{oneshot, RwLock};
 ///     StorageAdapterKind::Jsonl,
 /// );
 /// assert_eq!(config.default_chain_key, "borganism-brain");
+/// assert!(!config.verbose);
 /// ```
 #[derive(Debug, Clone)]
 pub struct ThoughtChainServiceConfig {
@@ -73,6 +74,8 @@ pub struct ThoughtChainServiceConfig {
     pub default_chain_key: String,
     /// Storage adapter used for newly opened chains.
     pub storage_adapter: StorageAdapterKind,
+    /// When true, log each ThoughtChain read or write interaction to stderr.
+    pub verbose: bool,
 }
 
 impl ThoughtChainServiceConfig {
@@ -86,7 +89,14 @@ impl ThoughtChainServiceConfig {
             chain_dir,
             default_chain_key: default_chain_key.into(),
             storage_adapter,
+            verbose: false,
         }
+    }
+
+    /// Enable or disable verbose interaction logging for the service.
+    pub fn with_verbose(mut self, verbose: bool) -> Self {
+        self.verbose = verbose;
+        self
     }
 }
 
@@ -97,6 +107,7 @@ impl ThoughtChainServiceConfig {
 /// - `THOUGHTCHAIN_DIR`
 /// - `THOUGHTCHAIN_DEFAULT_KEY`
 /// - `THOUGHTCHAIN_STORAGE_ADAPTER`
+/// - `THOUGHTCHAIN_VERBOSE`
 /// - `THOUGHTCHAIN_BIND_HOST`
 /// - `THOUGHTCHAIN_MCP_PORT`
 /// - `THOUGHTCHAIN_REST_PORT`
@@ -130,6 +141,7 @@ impl ThoughtChainServerConfig {
             .ok()
             .map(|value| value.parse().unwrap_or(StorageAdapterKind::Jsonl))
             .unwrap_or(StorageAdapterKind::Jsonl);
+        let verbose = env_bool("THOUGHTCHAIN_VERBOSE").unwrap_or(false);
         let mcp_port = env_u16("THOUGHTCHAIN_MCP_PORT").unwrap_or(9471);
         let rest_port = env_u16("THOUGHTCHAIN_REST_PORT").unwrap_or(9472);
 
@@ -141,7 +153,8 @@ impl ThoughtChainServerConfig {
                 std::env::var("THOUGHTCHAIN_DEFAULT_KEY")
                     .unwrap_or_else(|_| "borganism-brain".to_string()),
                 storage_adapter,
-            ),
+            )
+            .with_verbose(verbose),
             mcp_addr: SocketAddr::new(bind_host, mcp_port),
             rest_addr: SocketAddr::new(bind_host, rest_port),
         }
@@ -502,11 +515,12 @@ impl ThoughtChainService {
         &self,
         request: BootstrapRequest,
     ) -> Result<BootstrapResponse, Box<dyn Error + Send + Sync>> {
-        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
         let mut chain = chain.write().await;
         let bootstrapped = if chain.thoughts().is_empty() {
             let (agent_id, agent_name, agent_owner) = self.resolve_agent_identity(
-                request.chain_key.as_deref(),
+                Some(&chain_key),
                 request.agent_id.as_deref(),
                 request.agent_name.as_deref(),
                 request.agent_owner.as_deref(),
@@ -524,9 +538,25 @@ impl ThoughtChainService {
             } else {
                 input
             };
-            chain.append_thought(&agent_id, input)?;
+            let thought = chain.append_thought(&agent_id, input)?;
+            self.log_interaction(InteractionLogEntry {
+                access: "write",
+                operation: "bootstrap",
+                chain_key: chain_key.clone(),
+                metadata: InteractionMetadata::from_thought(thought),
+                result_count: Some(1),
+                note: Some("bootstrapped=true".to_string()),
+            });
             true
         } else {
+            self.log_interaction(InteractionLogEntry {
+                access: "write",
+                operation: "bootstrap",
+                chain_key: chain_key.clone(),
+                metadata: InteractionMetadata::default(),
+                result_count: Some(chain.thoughts().len()),
+                note: Some("bootstrapped=false".to_string()),
+            });
             false
         };
 
@@ -541,7 +571,8 @@ impl ThoughtChainService {
         &self,
         request: AppendThoughtRequest,
     ) -> Result<AppendThoughtResponse, Box<dyn Error + Send + Sync>> {
-        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
         let mut chain = chain.write().await;
 
         let thought_type = parse_thought_type(&request.thought_type)?;
@@ -551,9 +582,9 @@ impl ThoughtChainService {
             .map(parse_thought_role)
             .transpose()?
             .unwrap_or(ThoughtRole::Memory);
-        let fallback_agent_id = self.resolve_chain_key(request.chain_key.as_deref());
+        let fallback_agent_id = chain_key.clone();
         let (agent_id, agent_name, agent_owner) = self.resolve_agent_identity(
-            request.chain_key.as_deref(),
+            Some(&chain_key),
             request.agent_id.as_deref(),
             request.agent_name.as_deref(),
             request.agent_owner.as_deref(),
@@ -576,6 +607,14 @@ impl ThoughtChainService {
         }
 
         let thought = chain.append_thought(&agent_id, input)?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "append",
+            chain_key,
+            metadata: InteractionMetadata::from_thought(thought),
+            result_count: Some(1),
+            note: None,
+        });
         Ok(AppendThoughtResponse {
             thought: thought_to_json(thought),
             head_hash: chain.head_hash().map(ToOwned::to_owned),
@@ -586,7 +625,8 @@ impl ThoughtChainService {
         &self,
         request: AppendRetrospectiveRequest,
     ) -> Result<AppendThoughtResponse, Box<dyn Error + Send + Sync>> {
-        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
         let mut chain = chain.write().await;
 
         let thought_type = request
@@ -595,9 +635,9 @@ impl ThoughtChainService {
             .map(parse_thought_type)
             .transpose()?
             .unwrap_or(ThoughtType::LessonLearned);
-        let fallback_agent_id = self.resolve_chain_key(request.chain_key.as_deref());
+        let fallback_agent_id = chain_key.clone();
         let (agent_id, agent_name, agent_owner) = self.resolve_agent_identity(
-            request.chain_key.as_deref(),
+            Some(&chain_key),
             request.agent_id.as_deref(),
             request.agent_name.as_deref(),
             request.agent_owner.as_deref(),
@@ -620,6 +660,14 @@ impl ThoughtChainService {
         }
 
         let thought = chain.append_thought(&agent_id, input)?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "append_retrospective",
+            chain_key,
+            metadata: InteractionMetadata::from_thought(thought),
+            result_count: Some(1),
+            note: None,
+        });
         Ok(AppendThoughtResponse {
             thought: thought_to_json(thought),
             head_hash: chain.head_hash().map(ToOwned::to_owned),
@@ -630,14 +678,20 @@ impl ThoughtChainService {
         &self,
         request: SearchRequest,
     ) -> Result<SearchResponse, Box<dyn Error + Send + Sync>> {
-        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
         let chain = chain.read().await;
         let query = build_query(&request)?;
-        let thoughts = chain
-            .query(&query)
-            .into_iter()
-            .map(thought_to_json)
-            .collect::<Vec<_>>();
+        let matched = chain.query(&query);
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "search",
+            chain_key,
+            metadata: InteractionMetadata::from_thoughts(matched.iter().copied()),
+            result_count: Some(matched.len()),
+            note: None,
+        });
+        let thoughts = matched.into_iter().map(thought_to_json).collect::<Vec<_>>();
         Ok(SearchResponse { thoughts })
     }
 
@@ -668,10 +722,19 @@ impl ThoughtChainService {
             chain_keys.insert(chain_key.clone());
         }
 
-        Ok(ListChainsResponse {
+        let response = ListChainsResponse {
             default_chain_key: self.config.default_chain_key.clone(),
             chain_keys: chain_keys.into_iter().collect(),
-        })
+        };
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "list_chains",
+            chain_key: "<all>".to_string(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(response.chain_keys.len()),
+            note: None,
+        });
+        Ok(response)
     }
 
     async fn list_agents(
@@ -700,6 +763,14 @@ impl ThoughtChainService {
             })
             .collect();
 
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "list_agents",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::from_thoughts(chain.thoughts().iter()),
+            result_count: Some(chain.thoughts().len()),
+            note: None,
+        });
         Ok(ListAgentsResponse { chain_key, agents })
     }
 
@@ -707,10 +778,22 @@ impl ThoughtChainService {
         &self,
         request: RecentContextRequest,
     ) -> Result<RecentContextResponse, Box<dyn Error + Send + Sync>> {
-        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
         let chain = chain.read().await;
+        let last_n = request.last_n.unwrap_or(12);
+        let start = chain.thoughts().len().saturating_sub(last_n);
+        let tail = &chain.thoughts()[start..];
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "recent_context",
+            chain_key,
+            metadata: InteractionMetadata::from_thoughts(tail.iter()),
+            result_count: Some(tail.len()),
+            note: Some(format!("last_n={last_n}")),
+        });
         Ok(RecentContextResponse {
-            prompt: chain.to_catchup_prompt(request.last_n.unwrap_or(12)),
+            prompt: chain.to_catchup_prompt(last_n),
         })
     }
 
@@ -718,9 +801,23 @@ impl ThoughtChainService {
         &self,
         request: MemoryMarkdownRequest,
     ) -> Result<MemoryMarkdownResponse, Box<dyn Error + Send + Sync>> {
-        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
         let chain = chain.read().await;
         let query = build_markdown_query(&request)?;
+        let matched = if query_is_empty(&query) {
+            chain.thoughts().iter().collect::<Vec<_>>()
+        } else {
+            chain.query(&query)
+        };
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "memory_markdown",
+            chain_key,
+            metadata: InteractionMetadata::from_thoughts(matched.iter().copied()),
+            result_count: Some(matched.len()),
+            note: None,
+        });
         let markdown = if query_is_empty(&query) {
             chain.to_memory_markdown(None)
         } else {
@@ -733,10 +830,23 @@ impl ThoughtChainService {
         &self,
         request: ChainHeadRequest,
     ) -> Result<HeadResponse, Box<dyn Error + Send + Sync>> {
-        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key)).await?;
         let chain = chain.read().await;
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "head",
+            chain_key: chain_key.clone(),
+            metadata: chain
+                .thoughts()
+                .last()
+                .map(InteractionMetadata::from_thought)
+                .unwrap_or_default(),
+            result_count: Some(chain.thoughts().len()),
+            note: None,
+        });
         Ok(HeadResponse {
-            chain_key: self.resolve_chain_key(request.chain_key.as_deref()),
+            chain_key,
             thought_count: chain.thoughts().len(),
             head_hash: chain.head_hash().map(ToOwned::to_owned),
             latest_thought: chain.thoughts().last().map(thought_to_json),
@@ -788,6 +898,72 @@ impl ThoughtChainService {
 
         (resolved_agent_id, resolved_agent_name, resolved_agent_owner)
     }
+
+    fn log_interaction(&self, entry: InteractionLogEntry) {
+        if !self.config.verbose {
+            return;
+        }
+
+        log::info!(target: "thoughtchain::interaction", "{}", format_interaction_log_entry(&entry));
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct InteractionMetadata {
+    agent_ids: Vec<String>,
+    agent_names: Vec<String>,
+    thought_types: Vec<String>,
+    roles: Vec<String>,
+    tags: Vec<String>,
+    concepts: Vec<String>,
+}
+
+impl InteractionMetadata {
+    fn from_thought(thought: &Thought) -> Self {
+        Self::from_thoughts(std::iter::once(thought))
+    }
+
+    fn from_thoughts<'a, I>(thoughts: I) -> Self
+    where
+        I: IntoIterator<Item = &'a Thought>,
+    {
+        let mut agent_ids = BTreeSet::new();
+        let mut agent_names = BTreeSet::new();
+        let mut thought_types = BTreeSet::new();
+        let mut roles = BTreeSet::new();
+        let mut tags = BTreeSet::new();
+        let mut concepts = BTreeSet::new();
+
+        for thought in thoughts {
+            agent_ids.insert(thought.agent_id.clone());
+            if !thought.agent_name.trim().is_empty() {
+                agent_names.insert(thought.agent_name.clone());
+            }
+            thought_types.insert(format!("{:?}", thought.thought_type));
+            roles.insert(format!("{:?}", thought.role));
+            tags.extend(thought.tags.iter().cloned());
+            concepts.extend(thought.concepts.iter().cloned());
+        }
+
+        Self {
+            agent_ids: agent_ids.into_iter().collect(),
+            agent_names: agent_names.into_iter().collect(),
+            thought_types: thought_types.into_iter().collect(),
+            roles: roles.into_iter().collect(),
+            tags: tags.into_iter().collect(),
+            concepts: concepts.into_iter().collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InteractionLogEntry {
+    access: &'static str,
+    operation: &'static str,
+    chain_key: String,
+    metadata: InteractionMetadata,
+    result_count: Option<usize>,
+    note: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1372,8 +1548,67 @@ fn normalize_label(input: &str) -> String {
         .to_lowercase()
 }
 
+fn format_interaction_log_entry(entry: &InteractionLogEntry) -> String {
+    let metadata = &entry.metadata;
+    let mut log_line = format!(
+        "[thoughtchaind] access={} op={} chain={} result_count={} agent_ids={} agent_names={} thought_types={} roles={} tags={} concepts={}",
+        entry.access,
+        entry.operation,
+        entry.chain_key,
+        entry
+            .result_count
+            .map(|count| count.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        summarize_values(&metadata.agent_ids),
+        summarize_values(&metadata.agent_names),
+        summarize_values(&metadata.thought_types),
+        summarize_values(&metadata.roles),
+        summarize_values(&metadata.tags),
+        summarize_values(&metadata.concepts),
+    );
+
+    if let Some(note) = &entry.note {
+        log_line.push_str(" note=");
+        log_line.push_str(note);
+    }
+
+    log_line
+}
+
+fn summarize_values(values: &[String]) -> String {
+    const MAX_ITEMS: usize = 8;
+
+    if values.is_empty() {
+        return "-".to_string();
+    }
+
+    if values.len() <= MAX_ITEMS {
+        return values.join(",");
+    }
+
+    format!(
+        "{}...(+{} more)",
+        values[..MAX_ITEMS].join(","),
+        values.len() - MAX_ITEMS
+    )
+}
+
 fn env_u16(key: &str) -> Option<u16> {
     std::env::var(key)
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
+}
+
+fn env_bool(key: &str) -> Option<bool> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| parse_bool_flag(&value))
+}
+
+fn parse_bool_flag(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" => Some(true),
+        "0" | "false" => Some(false),
+        _ => None,
+    }
 }

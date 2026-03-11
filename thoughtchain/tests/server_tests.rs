@@ -2,18 +2,21 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use serde_json::json;
 use thoughtchain::server::{
-    mcp_router, rest_router, standard_mcp_router, ThoughtChainServiceConfig,
+    mcp_router, rest_router, standard_mcp_router, ThoughtChainServerConfig,
+    ThoughtChainServiceConfig,
 };
 use thoughtchain::StorageAdapterKind;
 use tower::util::ServiceExt;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+static ENV_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn unique_chain_dir() -> PathBuf {
     let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -24,6 +27,42 @@ fn unique_chain_dir() -> PathBuf {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     dir
+}
+
+fn env_mutex() -> &'static Mutex<()> {
+    ENV_MUTEX.get_or_init(|| Mutex::new(()))
+}
+
+#[test]
+fn server_config_parses_thoughtchain_verbose_env_values() {
+    let _guard = env_mutex().lock().unwrap();
+    let original = std::env::var("THOUGHTCHAIN_VERBOSE").ok();
+
+    for (raw_value, expected) in [
+        ("1", true),
+        ("0", false),
+        ("true", true),
+        ("false", false),
+        ("TRUE", true),
+        ("FALSE", false),
+        ("unexpected", false),
+    ] {
+        std::env::set_var("THOUGHTCHAIN_VERBOSE", raw_value);
+        let config = ThoughtChainServerConfig::from_env();
+        assert_eq!(
+            config.service.verbose, expected,
+            "raw value {raw_value:?} should parse to {expected}"
+        );
+    }
+
+    std::env::remove_var("THOUGHTCHAIN_VERBOSE");
+    assert!(!ThoughtChainServerConfig::from_env().service.verbose);
+
+    if let Some(original) = original {
+        std::env::set_var("THOUGHTCHAIN_VERBOSE", original);
+    } else {
+        std::env::remove_var("THOUGHTCHAIN_VERBOSE");
+    }
 }
 
 #[tokio::test]

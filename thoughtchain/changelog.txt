@@ -1,3 +1,10 @@
+0.2.1 MAR/11/2026
+ - feat: Add env-controlled verbose interaction logging to `thoughtchaind`
+   - Added `THOUGHTCHAIN_VERBOSE` with support for `1`, `0`, `true`, and `false`
+   - When enabled, the daemon logs each ThoughtChain read and write interaction with chain key, touched agents, thought types, roles, tags, and concepts
+   - Startup configuration output now shows the effective verbose setting
+ - test: Add coverage for verbose env parsing in server configuration
+
 0.2.0 MAR/11/2026
  - feat: Add retrospective memory support
    - Added `ThoughtType::LessonLearned`
