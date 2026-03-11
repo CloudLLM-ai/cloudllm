@@ -196,6 +196,7 @@ Filesystem root: {}\n\n\
 Behavior rules:\n\
 - Use thoughtchain_search when a user request may depend on prior sessions.\n\
 - Use thoughtchain_append whenever you learn durable user preferences, constraints, decisions, plans, corrections, insights, or surprises.\n\
+- Use thoughtchain_append_retrospective after a repeated failure, a long debugging snag, or a non-obvious fix that future agents should not rediscover the hard way.\n\
 - Keep stored memories concise, factual, and semantically typed.\n\
 - Do not store secrets unless the user explicitly asks you to remember them.\n\
 - Use other tools normally for coding, shell, filesystem, HTTP, and calculations.\n\n\

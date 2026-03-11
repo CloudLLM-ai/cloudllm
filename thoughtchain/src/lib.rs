@@ -300,6 +300,8 @@ pub enum ThoughtType {
     Mistake,
     /// The agent recorded the corrected version of a prior mistake.
     Correction,
+    /// A durable lesson or operating heuristic was distilled from prior work.
+    LessonLearned,
     /// A previously trusted assumption was invalidated.
     AssumptionInvalidated,
     /// A requirement or hard limit was identified.
@@ -365,6 +367,8 @@ pub enum ThoughtRole {
     Handoff,
     /// A role intended mainly for traceability or audit logs.
     Audit,
+    /// A role emitted during deliberate post-incident or post-struggle reflection.
+    Retrospective,
 }
 
 /// Why a thought points to another thought.
@@ -1501,6 +1505,7 @@ impl ThoughtChain {
             &[
                 ThoughtType::Mistake,
                 ThoughtType::Correction,
+                ThoughtType::LessonLearned,
                 ThoughtType::AssumptionInvalidated,
             ],
         );
@@ -1632,6 +1637,9 @@ fn append_memory_section(
         ));
         let mut metadata = Vec::new();
         metadata.push(format!("agent {}", agent_label(thought)));
+        if thought.role != ThoughtRole::Memory {
+            metadata.push(format!("role {:?}", thought.role));
+        }
         metadata.push(format!("importance {:.2}", thought.importance));
         if let Some(confidence) = thought.confidence {
             metadata.push(format!("confidence {:.2}", confidence));

@@ -56,6 +56,9 @@ async fn mcp_router_lists_thoughtchain_tools() {
     assert!(tools
         .iter()
         .any(|tool| tool["name"] == "thoughtchain_append"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_append_retrospective"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -197,6 +200,47 @@ async fn rest_router_supports_shared_chain_agent_identity() {
 }
 
 #[tokio::test]
+async fn rest_router_appends_retrospective_with_defaults() {
+    let dir = unique_chain_dir();
+    let router = rest_router(ThoughtChainServiceConfig::new(
+        dir.clone(),
+        "shared-chain",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    let append = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/retrospectives")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "shared-chain",
+                        "agent_id": "astro",
+                        "agent_name": "Astro",
+                        "content": "After a repeated tool-call failure, respond to every tool_call_id before sending the next model request."
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(append.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(append.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["thought"]["thought_type"], "LessonLearned");
+    assert_eq!(json["thought"]["role"], "Retrospective");
+    assert_eq!(json["thought"]["agent_name"], "Astro");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     let dir = unique_chain_dir();
     let router = standard_mcp_router(ThoughtChainServiceConfig::new(
@@ -299,6 +343,9 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     assert!(tools
         .iter()
         .any(|tool| tool["name"] == "thoughtchain_append"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_append_retrospective"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);

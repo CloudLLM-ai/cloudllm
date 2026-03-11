@@ -145,6 +145,47 @@ fn query_filters_by_type_tag_and_text() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn query_filters_retrospectives_and_lesson_learned() {
+    let dir = unique_chain_dir();
+    let mut chain = ThoughtChain::open_with_key(&dir, "shared-project").unwrap();
+
+    chain
+        .append_thought(
+            "astro",
+            ThoughtInput::new(
+                ThoughtType::LessonLearned,
+                "When native tool calls return multiple tool invocations, resolve all of them before the next model round-trip.",
+            )
+            .with_agent_name("Astro")
+            .with_role(ThoughtRole::Retrospective)
+            .with_tags(["tools", "openai"])
+            .with_concepts(["multi-tool call handling"]),
+        )
+        .unwrap();
+    chain
+        .append_thought(
+            "astro",
+            ThoughtInput::new(
+                ThoughtType::Decision,
+                "Keep the shared MCP runtime in the standalone mcp crate.",
+            )
+            .with_agent_name("Astro"),
+        )
+        .unwrap();
+
+    let results = chain.query(
+        &ThoughtQuery::new()
+            .with_types(vec![ThoughtType::LessonLearned])
+            .with_roles(vec![ThoughtRole::Retrospective]),
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].thought_type, ThoughtType::LessonLearned);
+    assert_eq!(results[0].role, ThoughtRole::Retrospective);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[derive(Clone)]
 struct MemoryStorageAdapter {
     location: String,
@@ -298,14 +339,27 @@ fn memory_markdown_groups_thoughts_into_sections() {
             "Should embeddings be optional?",
         )
         .unwrap();
+    chain
+        .append_thought(
+            "agent1",
+            ThoughtInput::new(
+                ThoughtType::LessonLearned,
+                "When a fix takes multiple failed passes, store the final operating rule for the next agent.",
+            )
+            .with_role(ThoughtRole::Retrospective),
+        )
+        .unwrap();
 
     let markdown = chain.to_memory_markdown(None);
     assert!(markdown.contains("# MEMORY"));
     assert!(markdown.contains("## Identity"));
     assert!(markdown.contains("## Constraints And Decisions"));
+    assert!(markdown.contains("## Corrections"));
     assert!(markdown.contains("## Open Threads"));
     assert!(markdown.contains("User prefers short Markdown outputs."));
     assert!(markdown.contains("Would concept embeddings improve retrieval quality?"));
+    assert!(markdown.contains("role Retrospective"));
+    assert!(markdown.contains("When a fix takes multiple failed passes"));
     assert!(markdown.contains("agent agent1"));
 
     let _ = std::fs::remove_dir_all(&dir);

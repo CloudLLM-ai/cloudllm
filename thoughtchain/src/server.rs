@@ -4,16 +4,19 @@
 //! so other projects can run ThoughtChain as an independent long-running
 //! process without depending on `cloudllm`.
 //!
-//! The MCP surface is wire-compatible with CloudLLM's `McpClientProtocol`:
+//! The MCP surface includes both:
 //!
-//! - `POST /tools/list`
-//! - `POST /tools/execute`
+//! - standard streamable HTTP MCP at `POST /`
+//! - legacy CloudLLM-compatible endpoints:
+//!   - `POST /tools/list`
+//!   - `POST /tools/execute`
 //!
 //! The REST surface exposes ThoughtChain operations directly:
 //!
 //! - `GET /health`
 //! - `POST /v1/bootstrap`
 //! - `POST /v1/thoughts`
+//! - `POST /v1/retrospectives`
 //! - `POST /v1/search`
 //! - `POST /v1/recent-context`
 //! - `POST /v1/memory-markdown`
@@ -236,8 +239,8 @@ pub fn default_thoughtchain_dir() -> PathBuf {
 
 /// Start a standalone ThoughtChain MCP server.
 ///
-/// The returned server is wire-compatible with CloudLLM's
-/// `McpClientProtocol`.
+/// The returned server exposes both standard MCP and the legacy
+/// CloudLLM-compatible MCP HTTP endpoints.
 ///
 /// # Example
 ///
@@ -337,6 +340,10 @@ pub fn rest_router(config: ThoughtChainServiceConfig) -> Router {
         .route("/health", get(health_handler))
         .route("/v1/bootstrap", post(rest_bootstrap_handler))
         .route("/v1/thoughts", post(rest_append_handler))
+        .route(
+            "/v1/retrospectives",
+            post(rest_append_retrospective_handler),
+        )
         .route("/v1/search", post(rest_search_handler))
         .route("/v1/recent-context", post(rest_recent_context_handler))
         .route("/v1/memory-markdown", post(rest_memory_markdown_handler))
@@ -405,6 +412,12 @@ impl ToolProtocol for ThoughtChainMcpProtocol {
             }
             "thoughtchain_append" => {
                 parse_and_call(parameters, |request| self.service.append(request)).await
+            }
+            "thoughtchain_append_retrospective" => {
+                parse_and_call(parameters, |request| {
+                    self.service.append_retrospective(request)
+                })
+                .await
             }
             "thoughtchain_search" => {
                 parse_and_call(parameters, |request| self.service.search(request)).await
@@ -543,6 +556,50 @@ impl ThoughtChainService {
             .with_agent_name(agent_name)
             .with_role(role)
             .with_importance(request.importance.unwrap_or(0.5))
+            .with_tags(request.tags.unwrap_or_default())
+            .with_concepts(request.concepts.unwrap_or_default())
+            .with_refs(request.refs.unwrap_or_default());
+        if let Some(agent_owner) = agent_owner {
+            input = input.with_agent_owner(agent_owner);
+        }
+        if let Some(confidence) = request.confidence {
+            input = input.with_confidence(confidence);
+        }
+
+        let thought = chain.append_thought(&agent_id, input)?;
+        Ok(AppendThoughtResponse {
+            thought: thought_to_json(thought),
+            head_hash: chain.head_hash().map(ToOwned::to_owned),
+        })
+    }
+
+    async fn append_retrospective(
+        &self,
+        request: AppendRetrospectiveRequest,
+    ) -> Result<AppendThoughtResponse, Box<dyn Error + Send + Sync>> {
+        let chain = self.get_chain(request.chain_key.as_deref()).await?;
+        let mut chain = chain.write().await;
+
+        let thought_type = request
+            .thought_type
+            .as_deref()
+            .map(parse_thought_type)
+            .transpose()?
+            .unwrap_or(ThoughtType::LessonLearned);
+        let fallback_agent_id = self.resolve_chain_key(request.chain_key.as_deref());
+        let (agent_id, agent_name, agent_owner) = self.resolve_agent_identity(
+            request.chain_key.as_deref(),
+            request.agent_id.as_deref(),
+            request.agent_name.as_deref(),
+            request.agent_owner.as_deref(),
+            &fallback_agent_id,
+            &fallback_agent_id,
+        );
+
+        let mut input = ThoughtInput::new(thought_type, request.content)
+            .with_agent_name(agent_name)
+            .with_role(ThoughtRole::Retrospective)
+            .with_importance(request.importance.unwrap_or(0.7))
             .with_tags(request.tags.unwrap_or_default())
             .with_concepts(request.concepts.unwrap_or_default())
             .with_refs(request.refs.unwrap_or_default());
@@ -704,6 +761,21 @@ struct AppendThoughtRequest {
     refs: Option<Vec<u64>>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AppendRetrospectiveRequest {
+    chain_key: Option<String>,
+    agent_id: Option<String>,
+    agent_name: Option<String>,
+    agent_owner: Option<String>,
+    thought_type: Option<String>,
+    content: String,
+    importance: Option<f32>,
+    confidence: Option<f32>,
+    tags: Option<Vec<String>>,
+    concepts: Option<Vec<String>>,
+    refs: Option<Vec<u64>>,
+}
+
 #[derive(Debug, Serialize)]
 struct AppendThoughtResponse {
     thought: Value,
@@ -844,6 +916,13 @@ async fn rest_append_handler(
     service_call(service.append(request).await)
 }
 
+async fn rest_append_retrospective_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<AppendRetrospectiveRequest>,
+) -> Result<Json<AppendThoughtResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.append_retrospective(request).await)
+}
+
 async fn rest_search_handler(
     State(service): State<Arc<ThoughtChainService>>,
     Json(request): Json<SearchRequest>,
@@ -954,6 +1033,21 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("tags", ToolParameterType::Array).with_description("Optional tags.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("concepts", ToolParameterType::Array).with_description("Optional semantic concepts.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("refs", ToolParameterType::Array).with_description("Optional referenced thought indices.").with_items(ToolParameterType::Integer)),
+        ToolMetadata::new(
+            "thoughtchain_append_retrospective",
+            "Append a guided retrospective memory after a hard failure, repeated snag, or non-obvious fix. Prefer this over thoughtchain_append when you want future agents to avoid repeating the same struggle. This tool defaults to ThoughtType LessonLearned and always records the thought with role Retrospective.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Optional producing agent id. Defaults to the chain key when omitted."))
+        .with_parameter(ToolParameter::new("agent_name", ToolParameterType::String).with_description("Optional producing agent name."))
+        .with_parameter(ToolParameter::new("agent_owner", ToolParameterType::String).with_description("Optional producing agent owner or tenant label."))
+        .with_parameter(ToolParameter::new("thought_type", ToolParameterType::String).with_description("Optional retrospective thought type. Defaults to LessonLearned. Useful alternatives include Mistake, Correction, AssumptionInvalidated, StrategyShift, Insight, or Summary."))
+        .with_parameter(ToolParameter::new("content", ToolParameterType::String).with_description("Concise lesson, correction, or operating guidance distilled from the struggle.").required())
+        .with_parameter(ToolParameter::new("importance", ToolParameterType::Number).with_description("Optional importance score between 0.0 and 1.0. Defaults to 0.7."))
+        .with_parameter(ToolParameter::new("confidence", ToolParameterType::Number).with_description("Optional confidence score between 0.0 and 1.0."))
+        .with_parameter(ToolParameter::new("tags", ToolParameterType::Array).with_description("Optional tags.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("concepts", ToolParameterType::Array).with_description("Optional semantic concepts.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("refs", ToolParameterType::Array).with_description("Optional referenced thought indices, such as the mistake, correction, or earlier checkpoint that motivated the lesson.").with_items(ToolParameterType::Integer)),
         ToolMetadata::new(
             "thoughtchain_search",
             "Search durable memories by text, type, role, tags, concepts, and importance.",
@@ -1104,6 +1198,7 @@ fn parse_thought_type(input: &str) -> Result<ThoughtType, Box<dyn Error + Send +
         "hypothesis" => ThoughtType::Hypothesis,
         "mistake" => ThoughtType::Mistake,
         "correction" => ThoughtType::Correction,
+        "lessonlearned" => ThoughtType::LessonLearned,
         "assumptioninvalidated" => ThoughtType::AssumptionInvalidated,
         "constraint" => ThoughtType::Constraint,
         "plan" => ThoughtType::Plan,
@@ -1136,6 +1231,7 @@ fn parse_thought_role(input: &str) -> Result<ThoughtRole, Box<dyn Error + Send +
         "checkpoint" => ThoughtRole::Checkpoint,
         "handoff" => ThoughtRole::Handoff,
         "audit" => ThoughtRole::Audit,
+        "retrospective" => ThoughtRole::Retrospective,
         _ => return Err(format!("Unknown ThoughtRole '{input}'").into()),
     };
 
