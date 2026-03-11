@@ -25,8 +25,7 @@ use subtle::ConstantTimeEq;
 pub const CURRENT_MCP_PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// Legacy MCP protocol versions still accepted for compatibility.
-pub const SUPPORTED_MCP_PROTOCOL_VERSIONS: &[&str] =
-    &["2025-06-18", "2025-03-26", "2024-11-05"];
+pub const SUPPORTED_MCP_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// Configuration for a standard streamable HTTP MCP endpoint.
 ///
@@ -245,7 +244,9 @@ async fn streamable_http_post_handler(
         );
     }
 
-    if let Some(protocol_version) = headers.get("MCP-Protocol-Version").and_then(|v| v.to_str().ok())
+    if let Some(protocol_version) = headers
+        .get("MCP-Protocol-Version")
+        .and_then(|v| v.to_str().ok())
     {
         if !SUPPORTED_MCP_PROTOCOL_VERSIONS.contains(&protocol_version) {
             return json_error_response(
@@ -357,18 +358,18 @@ async fn handle_jsonrpc_request(
                     None,
                 )
             })?;
-            let tool_name = object
-                .get("name")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        -32602,
-                        "tools/call requires params.name".to_string(),
-                        None,
-                    )
-                })?;
-            let arguments = object.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let tool_name = object.get("name").and_then(Value::as_str).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    -32602,
+                    "tools/call requires params.name".to_string(),
+                    None,
+                )
+            })?;
+            let arguments = object
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             let result = state
                 .protocol
                 .execute(tool_name, arguments)
@@ -440,7 +441,11 @@ async fn handle_jsonrpc_request(
     }
 }
 
-fn authorize(config: &StreamableHttpRuntimeConfig, headers: &HeaderMap, ip: std::net::IpAddr) -> bool {
+fn authorize(
+    config: &StreamableHttpRuntimeConfig,
+    headers: &HeaderMap,
+    ip: std::net::IpAddr,
+) -> bool {
     if !config.ip_filter.is_allowed(ip) {
         return false;
     }
@@ -495,8 +500,14 @@ fn server_capabilities(include_resources: bool) -> Value {
 
 fn server_info(config: &StreamableHttpConfig) -> Value {
     let mut info = serde_json::Map::from_iter([
-        ("name".to_string(), Value::String(config.server_name.clone())),
-        ("version".to_string(), Value::String(config.server_version.clone())),
+        (
+            "name".to_string(),
+            Value::String(config.server_name.clone()),
+        ),
+        (
+            "version".to_string(),
+            Value::String(config.server_version.clone()),
+        ),
     ]);
     if let Some(title) = &config.server_title {
         info.insert("title".to_string(), Value::String(title.clone()));
@@ -508,7 +519,10 @@ fn tool_to_mcp_json(tool: crate::protocol::ToolMetadata) -> Value {
     let definition = tool.to_tool_definition();
     let mut object = serde_json::Map::from_iter([
         ("name".to_string(), Value::String(definition.name)),
-        ("description".to_string(), Value::String(definition.description)),
+        (
+            "description".to_string(),
+            Value::String(definition.description),
+        ),
         ("inputSchema".to_string(), definition.parameters_schema),
     ]);
     if let Some(title) = tool
@@ -534,8 +548,7 @@ fn tool_result_to_mcp_json(result: crate::protocol::ToolResult) -> Value {
     } else if result.output.is_string() {
         result.output.as_str().unwrap_or_default().to_string()
     } else {
-        serde_json::to_string_pretty(&result.output)
-            .unwrap_or_else(|_| result.output.to_string())
+        serde_json::to_string_pretty(&result.output).unwrap_or_else(|_| result.output.to_string())
     };
 
     let mut object = serde_json::Map::from_iter([
@@ -608,7 +621,9 @@ fn json_error_response(
         .into_response()
 }
 
-fn server_error_from(error: Box<dyn Error + Send + Sync>) -> (StatusCode, i32, String, Option<Value>) {
+fn server_error_from(
+    error: Box<dyn Error + Send + Sync>,
+) -> (StatusCode, i32, String, Option<Value>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         -32603,

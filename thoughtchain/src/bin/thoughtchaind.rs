@@ -47,8 +47,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "THOUGHTCHAIN_BIND_HOST",
         Some(config.mcp_addr.ip().to_string()),
     );
-    print_env_var("THOUGHTCHAIN_MCP_PORT", Some(config.mcp_addr.port().to_string()));
-    print_env_var("THOUGHTCHAIN_REST_PORT", Some(config.rest_addr.port().to_string()));
+    print_env_var(
+        "THOUGHTCHAIN_MCP_PORT",
+        Some(config.mcp_addr.port().to_string()),
+    );
+    print_env_var(
+        "THOUGHTCHAIN_REST_PORT",
+        Some(config.rest_addr.port().to_string()),
+    );
 
     println!("Resolved endpoints:");
     println!("MCP server:  http://{}", handles.mcp.local_addr());
@@ -61,7 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 fn print_env_var(name: &str, effective_value: Option<String>) {
     match std::env::var(name) {
-        Ok(raw_value) => println!("  {name}={raw_value} (effective: {})", display_value(effective_value)),
+        Ok(raw_value) => println!(
+            "  {name}={raw_value} (effective: {})",
+            display_value(effective_value)
+        ),
         Err(_) => println!(
             "  {name}=<unset> (effective default: {})",
             display_value(effective_value)

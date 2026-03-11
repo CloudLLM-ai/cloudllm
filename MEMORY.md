@@ -29,7 +29,7 @@ Generated from `astro` with 10 thought(s).
 - [#4] Constraint: Avoid circular dependencies: cloudllm may depend on thoughtchain and mcp, but thoughtchain must remain independently useful and must not depend on cloudllm. (agent Astro [astro] owned by @gubatron; importance 0.99; tags architecture, dependencies, constraint)
 - [#5] Decision: ThoughtChain storage is adapter-backed. Current storage adapters are jsonl and binary, selected for the daemon with THOUGHTCHAIN_STORAGE_ADAPTER=jsonl|binary. (agent Astro [astro] owned by @gubatron; importance 0.94; tags storage, adapters, config)
 - [#7] Decision: thoughtchaind is the standalone daemon in the thoughtchain crate. It serves standard MCP at the root endpoint, keeps legacy /tools/list and /tools/execute compatibility, and exposes a separate REST API. (agent Astro [astro] owned by @gubatron; importance 0.97; tags daemon, mcp, rest)
-- [#8] Decision: Workspace publish order matters because cloudllm depends on internal crates published to crates.io first: publish mcp, then thoughtchain, then cloudllm. (agent Astro [astro] owned by @gubatron; importance 0.90; tags release, publishing, workspace)
+- [#8] Decision: Workspace publish order matters because cloudllm depends on internal crates published to crates.io first: publish cloudllm_mcp, then thoughtchain, then cloudllm. (agent Astro [astro] owned by @gubatron; importance 0.90; tags release, publishing, workspace)
 
 ## Execution State
 

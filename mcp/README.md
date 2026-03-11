@@ -1,4 +1,7 @@
-# mcp
+# cloudllm_mcp
+
+`cloudllm_mcp` is the published package name for the standalone Rust crate
+that exposes the `mcp` library target. Code can still import it as `mcp`.
 
 `mcp` is a standalone Rust crate containing reusable MCP-oriented tool
 protocol primitives, an HTTP client/server runtime, and supporting utilities.
@@ -31,19 +34,19 @@ foundation without creating circular dependencies.
 ## Build
 
 ```bash
-cargo build -p mcp
+cargo build -p cloudllm_mcp
 ```
 
 Build with HTTP server support:
 
 ```bash
-cargo build -p mcp --features server
+cargo build -p cloudllm_mcp --features server
 ```
 
 ## Test
 
 ```bash
-cargo test -p mcp
+cargo test -p cloudllm_mcp
 ```
 
 ## Intended Use

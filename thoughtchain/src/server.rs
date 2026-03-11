@@ -30,8 +30,8 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use mcp::http::axum_router as shared_mcp_router;
 use mcp::{
-    HttpServerConfig, IpFilter, ToolError, ToolMetadata, ToolParameter, ToolParameterType,
-    ToolProtocol, ToolResult, StreamableHttpConfig, streamable_http_router,
+    streamable_http_router, HttpServerConfig, IpFilter, StreamableHttpConfig, ToolError,
+    ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolResult,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -264,11 +264,7 @@ pub async fn start_mcp_server(
     config: ThoughtChainServiceConfig,
 ) -> Result<ServerHandle, Box<dyn Error + Send + Sync>> {
     let service = Arc::new(ThoughtChainService::new(config));
-    start_router(
-        addr,
-        standard_and_legacy_mcp_router(service, addr),
-    )
-    .await
+    start_router(addr, standard_and_legacy_mcp_router(service, addr)).await
 }
 
 /// Start a standalone ThoughtChain REST server.
@@ -799,10 +795,10 @@ async fn start_router(
             listener,
             router.into_make_service_with_connect_info::<SocketAddr>(),
         )
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            })
-            .await;
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        })
+        .await;
     });
 
     Ok(ServerHandle::new(local_addr, shutdown_tx))

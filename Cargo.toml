@@ -37,7 +37,7 @@ axum = { version = "0.8.7", optional = true }
 tower = { version = "0.5.2", optional = true }
 uuid = { version = "1.10", features = ["v4"] }
 thoughtchain = { path = "thoughtchain", version = "0.1.0", features = ["server"] }
-mcp = { path = "mcp", version = "0.1.0", features = ["server"] }
+mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.1.0", features = ["server"] }
 
 [dev-dependencies]
 tempfile = "3.23"

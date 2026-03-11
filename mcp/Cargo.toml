@@ -1,15 +1,18 @@
 [package]
-name = "mcp"
+name = "cloudllm_mcp"
 version = "0.1.0"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "Reusable MCP runtime, protocol types, and HTTP server/client primitives."
 repository = "https://github.com/CloudLLM-ai/cloudllm"
-documentation = "https://docs.rs/mcp/latest/mcp/"
+documentation = "https://docs.rs/cloudllm_mcp/latest/mcp/"
 readme = "README.md"
 keywords = ["mcp", "model-context-protocol", "tools", "agents", "server"]
 categories = ["development-tools", "network-programming", "asynchronous"]
+
+[lib]
+name = "mcp"
 
 [features]
 default = []

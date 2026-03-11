@@ -47,14 +47,14 @@ doc: ## Generate project documentation using cargo doc
 	${CARGO_CMD} doc --workspace --all-features
 
 # Publish workspace crates to crates.io in dependency order
-publish: ## Publish mcp, thoughtchain, then cloudllm to crates.io
-	${CARGO_CMD} publish -p mcp
+publish: ## Publish cloudllm_mcp, thoughtchain, then cloudllm to crates.io
+	${CARGO_CMD} publish -p cloudllm_mcp
 	${CARGO_CMD} publish -p thoughtchain
 	${CARGO_CMD} publish -p cloudllm
 
 # Dry-run workspace publish in dependency order
-publish-dry-run: ## Dry-run publish for mcp, thoughtchain, then cloudllm
-	${CARGO_CMD} publish -p mcp --dry-run
+publish-dry-run: ## Dry-run publish for cloudllm_mcp, thoughtchain, then cloudllm
+	${CARGO_CMD} publish -p cloudllm_mcp --dry-run
 	${CARGO_CMD} publish -p thoughtchain --dry-run
 	${CARGO_CMD} publish -p cloudllm --dry-run
 

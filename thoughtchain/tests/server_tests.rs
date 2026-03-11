@@ -7,7 +7,9 @@ use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use serde_json::json;
-use thoughtchain::server::{mcp_router, rest_router, standard_mcp_router, ThoughtChainServiceConfig};
+use thoughtchain::server::{
+    mcp_router, rest_router, standard_mcp_router, ThoughtChainServiceConfig,
+};
 use thoughtchain::StorageAdapterKind;
 use tower::util::ServiceExt;
 
@@ -237,11 +239,17 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
             .and_then(|value| value.to_str().ok()),
         Some("application/json")
     );
-    let initialize_json: serde_json::Value =
-        serde_json::from_slice(&axum::body::to_bytes(initialize.into_body(), usize::MAX).await.unwrap())
-            .unwrap();
+    let initialize_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(initialize.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(initialize_json["result"]["protocolVersion"], "2025-06-18");
-    assert_eq!(initialize_json["result"]["serverInfo"]["name"], "thoughtchain");
+    assert_eq!(
+        initialize_json["result"]["serverInfo"]["name"],
+        "thoughtchain"
+    );
 
     let mut initialized_request = Request::builder()
         .method("POST")
@@ -281,11 +289,16 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
         .insert(ConnectInfo(client_addr));
     let tools_list = router.oneshot(tools_list_request).await.unwrap();
     assert_eq!(tools_list.status(), StatusCode::OK);
-    let tools_json: serde_json::Value =
-        serde_json::from_slice(&axum::body::to_bytes(tools_list.into_body(), usize::MAX).await.unwrap())
-            .unwrap();
+    let tools_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(tools_list.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
     let tools = tools_json["result"]["tools"].as_array().unwrap();
-    assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_append"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_append"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);

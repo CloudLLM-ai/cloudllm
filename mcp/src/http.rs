@@ -379,7 +379,8 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
 
                         match proto.list_resources().await {
                             Ok(resources) => {
-                                (StatusCode::OK, Json(json!({"resources": resources}))).into_response()
+                                (StatusCode::OK, Json(json!({"resources": resources})))
+                                    .into_response()
                             }
                             Err(e) => (
                                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -461,7 +462,8 @@ impl HttpServerAdapter for AxumHttpAdapter {
     ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>> {
         use crate::events::McpEvent;
         use tokio::net::TcpListener;
-        let app = axum_router(&config, protocol).into_make_service_with_connect_info::<SocketAddr>();
+        let app =
+            axum_router(&config, protocol).into_make_service_with_connect_info::<SocketAddr>();
 
         // Bind and start server
         let listener = TcpListener::bind(config.addr).await?;
