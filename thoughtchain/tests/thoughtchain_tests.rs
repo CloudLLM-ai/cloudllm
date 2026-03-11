@@ -1,9 +1,10 @@
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use thoughtchain::{
-    chain_filename, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind,
-    ThoughtRole, ThoughtType,
+    chain_filename, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
+    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
 };
 use uuid::Uuid;
 
@@ -31,6 +32,8 @@ fn append_and_reload_preserves_semantic_metadata() {
                     "The bottleneck is cache invalidation.",
                 )
                 .with_session_id(session_id)
+                .with_agent_name("Analyst")
+                .with_agent_owner("cloudllm")
                 .with_importance(0.95)
                 .with_confidence(0.8)
                 .with_tags(["performance", "cache"])
@@ -52,6 +55,9 @@ fn append_and_reload_preserves_semantic_metadata() {
     assert_eq!(thought.session_id, Some(session_id));
     assert_eq!(thought.thought_type, ThoughtType::Insight);
     assert_eq!(thought.role, ThoughtRole::Memory);
+    assert_eq!(thought.agent_id, "agent1");
+    assert_eq!(thought.agent_name, "Analyst");
+    assert_eq!(thought.agent_owner.as_deref(), Some("cloudllm"));
     assert_eq!(thought.tags, vec!["performance", "cache"]);
     assert_eq!(thought.concepts, vec!["latency", "cache invalidation"]);
 
@@ -138,6 +144,91 @@ fn query_filters_by_type_tag_and_text() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[derive(Clone)]
+struct MemoryStorageAdapter {
+    location: String,
+    thoughts: Arc<Mutex<Vec<Thought>>>,
+}
+
+impl MemoryStorageAdapter {
+    fn new(location: impl Into<String>) -> Self {
+        Self {
+            location: location.into(),
+            thoughts: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl StorageAdapter for MemoryStorageAdapter {
+    fn load_thoughts(&self) -> std::io::Result<Vec<Thought>> {
+        Ok(self.thoughts.lock().unwrap().clone())
+    }
+
+    fn append_thought(&self, thought: &Thought) -> std::io::Result<()> {
+        self.thoughts.lock().unwrap().push(thought.clone());
+        Ok(())
+    }
+
+    fn storage_location(&self) -> String {
+        self.location.clone()
+    }
+}
+
+#[test]
+fn custom_storage_adapter_can_back_a_chain() {
+    let adapter = MemoryStorageAdapter::new("memory://test");
+    let mut chain = ThoughtChain::open_with_storage(Box::new(adapter.clone())).unwrap();
+    chain
+        .append(
+            "agent1",
+            ThoughtType::Checkpoint,
+            "Adapter-backed thought persisted.",
+        )
+        .unwrap();
+    assert_eq!(chain.storage_location(), "memory://test");
+
+    let reloaded = ThoughtChain::open_with_storage(Box::new(adapter)).unwrap();
+    assert_eq!(reloaded.thoughts().len(), 1);
+    assert_eq!(reloaded.thoughts()[0].content, "Adapter-backed thought persisted.");
+}
+
+#[test]
+fn shared_chain_queries_can_filter_by_agent_identity() {
+    let dir = unique_chain_dir();
+    let mut chain = ThoughtChain::open_with_key(&dir, "shared-project").unwrap();
+
+    chain
+        .append_thought(
+            "agent-alpha",
+            ThoughtInput::new(ThoughtType::Insight, "Rate limiting is upstream.")
+                .with_agent_name("Planner")
+                .with_agent_owner("team-red"),
+        )
+        .unwrap();
+    chain
+        .append_thought(
+            "agent-beta",
+            ThoughtInput::new(ThoughtType::Decision, "Use backoff and retry windows.")
+                .with_agent_name("Executor")
+                .with_agent_owner("team-blue"),
+        )
+        .unwrap();
+
+    let by_name = chain.query(&ThoughtQuery::new().with_agent_names(["Planner"]));
+    assert_eq!(by_name.len(), 1);
+    assert_eq!(by_name[0].agent_id, "agent-alpha");
+
+    let by_owner = chain.query(&ThoughtQuery::new().with_agent_owners(["team-blue"]));
+    assert_eq!(by_owner.len(), 1);
+    assert_eq!(by_owner[0].agent_name, "Executor");
+
+    let by_text = chain.query(&ThoughtQuery::new().with_text("team-red"));
+    assert_eq!(by_text.len(), 1);
+    assert_eq!(by_text[0].agent_name, "Planner");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn memory_markdown_groups_thoughts_into_sections() {
     let dir = unique_chain_dir();
@@ -160,6 +251,13 @@ fn memory_markdown_groups_thoughts_into_sections() {
     chain
         .append(
             "agent1",
+            ThoughtType::Wonder,
+            "Would concept embeddings improve retrieval quality?",
+        )
+        .unwrap();
+    chain
+        .append(
+            "agent1",
             ThoughtType::Question,
             "Should embeddings be optional?",
         )
@@ -171,6 +269,8 @@ fn memory_markdown_groups_thoughts_into_sections() {
     assert!(markdown.contains("## Constraints And Decisions"));
     assert!(markdown.contains("## Open Threads"));
     assert!(markdown.contains("User prefers short Markdown outputs."));
+    assert!(markdown.contains("Would concept embeddings improve retrieval quality?"));
+    assert!(markdown.contains("agent agent1"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

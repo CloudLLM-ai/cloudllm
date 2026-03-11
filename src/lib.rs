@@ -312,8 +312,8 @@ pub use cloudllm::context_strategy::{
 pub use cloudllm::llm_session::LLMSession;
 pub use thoughtchain;
 pub use thoughtchain::{
-    Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind,
-    ThoughtRole, ThoughtType,
+    JsonlStorageAdapter, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
+    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
 };
 
 // Re-export tool protocol and orchestration functionality

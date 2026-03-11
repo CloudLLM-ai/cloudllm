@@ -1,10 +1,14 @@
 //! Semantic, hash-chained memory for long-running agents.
 //!
-//! `thoughtchain` provides an append-only `.jsonl` event log for durable,
-//! queryable cognitive state. Thoughts are timestamped, hash-chained, typed,
-//! optionally connected to prior thoughts, and exportable as prompts or
-//! Markdown memory snapshots.
+//! `thoughtchain` provides an append-only, adapter-backed memory log for
+//! durable, queryable cognitive state. Thoughts are timestamped, hash-chained,
+//! typed, optionally connected to prior thoughts, and exportable as prompts or
+//! Markdown memory snapshots. The current default backend is JSONL, but the
+//! chain model is intentionally independent from any single storage format.
 #![warn(missing_docs)]
+
+#[cfg(feature = "server")]
+pub mod server;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,6 +18,107 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+/// Persistence interface for ThoughtChain storage backends.
+///
+/// Storage adapters are responsible only for durable read and append
+/// operations. The in-memory chain model, hashing, querying, and replay logic
+/// remain inside [`ThoughtChain`].
+///
+/// # Example
+///
+/// ```
+/// use std::path::PathBuf;
+/// use thoughtchain::{JsonlStorageAdapter, StorageAdapter};
+///
+/// let adapter = JsonlStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_store"), "demo");
+/// let location = adapter.storage_location();
+///
+/// assert!(location.ends_with(".jsonl"));
+/// ```
+pub trait StorageAdapter: Send + Sync {
+    /// Load all persisted thoughts in order.
+    fn load_thoughts(&self) -> io::Result<Vec<Thought>>;
+
+    /// Persist a newly appended thought.
+    fn append_thought(&self, thought: &Thought) -> io::Result<()>;
+
+    /// Return a human-readable storage location or descriptor.
+    fn storage_location(&self) -> String;
+}
+
+/// Append-only JSONL storage adapter for ThoughtChain.
+///
+/// This is the default storage backend used by [`ThoughtChain::open`] and
+/// [`ThoughtChain::open_with_key`].
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use std::path::PathBuf;
+/// use thoughtchain::{JsonlStorageAdapter, StorageAdapter};
+///
+/// let adapter = JsonlStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_jsonl"), "agent-memory");
+/// assert!(adapter.storage_location().ends_with(".jsonl"));
+/// ```
+#[derive(Debug, Clone)]
+pub struct JsonlStorageAdapter {
+    file_path: PathBuf,
+}
+
+impl JsonlStorageAdapter {
+    /// Create a JSONL adapter for an explicit file path.
+    pub fn new(file_path: PathBuf) -> Self {
+        Self { file_path }
+    }
+
+    /// Create a JSONL adapter using the stable ThoughtChain filename for a chain key.
+    pub fn for_chain_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> Self {
+        let file_path = chain_dir
+            .as_ref()
+            .join(chain_filename(chain_key, "", None, None));
+        Self::new(file_path)
+    }
+
+    /// Return the underlying JSONL path.
+    pub fn file_path(&self) -> &PathBuf {
+        &self.file_path
+    }
+}
+
+impl StorageAdapter for JsonlStorageAdapter {
+    fn load_thoughts(&self) -> io::Result<Vec<Thought>> {
+        if !self.file_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let file = fs::File::open(&self.file_path)?;
+        let reader = BufReader::new(file);
+        let mut entries = Vec::new();
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let thought: Thought = serde_json::from_str(&line).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Failed to parse thought: {e}"),
+                )
+            })?;
+            entries.push(thought);
+        }
+        Ok(entries)
+    }
+
+    fn append_thought(&self, thought: &Thought) -> io::Result<()> {
+        persist_jsonl_thought(&self.file_path, thought)
+    }
+
+    fn storage_location(&self) -> String {
+        self.file_path.display().to_string()
+    }
+}
 
 /// Semantic category describing what changed in the agent's internal model.
 ///
@@ -65,6 +170,8 @@ pub enum ThoughtType {
     Decision,
     /// The agent changed its overall approach.
     StrategyShift,
+    /// An open-ended curiosity or line of exploration was recorded.
+    Wonder,
     /// An unresolved question was recorded.
     Question,
     /// A possible future direction or design concept was proposed.
@@ -201,6 +308,10 @@ pub struct ThoughtRelation {
 pub struct ThoughtInput {
     /// Optional session identifier associated with the thought.
     pub session_id: Option<Uuid>,
+    /// Optional human-readable name of the producing agent.
+    pub agent_name: Option<String>,
+    /// Optional owner or grouping label for the producing agent.
+    pub agent_owner: Option<String>,
     /// Semantic meaning of the thought.
     pub thought_type: ThoughtType,
     /// Operational role played by this thought.
@@ -242,6 +353,8 @@ impl ThoughtInput {
     pub fn new(thought_type: ThoughtType, content: impl Into<String>) -> Self {
         Self {
             session_id: None,
+            agent_name: None,
+            agent_owner: None,
             thought_type,
             role: ThoughtRole::Memory,
             content: content.into(),
@@ -257,6 +370,18 @@ impl ThoughtInput {
     /// Attach a session identifier to the thought.
     pub fn with_session_id(mut self, session_id: Uuid) -> Self {
         self.session_id = Some(session_id);
+        self
+    }
+
+    /// Attach a human-readable agent name to the thought.
+    pub fn with_agent_name(mut self, agent_name: impl Into<String>) -> Self {
+        self.agent_name = Some(agent_name.into());
+        self
+    }
+
+    /// Attach an owner or grouping label to the thought.
+    pub fn with_agent_owner(mut self, agent_owner: impl Into<String>) -> Self {
+        self.agent_owner = Some(agent_owner.into());
         self
     }
 
@@ -342,6 +467,12 @@ pub struct Thought {
     pub session_id: Option<Uuid>,
     /// Stable identifier of the producing agent.
     pub agent_id: String,
+    /// Human-readable name of the producing agent.
+    #[serde(default)]
+    pub agent_name: String,
+    /// Optional owner or grouping label for the producing agent.
+    #[serde(default)]
+    pub agent_owner: Option<String>,
     /// Semantic meaning of the thought.
     pub thought_type: ThoughtType,
     /// Operational role played by this thought.
@@ -390,6 +521,10 @@ pub struct ThoughtQuery {
     pub roles: Option<Vec<ThoughtRole>>,
     /// Agent ids to match.
     pub agent_ids: Option<Vec<String>>,
+    /// Agent names to match.
+    pub agent_names: Option<Vec<String>>,
+    /// Agent owners to match.
+    pub agent_owners: Option<Vec<String>>,
     /// Match if any tag matches.
     pub tags_any: Vec<String>,
     /// Match if any concept matches.
@@ -433,6 +568,26 @@ impl ThoughtQuery {
         S: Into<String>,
     {
         self.agent_ids = Some(agent_ids.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Limit matches to the provided agent names.
+    pub fn with_agent_names<I, S>(mut self, agent_names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.agent_names = Some(agent_names.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Limit matches to the provided agent owner labels.
+    pub fn with_agent_owners<I, S>(mut self, agent_owners: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.agent_owners = Some(agent_owners.into_iter().map(Into::into).collect());
         self
     }
 
@@ -514,6 +669,27 @@ impl ThoughtQuery {
             }
         }
 
+        if let Some(agent_names) = &self.agent_names {
+            if !agent_names
+                .iter()
+                .any(|agent_name| equals_case_insensitive(&thought.agent_name, agent_name))
+            {
+                return false;
+            }
+        }
+
+        if let Some(agent_owners) = &self.agent_owners {
+            let Some(owner) = &thought.agent_owner else {
+                return false;
+            };
+            if !agent_owners
+                .iter()
+                .any(|agent_owner| equals_case_insensitive(owner, agent_owner))
+            {
+                return false;
+            }
+        }
+
         if let Some(min_importance) = self.min_importance {
             if thought.importance < min_importance {
                 return false;
@@ -560,6 +736,13 @@ impl ThoughtQuery {
         if let Some(text) = &self.text_contains {
             let needle = text.to_lowercase();
             if !thought.content.to_lowercase().contains(&needle)
+                && !thought.agent_id.to_lowercase().contains(&needle)
+                && !thought.agent_name.to_lowercase().contains(&needle)
+                && !thought
+                    .agent_owner
+                    .as_ref()
+                    .map(|owner| owner.to_lowercase().contains(&needle))
+                    .unwrap_or(false)
                 && !thought
                     .tags
                     .iter()
@@ -579,9 +762,11 @@ impl ThoughtQuery {
 
 /// Append-only, hash-chained semantic memory store.
 ///
-/// `ThoughtChain` stores thoughts in memory and on disk as newline-delimited
-/// JSON. Every record includes a SHA-256 hash of its canonical contents plus
-/// the previous record hash, making offline tampering detectable.
+/// `ThoughtChain` stores thoughts in memory and persists them through a
+/// [`StorageAdapter`]. Every record includes a SHA-256 hash of its canonical
+/// contents plus the previous record hash, making offline tampering
+/// detectable. The default backend is newline-delimited JSON via
+/// [`JsonlStorageAdapter`].
 ///
 /// # Example
 ///
@@ -600,7 +785,7 @@ impl ThoughtQuery {
 pub struct ThoughtChain {
     thoughts: Vec<Thought>,
     id_to_index: HashMap<Uuid, usize>,
-    file_path: PathBuf,
+    storage: Box<dyn StorageAdapter>,
     auto_flush: bool,
 }
 
@@ -633,47 +818,23 @@ impl ThoughtChain {
         Self::open_with_key(chain_dir, agent_id)
     }
 
-    /// Open or create a chain using an explicit stable chain key.
+    /// Open or create a chain using a caller-provided storage adapter.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::ThoughtChain;
+    /// use thoughtchain::{JsonlStorageAdapter, ThoughtChain};
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let chain = ThoughtChain::open_with_key(PathBuf::from("/tmp/tc_key"), "project-memory")?;
+    /// let adapter = JsonlStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_custom"), "project-memory");
+    /// let chain = ThoughtChain::open_with_storage(Box::new(adapter))?;
     /// assert!(chain.thoughts().is_empty());
     /// # Ok(())
     /// # }
     /// ```
-    pub fn open_with_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> io::Result<Self> {
-        fs::create_dir_all(chain_dir.as_ref())?;
-
-        let file_path = chain_dir
-            .as_ref()
-            .join(chain_filename(chain_key, "", None, None));
-        let thoughts = if file_path.exists() {
-            let file = fs::File::open(&file_path)?;
-            let reader = BufReader::new(file);
-            let mut entries = Vec::new();
-            for line in reader.lines() {
-                let line = line?;
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let thought: Thought = serde_json::from_str(&line).map_err(|e| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Failed to parse thought: {e}"),
-                    )
-                })?;
-                entries.push(thought);
-            }
-            entries
-        } else {
-            Vec::new()
-        };
+    pub fn open_with_storage(storage: Box<dyn StorageAdapter>) -> io::Result<Self> {
+        let thoughts = storage.load_thoughts()?;
 
         let mut id_to_index = HashMap::new();
         for (position, thought) in thoughts.iter().enumerate() {
@@ -692,7 +853,7 @@ impl ThoughtChain {
         let chain = Self {
             thoughts,
             id_to_index,
-            file_path,
+            storage,
             auto_flush: true,
         };
 
@@ -704,6 +865,27 @@ impl ThoughtChain {
         }
 
         Ok(chain)
+    }
+
+    /// Open or create a chain using an explicit stable chain key.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use std::path::PathBuf;
+    /// use thoughtchain::ThoughtChain;
+    ///
+    /// # fn main() -> std::io::Result<()> {
+    /// let chain = ThoughtChain::open_with_key(PathBuf::from("/tmp/tc_key"), "project-memory")?;
+    /// assert!(chain.thoughts().is_empty());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn open_with_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> io::Result<Self> {
+        fs::create_dir_all(chain_dir.as_ref())?;
+        Self::open_with_storage(Box::new(JsonlStorageAdapter::for_chain_key(
+            chain_dir, chain_key,
+        )))
     }
 
     /// Append a simple thought with default metadata and no references.
@@ -813,6 +995,17 @@ impl ThoughtChain {
             timestamp,
             session_id: input.session_id,
             agent_id: agent_id.to_string(),
+            agent_name: input
+                .agent_name
+                .take()
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| agent_id.to_string()),
+            agent_owner: input
+                .agent_owner
+                .take()
+                .map(|owner| owner.trim().to_string())
+                .filter(|owner| !owner.is_empty()),
             thought_type: input.thought_type,
             role: input.role,
             content: input.content,
@@ -830,7 +1023,7 @@ impl ThoughtChain {
         let thought = Thought { hash, ..thought };
 
         if self.auto_flush {
-            persist_thought(&self.file_path, &thought)?;
+            self.storage.append_thought(&thought)?;
         }
 
         self.id_to_index.insert(thought.id, self.thoughts.len());
@@ -963,7 +1156,7 @@ impl ThoughtChain {
                 thought.index,
                 thought.thought_type,
                 thought.role,
-                thought.agent_id,
+                agent_label(thought),
                 thought.content
             ));
             if let Some(confidence) = thought.confidence {
@@ -999,7 +1192,7 @@ impl ThoughtChain {
                 thought.index,
                 thought.thought_type,
                 thought.role,
-                thought.agent_id,
+                agent_label(thought),
                 thought.content
             ));
         }
@@ -1035,7 +1228,7 @@ impl ThoughtChain {
         let mut markdown = String::from("# MEMORY\n\n");
         markdown.push_str(&format!(
             "Generated from `{}` with {} thought(s).\n\n",
-            self.file_path.display(),
+            self.storage.storage_location(),
             thoughts.len()
         ));
 
@@ -1089,6 +1282,7 @@ impl ThoughtChain {
             "Open Threads",
             &thoughts,
             &[
+                ThoughtType::Wonder,
                 ThoughtType::Question,
                 ThoughtType::Idea,
                 ThoughtType::Experiment,
@@ -1121,9 +1315,9 @@ impl ThoughtChain {
         self.thoughts.last().map(|thought| thought.hash.as_str())
     }
 
-    /// Return the path of the `.jsonl` file backing this chain.
-    pub fn file_path(&self) -> &PathBuf {
-        &self.file_path
+    /// Return a human-readable description of the underlying storage location.
+    pub fn storage_location(&self) -> String {
+        self.storage.storage_location()
     }
 
     /// Enable or disable immediate persistence on append.
@@ -1193,6 +1387,7 @@ fn append_memory_section(
             thought.index, thought.thought_type, thought.content
         ));
         let mut metadata = Vec::new();
+        metadata.push(format!("agent {}", agent_label(thought)));
         metadata.push(format!("importance {:.2}", thought.importance));
         if let Some(confidence) = thought.confidence {
             metadata.push(format!("confidence {:.2}", confidence));
@@ -1213,6 +1408,26 @@ fn contains_case_insensitive(values: &[String], needle: &str) -> bool {
     values
         .iter()
         .any(|value| value.to_lowercase() == needle || value.to_lowercase().contains(&needle))
+}
+
+fn equals_case_insensitive(value: &str, needle: &str) -> bool {
+    value.eq_ignore_ascii_case(needle)
+}
+
+fn agent_label(thought: &Thought) -> String {
+    let mut label = if thought.agent_name.trim().is_empty() || thought.agent_name == thought.agent_id {
+        thought.agent_id.clone()
+    } else {
+        format!("{} [{}]", thought.agent_name, thought.agent_id)
+    };
+
+    if let Some(owner) = &thought.agent_owner {
+        if !owner.trim().is_empty() {
+            label.push_str(&format!(" owned by {}", owner));
+        }
+    }
+
+    label
 }
 
 fn normalize_strings(values: Vec<String>) -> Vec<String> {
@@ -1248,7 +1463,7 @@ fn dedupe_relations(relations: &mut Vec<ThoughtRelation>) {
     relations.retain(|relation| seen.insert((relation.kind, relation.target_id)));
 }
 
-fn persist_thought(file_path: &Path, thought: &Thought) -> io::Result<()> {
+fn persist_jsonl_thought(file_path: &Path, thought: &Thought) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -1267,6 +1482,8 @@ fn compute_thought_hash(thought: &Thought) -> String {
         timestamp: &'a DateTime<Utc>,
         session_id: Option<Uuid>,
         agent_id: &'a str,
+        agent_name: &'a str,
+        agent_owner: Option<&'a str>,
         thought_type: ThoughtType,
         role: ThoughtRole,
         content: &'a str,
@@ -1285,6 +1502,8 @@ fn compute_thought_hash(thought: &Thought) -> String {
         timestamp: &thought.timestamp,
         session_id: thought.session_id,
         agent_id: &thought.agent_id,
+        agent_name: &thought.agent_name,
+        agent_owner: thought.agent_owner.as_deref(),
         thought_type: thought.thought_type,
         role: thought.role,
         content: &thought.content,

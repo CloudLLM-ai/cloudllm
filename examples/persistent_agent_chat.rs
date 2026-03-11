@@ -8,8 +8,8 @@
 //! The agent restores prior memory on startup and persists each completed turn
 //! back into ThoughtChain so it can remember previous sessions.
 
-#[path = "support/thoughtchain_mcp.rs"]
-mod thoughtchain_mcp;
+#[path = "support/persistent_agent_tools.rs"]
+mod persistent_agent_tools;
 
 use std::env;
 use std::io::{self, Write};
@@ -21,10 +21,8 @@ use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::tool_protocol::ToolProtocol;
 use cloudllm::Agent;
 use serde_json::json;
-use thoughtchain_mcp::{
-    build_persistent_agent_registry, default_thoughtchain_dir, start_thoughtchain_mcp_server,
-    ThoughtChainMcpConfig,
-};
+use persistent_agent_tools::build_persistent_agent_registry;
+use thoughtchain::server::{default_thoughtchain_dir, start_mcp_server, ThoughtChainServiceConfig};
 
 const DEFAULT_CHAIN_KEY: &str = "persistent-chat-agent";
 
@@ -48,15 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let thoughtchain_endpoint = if let Ok(endpoint) = env::var("THOUGHTCHAIN_MCP_ENDPOINT") {
         endpoint
     } else {
-        let server = start_thoughtchain_mcp_server(
+        let server = start_mcp_server(
             SocketAddr::from(([127, 0, 0, 1], 0)),
-            ThoughtChainMcpConfig {
-                chain_dir: chain_dir.clone(),
-                default_chain_key: chain_key.clone(),
-            },
+            ThoughtChainServiceConfig::new(chain_dir.clone(), chain_key.clone()),
         )
         .await?;
-        let endpoint = format!("http://{}", server.get_addr());
+        let endpoint = format!("http://{}", server.local_addr());
         embedded_server = Some(server);
         endpoint
     };
