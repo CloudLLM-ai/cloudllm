@@ -1,7 +1,7 @@
 //! Configuration for CloudLLM.
 //!
 //! Provides the [`CloudLLMConfig`] struct for configuring
-//! [`ThoughtChain`](crate::ThoughtChain) storage and other global settings.
+//! [`ThoughtChain`](crate::ThoughtChain) storage configuration and other global settings.
 //! Users construct this manually — no file parsing dependencies are required.
 //!
 //! # Example
@@ -37,9 +37,11 @@ use std::path::PathBuf;
 /// };
 /// ```
 pub struct CloudLLMConfig {
-    /// Directory where [`ThoughtChain`](crate::ThoughtChain) `.jsonl` files
-    /// are stored.  Passed to [`ThoughtChain::open`](crate::ThoughtChain::open)
-    /// as the `chain_dir` argument.
+    /// Directory where the default ThoughtChain JSONL storage adapter stores
+    /// chain files.
+    ///
+    /// Passed to [`ThoughtChain::open`](crate::ThoughtChain::open) as the
+    /// `chain_dir` argument.
     pub thought_chain_dir: PathBuf,
 }
 

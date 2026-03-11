@@ -1,3 +1,48 @@
+0.12.0 MAR/11/2026
+ - feat: Extract ThoughtChain into a standalone workspace crate
+   - Moved semantic memory out of CloudLLM internals into `thoughtchain/`
+   - CloudLLM now depends on `thoughtchain` as an external crate instead of an internal module
+   - Removed the legacy internal `thought_chain.rs`
+   - Preserved append-only, hash-chained memory semantics while redesigning the schema for richer semantic retrieval
+ - feat: World-class ThoughtChain schema and query model
+   - Added richer `ThoughtType` taxonomy for semantic agent memory
+   - Added `ThoughtRole` to separate semantic meaning from operational lifecycle concerns
+   - Added stable thought ids, importance, confidence, tags, concepts, refs, and typed relations in the crate model
+   - Added query and export primitives including `MEMORY.md` rendering from ThoughtChain state
+   - Added shared-chain agent identity fields and filters: `agent_id`, `agent_name`, `agent_owner`
+ - feat: ThoughtChain storage adapter abstraction
+   - Introduced a swappable `StorageAdapter` interface in the standalone crate
+   - Added `JsonlStorageAdapter` as the default backend
+   - Refactored ThoughtChain to be adapter-backed instead of hard-wired to direct JSONL file I/O
+   - Updated server head metadata to report a generic `storage_location`
+ - feat: Standalone ThoughtChain servers and daemon
+   - Added crate-owned MCP server and REST server implementations under `thoughtchain::server`
+   - Added `thoughtchaind` binary with env-based configuration:
+     - `THOUGHTCHAIN_DIR`
+     - `THOUGHTCHAIN_DEFAULT_KEY`
+     - `THOUGHTCHAIN_BIND_HOST`
+     - `THOUGHTCHAIN_MCP_PORT`
+     - `THOUGHTCHAIN_REST_PORT`
+   - Added REST endpoints for bootstrap, append, search, recent context, memory markdown export, and chain head inspection
+   - Moved ThoughtChain MCP implementation out of example-local code and into the crate itself
+ - feat: Persistent agent chat example backed by ThoughtChain over MCP
+   - Added a long-running GPT-5.4 chat example that boots a ThoughtChain on first run
+   - The example restores prior context from ThoughtChain and persists new durable memories after each turn
+   - When no external ThoughtChain endpoint is provided, it starts an embedded local ThoughtChain MCP server
+ - fix: Native multi-tool-call execution in `Agent::send()`
+   - Fixed OpenAI-native tool-call loop to execute all tool calls returned in a single assistant message
+   - Appends one tool response per `tool_call_id` before requesting the next model turn
+   - Prevents HTTP 400 failures caused by unresolved tool calls in provider history
+   - Improved session history handling so trimming preserves assistant/tool-call groups atomically
+ - docs: Added ThoughtChain protocol documentation
+   - Added `THOUGHTCHAIN_MCP.md`
+   - Added `THOUGHTCHAIN_REST.md`
+   - Documented tool/endpoint contracts, agent usage flow, refs usage, and daemon configuration
+ - test: Refreshed CloudLLM integration tests to match current contracts
+   - Updated provider-backed tests to skip cleanly on missing API keys, quota exhaustion, and offline/network failures
+   - Updated memory/protocol/orchestration/planner/tool integration tests to match current tool metadata and prompt/tool delivery behavior
+   - Verified all CloudLLM tests and examples build successfully, including `mcp-server` examples
+
 0.11.3 MAR/05/2026
  - feat: Add GPT-5.4 model support for OpenAI client
    - [ADDED] Model::GPT54 enum variant mapped to "gpt-5.4"
