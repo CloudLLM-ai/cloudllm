@@ -124,6 +124,7 @@ cargo run --features server --bin thoughtchaind
 MCP endpoints:
 
 - `GET /health`
+- `POST /`
 - `POST /tools/list`
 - `POST /tools/execute`
 
@@ -139,28 +140,20 @@ REST endpoints:
 
 ## Using With MCP Clients
 
-`thoughtchaind` currently exposes a CloudLLM-compatible MCP-like HTTP surface:
+`thoughtchaind` exposes both:
 
-- `POST /tools/list`
-- `POST /tools/execute`
+- a standard streamable HTTP MCP endpoint at `POST /`
+- the legacy CloudLLM-compatible MCP endpoints at `POST /tools/list` and
+  `POST /tools/execute`
 
-That is enough for `cloudllm`, local testing, and direct HTTP calls, but it is
-not yet a standard streamable HTTP MCP transport endpoint. That distinction is
-important:
+That means you can:
 
-- you can test it today with `curl`, `cloudllm`, or another direct client
-- you cannot yet register `http://127.0.0.1:9471` as a native remote MCP
-  server in Codex or Claude Code and expect it to work as a standard MCP
-  transport
-
-When `thoughtchaind` grows a standard MCP transport, these are the command
-shapes you will use.
+- use native MCP clients such as Codex and Claude Code against `http://127.0.0.1:9471`
+- keep using direct HTTP calls or `cloudllm`'s MCP compatibility layer when needed
 
 ### Codex
 
-Codex CLI expects a streamable HTTP MCP server when you use `--url`.
-
-Example command shape:
+Codex CLI expects a streamable HTTP MCP server when you use `--url`:
 
 ```bash
 codex mcp add thoughtchain --url http://127.0.0.1:9471
@@ -173,20 +166,13 @@ codex mcp list
 codex mcp get thoughtchain
 ```
 
-Important:
-
-- this is the correct Codex command form
-- it will only work once `thoughtchaind` exposes a standard MCP transport
-- against the current `/tools/list` and `/tools/execute` surface, direct HTTP
-  calls are still the correct way to test
+This connects Codex to the daemon's standard MCP root endpoint.
 
 ### Claude Code
 
 Claude Code supports MCP servers through its `claude mcp` commands and
 project/user MCP config. For a remote HTTP MCP server, the configuration shape
-is transport-based.
-
-Example command shape for a future standard HTTP transport:
+is transport-based:
 
 ```bash
 claude mcp add --transport http thoughtchain http://127.0.0.1:9471
@@ -199,8 +185,8 @@ claude mcp list
 claude mcp get thoughtchain
 ```
 
-Claude Code also supports JSON config files such as `.mcp.json`. A future
-ThoughtChain HTTP MCP config would look like this:
+Claude Code also supports JSON config files such as `.mcp.json`. A ThoughtChain
+HTTP MCP config looks like this:
 
 ```json
 {
@@ -217,7 +203,7 @@ Important:
 
 - `/mcp` inside Claude Code is mainly for managing or authenticating MCP
   servers that are already configured
-- it is not the step that turns the current ThoughtChain daemon into a standard
+- the server itself must already be running at the configured URL
   MCP transport
 - until ThoughtChain exposes standard MCP HTTP or SSE transport, use its
   current HTTP endpoints directly

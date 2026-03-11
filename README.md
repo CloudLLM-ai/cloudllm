@@ -78,7 +78,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.11.1"
+cloudllm = "0.12.0"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.
@@ -620,58 +620,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 [`ThoughtChain`](https://docs.rs/thoughtchain/latest/thoughtchain/struct.ThoughtChain.html) is an
 append-only, SHA-256 hash-chained, adapter-backed memory log of agent thoughts. Each thought can carry
-back-references to ancestor thoughts, forming a DAG that enables graph-based context resolution.
+back-references and typed relations to earlier thoughts, forming a graph that enables efficient context
+resolution, replay, summarization, and memory export.
 
 ```text
 ThoughtChain (adapter-backed; JSONL by default)
-  ├─ Thought #0  Finding      hash=abc1...   refs=[]
-  ├─ Thought #1  Decision     hash=def2...   refs=[]      prev_hash=abc1...
-  ├─ Thought #2  Finding      hash=789a...   refs=[]      prev_hash=def2...
-  └─ Thought #3  Compression  hash=bcd3...   refs=[0, 2]  prev_hash=789a...
-                                                ↑
-                             resolve_context(3) walks refs → returns [#0, #2, #3]
+  ├─ Thought #0  Insight   role=Memory      hash=abc1...   refs=[]
+  ├─ Thought #1  Decision  role=Memory      hash=def2...   refs=[]      prev_hash=abc1...
+  ├─ Thought #2  Mistake   role=Memory      hash=789a...   refs=[]      prev_hash=def2...
+  └─ Thought #3  Summary   role=Compression hash=bcd3...   refs=[0, 2]  prev_hash=789a...
+                                                   ↑
+                                resolve_context(3) walks refs → returns [#0, #2, #3]
 ```
 
 ```rust,no_run
-use cloudllm::Agent;
-use thoughtchain::{ThoughtChain, ThoughtType};
-use cloudllm::clients::openai::OpenAIClient;
-use std::sync::Arc;
 use std::path::PathBuf;
-use tokio::sync::RwLock;
+use thoughtchain::{ThoughtChain, ThoughtInput, ThoughtRole, ThoughtType};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let chain = Arc::new(RwLock::new(
-        ThoughtChain::open(&PathBuf::from("chains"), "analyst", "Analyst", Some("ML"), None)?
-    ));
+fn main() -> std::io::Result<()> {
+    let mut chain = ThoughtChain::open_with_key(PathBuf::from("chains"), "borganism-brain")?;
 
-    let agent = Agent::new(
-        "analyst", "Analyst",
-        Arc::new(OpenAIClient::new_with_model_string(
-            &std::env::var("OPEN_AI_SECRET")?, "gpt-4o",
-        )),
-    )
-    .with_thought_chain(chain);
+    chain.append_thought(
+        "astro",
+        ThoughtInput::new(
+            ThoughtType::Decision,
+            "The repo now uses a three-crate workspace: cloudllm, thoughtchain, and mcp.",
+        )
+        .with_agent_name("Astro")
+        .with_agent_owner("@gubatron")
+        .with_importance(0.95),
+    )?;
 
-    // Record findings and decisions as the agent works
-    agent.commit(ThoughtType::Finding, "Latency increased 3x after deploy").await?;
-    agent.commit(ThoughtType::Decision, "Roll back to v2.3").await?;
+    chain.append_thought(
+        "astro",
+        ThoughtInput::new(
+            ThoughtType::Summary,
+            "ThoughtChain should be the durable memory source; MEMORY.md is a human-readable export.",
+        )
+        .with_agent_name("Astro")
+        .with_role(ThoughtRole::Checkpoint)
+        .with_refs(vec![0])
+        .with_importance(0.9),
+    )?;
 
-    // Verify the hash chain is intact
-    let entries = agent.thought_entries().await.unwrap();
-    assert_eq!(entries.len(), 2);
-
+    assert!(chain.verify_integrity());
+    println!("{}", chain.to_memory_markdown(None));
     Ok(())
 }
 ```
 
-ThoughtChain persistence is adapter-backed. The current default backend is newline-delimited JSON
-(`.jsonl`), one thought per line, via `JsonlStorageAdapter`. This keeps storage swappable while
-preserving the same hashing, query, replay, and export behavior.
-Use `ThoughtChain::verify_integrity()` to detect tampering, and
-`ThoughtChain::resolve_context(index)` to reconstruct the minimal context
-graph for any thought.
+In CloudLLM, agents can still use ThoughtChain directly through
+[`Agent::with_thought_chain`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/agent/struct.Agent.html#method.with_thought_chain),
+but the storage and query model now lives in the standalone `thoughtchain` crate. Persistence is
+adapter-backed through a `StorageAdapter` interface. The built-in backends today are:
+
+- `JsonlStorageAdapter`
+- `BinaryStorageAdapter`
+
+Use `ThoughtChain::verify_integrity()` to detect tampering, `ThoughtChain::search(...)` to query
+semantic memory, `ThoughtChain::resolve_context(index)` to reconstruct the minimal dependency graph
+for a thought, and `ThoughtChain::to_memory_markdown(...)` to export a `MEMORY.md`-style snapshot.
 
 Resume a previously running agent from its chain:
 
@@ -685,7 +693,7 @@ use tokio::sync::RwLock;
 
 # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 let chain = Arc::new(RwLock::new(
-    ThoughtChain::open(&PathBuf::from("chains"), "analyst", "Analyst", Some("ML"), None)?
+    ThoughtChain::open_with_key(PathBuf::from("chains"), "borganism-brain")?
 ));
 
 // Resume from the latest thought — context graph is injected into a fresh session
@@ -700,6 +708,39 @@ let agent = Agent::resume_from_latest(
 # Ok(())
 # }
 ```
+
+### `thoughtchaind`: MCP + REST daemon for shared memory
+
+If you want ThoughtChain available to multiple agents, sessions, or external tools, run the
+standalone daemon from the `thoughtchain/` crate:
+
+```bash
+cd thoughtchain
+cargo run --features server --bin thoughtchaind
+```
+
+`thoughtchaind` exposes:
+
+- standard MCP at `POST /`
+- legacy CloudLLM-compatible MCP endpoints at `POST /tools/list` and `POST /tools/execute`
+- REST endpoints at `/v1/bootstrap`, `/v1/thoughts`, `/v1/search`, `/v1/recent-context`,
+  `/v1/memory-markdown`, and `/v1/head`
+- `GET /health` on both server surfaces
+
+The daemon is configured with environment variables:
+
+- `THOUGHTCHAIN_DIR`
+- `THOUGHTCHAIN_DEFAULT_KEY`
+- `THOUGHTCHAIN_STORAGE_ADAPTER=jsonl|binary`
+- `THOUGHTCHAIN_BIND_HOST`
+- `THOUGHTCHAIN_MCP_PORT`
+- `THOUGHTCHAIN_REST_PORT`
+
+For full daemon usage, remote MCP examples, and the REST contract, see:
+
+- [`thoughtchain/README.md`](thoughtchain/README.md)
+- [`THOUGHTCHAIN_MCP.md`](THOUGHTCHAIN_MCP.md)
+- [`THOUGHTCHAIN_REST.md`](THOUGHTCHAIN_REST.md)
 
 ---
 
