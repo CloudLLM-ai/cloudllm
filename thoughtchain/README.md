@@ -132,7 +132,9 @@ MCP endpoints:
 REST endpoints:
 
 - `GET /health`
+- `GET /v1/chains`
 - `POST /v1/bootstrap`
+- `POST /v1/agents`
 - `POST /v1/thoughts`
 - `POST /v1/retrospectives`
 - `POST /v1/search`

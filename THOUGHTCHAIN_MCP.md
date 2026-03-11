@@ -2,12 +2,14 @@
 
 `ThoughtChain` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
 
-At the moment, the ThoughtChain MCP server exposes 7 tools:
+At the moment, the ThoughtChain MCP server exposes 9 tools:
 
 - `thoughtchain_bootstrap`
 - `thoughtchain_append`
 - `thoughtchain_append_retrospective`
 - `thoughtchain_search`
+- `thoughtchain_list_chains`
+- `thoughtchain_list_agents`
 - `thoughtchain_recent_context`
 - `thoughtchain_memory_markdown`
 - `thoughtchain_head`
@@ -312,6 +314,70 @@ Example:
 }
 ```
 
+### `thoughtchain_list_chains`
+
+Lists the durable chain keys currently available in ThoughtChain storage.
+
+Parameters:
+
+- none
+
+Response fields:
+
+- `default_chain_key`
+- `chain_keys`
+
+Typical use:
+
+- discover available long-running memories on a daemon
+- inspect whether a shared brain already exists before bootstrapping another
+  chain
+
+Example:
+
+```json
+{
+  "tool": "thoughtchain_list_chains",
+  "arguments": {}
+}
+```
+
+### `thoughtchain_list_agents`
+
+Lists the distinct agent identities that have written to a specific chain.
+
+Parameters:
+
+- `chain_key: string` optional
+
+Response fields:
+
+- `chain_key`
+- `agents`
+
+Each returned `agent` contains:
+
+- `agent_id`
+- `agent_name`
+- `agent_owner`
+
+Typical use:
+
+- discover which agents participate in a shared brain
+- choose `agent_names` or `agent_ids` filters before calling
+  `thoughtchain_search`
+
+Example:
+
+```json
+{
+  "tool": "thoughtchain_list_agents",
+  "arguments": {
+    "chain_key": "borganism-brain"
+  }
+}
+```
+
 ### `thoughtchain_recent_context`
 
 Renders the latest thoughts as a prompt snippet suitable for resuming work.
@@ -386,11 +452,14 @@ Typical use:
 
 For a remote agent, the normal flow should look like this:
 
-1. Bootstrap the chain once.
-2. At the start of a session, call `thoughtchain_recent_context` or `thoughtchain_memory_markdown`.
-3. Before important work, call `thoughtchain_search` for relevant prior constraints, plans, mistakes, and insights.
-4. During work, append durable thoughts whenever the agent learns something worth keeping.
-5. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
+1. If you are connecting to a shared daemon, call `thoughtchain_list_chains` first.
+2. Bootstrap the chain once if it does not already exist.
+3. For shared chains, call `thoughtchain_list_agents` to discover which agents are already writing there.
+4. At the start of a session, call `thoughtchain_recent_context` or `thoughtchain_memory_markdown`.
+5. Before important work, call `thoughtchain_search` for relevant prior constraints, plans, mistakes, and insights.
+6. During work, append durable thoughts whenever the agent learns something worth keeping.
+7. After a hard failure or a long debugging snag, prefer `thoughtchain_append_retrospective`.
+8. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
 
 ## Example Sequence
 

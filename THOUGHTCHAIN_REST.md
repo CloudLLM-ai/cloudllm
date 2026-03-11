@@ -90,6 +90,50 @@ Response:
 }
 ```
 
+### `GET /v1/chains`
+
+Lists the durable chain keys currently available in ThoughtChain storage.
+
+Response body:
+
+- `default_chain_key: string`
+- `chain_keys: string[]`
+
+Example:
+
+```bash
+curl -s http://127.0.0.1:9472/v1/chains
+```
+
+### `POST /v1/agents`
+
+Lists the distinct agent identities that have written to a specific chain.
+
+Request body:
+
+- `chain_key: string` optional
+
+Response body:
+
+- `chain_key: string`
+- `agents: object[]`
+
+Each returned `agent` contains:
+
+- `agent_id`
+- `agent_name`
+- `agent_owner`
+
+Example:
+
+```bash
+curl -s http://127.0.0.1:9472/v1/agents \
+  -H 'content-type: application/json' \
+  -d '{
+    "chain_key": "borganism-brain"
+  }'
+```
+
 ### `POST /v1/bootstrap`
 
 Creates the chain if needed and writes a bootstrap thought only when the chain is empty.
@@ -520,17 +564,21 @@ For a long-running agent:
 
 1. `POST /v1/bootstrap`
    Write the initial purpose of the chain if it is empty.
-2. `POST /v1/head`
+2. `GET /v1/chains`
+   Discover available durable chain keys on the daemon.
+3. `POST /v1/head`
    Inspect whether there is prior memory.
-3. `POST /v1/recent-context`
+4. `POST /v1/agents`
+   Discover which agents are writing to a shared chain.
+5. `POST /v1/recent-context`
    Load a compact resume prompt into the next model session.
-4. `POST /v1/search`
+6. `POST /v1/search`
    Pull relevant preferences, constraints, plans, mistakes, or summaries before acting.
-5. `POST /v1/thoughts`
+7. `POST /v1/thoughts`
    Append durable thoughts during meaningful checkpoints.
-6. `POST /v1/retrospectives`
+8. `POST /v1/retrospectives`
    Append lessons learned after hard failures or long debugging snags.
-7. `POST /v1/memory-markdown`
+9. `POST /v1/memory-markdown`
    Export a human-readable summary when needed.
 
 For a multi-agent pipeline:

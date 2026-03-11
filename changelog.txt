@@ -6,11 +6,14 @@
    - Added support for `ThoughtType::LessonLearned`
    - Added support for `ThoughtRole::Retrospective`
    - Added `thoughtchain_append_retrospective` to the ThoughtChain MCP surface for hard failures, long debugging snags, and non-obvious fixes
+   - Added discovery operations for shared ThoughtChain daemons:
+     - `thoughtchain_list_chains`
+     - `thoughtchain_list_agents`
    - Updated the persistent agent chat example to teach agents when to use retrospective memory instead of ordinary append
  - docs: Expand cross-project ThoughtChain documentation
    - Updated root `README.md`
    - Updated `thoughtchain/README.md` with Qwen Code and GitHub Copilot CLI MCP setup instructions
-   - Updated `THOUGHTCHAIN_MCP.md`, `THOUGHTCHAIN_REST.md`, and the ThoughtChain white paper for retrospective memory guidance
+   - Updated `THOUGHTCHAIN_MCP.md`, `THOUGHTCHAIN_REST.md`, and the ThoughtChain white paper for retrospective memory guidance and the new discovery functions
 
 0.12.0 MAR/11/2026
  - feat: Extract ThoughtChain into a standalone workspace crate

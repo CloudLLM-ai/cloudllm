@@ -89,6 +89,7 @@ This allows a single chain to represent the work of a team, a workflow, a tenant
 
 The chain can be:
 
+- discovered
 - searched
 - filtered
 - replayed
@@ -98,6 +99,14 @@ The chain can be:
 - served over REST
 
 This makes ThoughtChain usable by agents, services, dashboards, CLIs, and orchestration systems.
+
+In practice, that also means a daemon can tell a caller:
+
+- which chain keys already exist
+- which distinct agents are writing to a shared chain
+
+That makes shared brains easier to inspect and safer to reuse across teams of
+agents.
 
 ### 5. Swappable Storage
 
