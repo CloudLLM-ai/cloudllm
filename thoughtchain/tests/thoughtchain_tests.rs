@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use thoughtchain::{
     chain_filename, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
@@ -189,7 +189,10 @@ fn custom_storage_adapter_can_back_a_chain() {
 
     let reloaded = ThoughtChain::open_with_storage(Box::new(adapter)).unwrap();
     assert_eq!(reloaded.thoughts().len(), 1);
-    assert_eq!(reloaded.thoughts()[0].content, "Adapter-backed thought persisted.");
+    assert_eq!(
+        reloaded.thoughts()[0].content,
+        "Adapter-backed thought persisted."
+    );
 }
 
 #[test]

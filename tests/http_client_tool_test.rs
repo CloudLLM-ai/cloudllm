@@ -11,7 +11,9 @@
 
 use cloudllm::tools::HttpClient;
 
-fn assert_domain_rejected(result: Result<cloudllm::tools::http_client::HttpResponse, impl std::fmt::Display>) {
+fn assert_domain_rejected(
+    result: Result<cloudllm::tools::http_client::HttpResponse, impl std::fmt::Display>,
+) {
     assert!(result.is_err());
     let message = result.unwrap_err().to_string();
     assert!(

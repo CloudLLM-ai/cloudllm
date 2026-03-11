@@ -567,7 +567,7 @@ impl Agent {
         content: impl Into<String>,
     ) -> io::Result<()> {
         if let Some(chain) = &self.thought_chain {
-            let thought_type = entry_type.clone();
+            let thought_type = entry_type;
             let mut chain = chain.write().await;
             chain.append(&self.id, entry_type, &content.into())?;
             self.emit(AgentEvent::ThoughtCommitted {
@@ -1115,10 +1115,8 @@ impl Agent {
                     .await;
 
                     if let Some(call_id) = native_id {
-                        self.session.inject_message(
-                            Role::Tool { call_id },
-                            tool_result_message,
-                        );
+                        self.session
+                            .inject_message(Role::Tool { call_id }, tool_result_message);
                     }
                 }
 
@@ -1178,10 +1176,12 @@ impl Agent {
 
                 current_response = follow_up.content.to_string();
                 current_msg = follow_up;
-            } else if let Some(tool_call) = self.parse_tool_call(&current_response).map(|tc| ToolCall {
-                native_id: None,
-                ..tc
-            }) {
+            } else if let Some(tool_call) =
+                self.parse_tool_call(&current_response).map(|tc| ToolCall {
+                    native_id: None,
+                    ..tc
+                })
+            {
                 if tool_iteration >= max_tool_iterations {
                     self.emit(AgentEvent::ToolMaxIterationsReached {
                         agent_id: self.id.clone(),
@@ -1713,10 +1713,12 @@ impl Agent {
 
                 // Continue loop to get next response
                 continue;
-            } else if let Some(tool_call) = self.parse_tool_call(&current_response).map(|tc| ToolCall {
-                native_id: None,
-                ..tc
-            }) {
+            } else if let Some(tool_call) =
+                self.parse_tool_call(&current_response).map(|tc| ToolCall {
+                    native_id: None,
+                    ..tc
+                })
+            {
                 if tool_iteration >= max_tool_iterations {
                     self.emit(AgentEvent::ToolMaxIterationsReached {
                         agent_id: self.id.clone(),

@@ -20,8 +20,8 @@ use std::sync::Arc;
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::tool_protocol::ToolProtocol;
 use cloudllm::Agent;
-use serde_json::json;
 use persistent_agent_tools::build_persistent_agent_registry;
+use serde_json::json;
 use thoughtchain::server::{default_thoughtchain_dir, start_mcp_server, ThoughtChainServiceConfig};
 
 const DEFAULT_CHAIN_KEY: &str = "persistent-chat-agent";

@@ -45,7 +45,9 @@ async fn mcp_router_lists_thoughtchain_tools() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let tools = json["tools"].as_array().unwrap();
-    assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_append"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_append"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);

@@ -2099,10 +2099,8 @@ fn test_grok_agent_with_image_generation_tool() {
                         }
                         Err(e) => {
                             log::error!("Grok tool execution failed: {}", e);
-                            if skip_external_error(
-                                "test_grok_agent_with_image_generation_tool",
-                                &e,
-                            ) {
+                            if skip_external_error("test_grok_agent_with_image_generation_tool", &e)
+                            {
                                 return;
                             }
                             panic!("Could not execute image generation tool: {}", e);

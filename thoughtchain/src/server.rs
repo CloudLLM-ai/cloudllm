@@ -780,17 +780,38 @@ async fn mcp_execute_handler(
     Json(request): Json<McpExecuteRequest>,
 ) -> (StatusCode, Json<Value>) {
     let result = match request.tool.as_str() {
-        "thoughtchain_bootstrap" => parse_and_call(request.parameters, |request| service.bootstrap(request)).await,
-        "thoughtchain_append" => parse_and_call(request.parameters, |request| service.append(request)).await,
-        "thoughtchain_search" => parse_and_call(request.parameters, |request| service.search(request)).await,
-        "thoughtchain_recent_context" => parse_and_call(request.parameters, |request| service.recent_context(request)).await,
-        "thoughtchain_memory_markdown" => parse_and_call(request.parameters, |request| service.memory_markdown(request)).await,
-        "thoughtchain_head" => parse_and_call(request.parameters, |request| service.head(request)).await,
+        "thoughtchain_bootstrap" => {
+            parse_and_call(request.parameters, |request| service.bootstrap(request)).await
+        }
+        "thoughtchain_append" => {
+            parse_and_call(request.parameters, |request| service.append(request)).await
+        }
+        "thoughtchain_search" => {
+            parse_and_call(request.parameters, |request| service.search(request)).await
+        }
+        "thoughtchain_recent_context" => {
+            parse_and_call(request.parameters, |request| {
+                service.recent_context(request)
+            })
+            .await
+        }
+        "thoughtchain_memory_markdown" => {
+            parse_and_call(request.parameters, |request| {
+                service.memory_markdown(request)
+            })
+            .await
+        }
+        "thoughtchain_head" => {
+            parse_and_call(request.parameters, |request| service.head(request)).await
+        }
         _ => Err(format!("Unknown tool '{}'", request.tool).into()),
     };
 
     match result {
-        Ok(output) => (StatusCode::OK, Json(json!({ "result": McpToolResult::success(output) }))),
+        Ok(output) => (
+            StatusCode::OK,
+            Json(json!({ "result": McpToolResult::success(output) })),
+        ),
         Err(error) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "result": McpToolResult::failure(error.to_string()) })),

@@ -206,9 +206,10 @@ pub enum ThoughtType {
 ///
 /// assert_eq!(ThoughtRole::default(), ThoughtRole::Memory);
 /// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub enum ThoughtRole {
     /// Durable long-term memory.
+    #[default]
     Memory,
     /// Shorter-lived or more speculative working memory.
     WorkingMemory,
@@ -222,12 +223,6 @@ pub enum ThoughtRole {
     Handoff,
     /// A role intended mainly for traceability or audit logs.
     Audit,
-}
-
-impl Default for ThoughtRole {
-    fn default() -> Self {
-        Self::Memory
-    }
 }
 
 /// Why a thought points to another thought.
@@ -1415,11 +1410,12 @@ fn equals_case_insensitive(value: &str, needle: &str) -> bool {
 }
 
 fn agent_label(thought: &Thought) -> String {
-    let mut label = if thought.agent_name.trim().is_empty() || thought.agent_name == thought.agent_id {
-        thought.agent_id.clone()
-    } else {
-        format!("{} [{}]", thought.agent_name, thought.agent_id)
-    };
+    let mut label =
+        if thought.agent_name.trim().is_empty() || thought.agent_name == thought.agent_id {
+            thought.agent_id.clone()
+        } else {
+            format!("{} [{}]", thought.agent_name, thought.agent_id)
+        };
 
     if let Some(owner) = &thought.agent_owner {
         if !owner.trim().is_empty() {

@@ -119,11 +119,16 @@ fn test_gemini_client() {
             Ok(msg) => msg,
             Err(e) => {
                 if is_skippable_external_api_error(&e.to_string()) {
-                    log::info!("Skipping Gemini smoke test due to external API issue: {}", e);
+                    log::info!(
+                        "Skipping Gemini smoke test due to external API issue: {}",
+                        e
+                    );
                     Message {
                         role: System,
-                        content: format!("Skipped Gemini smoke test due to external API issue: {e}")
-                            .into(),
+                        content: format!(
+                            "Skipped Gemini smoke test due to external API issue: {e}"
+                        )
+                        .into(),
                         tool_calls: vec![],
                     }
                 } else {

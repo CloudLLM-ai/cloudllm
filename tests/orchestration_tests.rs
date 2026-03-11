@@ -165,10 +165,7 @@ async fn test_agent_with_tool_execution() {
                     .find(|tool| tool.name == "add")
                     .expect("expected add tool definition");
                 if add_tool.description != "Adds two numbers" {
-                    panic!(
-                        "Unexpected add tool description: {}",
-                        add_tool.description
-                    );
+                    panic!("Unexpected add tool description: {}", add_tool.description);
                 }
 
                 // Return tool call

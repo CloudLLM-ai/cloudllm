@@ -187,7 +187,9 @@ async fn test_agent_send_handles_multiple_native_tool_calls() {
             ToolMetadata::new("tool_one", "Returns the first mock result"),
             Arc::new(|params| {
                 let value = params["value"].as_str().unwrap_or_default().to_string();
-                Ok(ToolResult::success(json!({ "tool": "tool_one", "value": value })))
+                Ok(ToolResult::success(
+                    json!({ "tool": "tool_one", "value": value }),
+                ))
             }),
         )
         .await;
@@ -196,7 +198,9 @@ async fn test_agent_send_handles_multiple_native_tool_calls() {
             ToolMetadata::new("tool_two", "Returns the second mock result"),
             Arc::new(|params| {
                 let value = params["value"].as_str().unwrap_or_default().to_string();
-                Ok(ToolResult::success(json!({ "tool": "tool_two", "value": value })))
+                Ok(ToolResult::success(
+                    json!({ "tool": "tool_two", "value": value }),
+                ))
             }),
         )
         .await;
