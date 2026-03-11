@@ -113,8 +113,9 @@ async fn test_memory_adapter_spec_command() {
     assert!(result.success);
 
     let spec = result.output["specification"].as_str().unwrap();
-    assert!(spec.contains("Put (P)"));
-    assert!(spec.contains("Get (G)"));
+    assert!(spec.contains("Memory tool quick-reference"));
+    assert!(spec.contains("P <key> <value>"));
+    assert!(spec.contains("G <key>"));
 }
 
 #[tokio::test]

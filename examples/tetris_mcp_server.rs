@@ -268,7 +268,7 @@ impl EventHandler for TetrisMcpEventHandler {
                 self.log("planner", format!("❌ Plan error: {error}"));
             }
             PlannerEvent::ToolMaxIterationsReached { .. } => {
-                self.log("planner", "❌ Plan hit max tool iterations".to_string());
+                self.log("planner", "❌ Plan hit max tool iterations");
             }
             _ => {}
         }
@@ -738,7 +738,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                 let target_path = PathBuf::from(path_value);
                 if let Some(parent) = target_path.parent() {
-                    if parent.as_os_str().len() > 0 {
+                    if !parent.as_os_str().is_empty() {
                         if let Err(err) = fs::create_dir_all(parent) {
                             eprintln!("[write_tetris_file] ERROR creating parent dir: {}", err);
                             return Ok(ToolResult::failure(format!(
@@ -1089,10 +1089,10 @@ Classic mechanics required: SRS rotation, 7-bag randomizer, hold slot, ghost pie
                 let slice = &content[start..];
                 if let Some(end_off) = slice.rfind("</html>") {
                     let candidate = &slice[..end_off + "</html>".len()];
-                    if candidate.contains("<script") {
-                        if best.as_ref().map_or(0, |b: &String| b.len()) < candidate.len() {
-                            best = Some(candidate.to_string());
-                        }
+                    if candidate.contains("<script")
+                        && best.as_ref().map_or(0, |b: &String| b.len()) < candidate.len()
+                    {
+                        best = Some(candidate.to_string());
                     }
                 }
             }

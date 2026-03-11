@@ -1,6 +1,10 @@
+[workspace]
+members = ["mcp","thoughtchain"]
+resolver = "2"
+
 [package]
 name = "cloudllm"
-version = "0.11.3"
+version = "0.12.0"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, and multi-agent orchestration."
@@ -32,6 +36,8 @@ urlencoding = "2.1.3"
 axum = { version = "0.8.7", optional = true }
 tower = { version = "0.5.2", optional = true }
 uuid = { version = "1.10", features = ["v4"] }
+thoughtchain = { path = "thoughtchain", version = "0.1.0", features = ["server"] }
+mcp = { path = "mcp", version = "0.1.0", features = ["server"] }
 
 [dev-dependencies]
 tempfile = "3.23"
@@ -42,4 +48,8 @@ mcp-server = ["axum", "tower"]
 
 [[example]]
 name = "tetris_mcp_server"
+required-features = ["mcp-server"]
+
+[[example]]
+name = "persistent_agent_chat"
 required-features = ["mcp-server"]

@@ -18,6 +18,64 @@ use cloudllm::cloudllm::image_generation::{
 use cloudllm::init_logger;
 use std::fs;
 
+fn api_key_or_skip(env_var: &str) -> Option<String> {
+    match std::env::var(env_var) {
+        Ok(value) => Some(value),
+        Err(_) => {
+            log::info!("Skipping test: {} not set", env_var);
+            None
+        }
+    }
+}
+
+fn is_external_api_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    if message.contains("for url")
+        || message.contains("https://api.openai.com")
+        || message.contains("https://api.x.ai")
+        || message.contains("https://generativelanguage.googleapis.com")
+    {
+        return true;
+    }
+
+    [
+        "quota",
+        "resource_exhausted",
+        "too many requests",
+        "service unavailable",
+        "temporarily unavailable",
+        "error sending request",
+        "connection reset",
+        "connection refused",
+        "connection aborted",
+        "could not resolve",
+        "dns",
+        "timed out",
+        "timeout",
+        "network",
+        "502",
+        "503",
+        "504",
+        "429",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+}
+
+fn skip_external_error(test_name: &str, error: &dyn std::fmt::Display) -> bool {
+    let error_message = error.to_string();
+    if is_external_api_error(&error_message) {
+        log::info!(
+            "Skipping {} due to external API/network issue: {}",
+            test_name,
+            error_message
+        );
+        true
+    } else {
+        false
+    }
+}
+
 /// Save image from URL or base64 data to file
 async fn save_image(image_url_or_b64: &str, filename: &str) -> std::io::Result<()> {
     if image_url_or_b64.starts_with("http") {
@@ -26,16 +84,15 @@ async fn save_image(image_url_or_b64: &str, filename: &str) -> std::io::Result<(
             .get(image_url_or_b64)
             .send()
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+            .map_err(std::io::Error::other)?
             .bytes()
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         fs::write(filename, data)?;
         log::info!("Saved image from URL to: {}", filename);
     } else {
         // It's base64 data - decode and save
-        let decoded = decode_base64(image_url_or_b64)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let decoded = decode_base64(image_url_or_b64).map_err(std::io::Error::other)?;
         fs::write(filename, decoded)?;
         log::info!("Saved base64 image to: {}", filename);
     }
@@ -60,7 +117,9 @@ async fn save_image(image_url_or_b64: &str, filename: &str) -> std::io::Result<(
 fn test_gemini_simple() {
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -107,6 +166,9 @@ fn test_gemini_simple() {
                 // Skip this test if we're out of quota - it's an API issue, not an implementation issue
             } else {
                 log::error!("❌ Gemini test failed: {}", e);
+                if skip_external_error("test_gemini_simple", &e) {
+                    return;
+                }
                 panic!("Gemini test failed: {}", e);
             }
         }
@@ -132,7 +194,9 @@ fn test_grok_image_generation_basic() {
     // Initialize logger for test output
     init_logger();
 
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     // Create a new Tokio runtime for async operations
@@ -177,6 +241,9 @@ fn test_grok_image_generation_basic() {
             response
         }
         Err(e) => {
+            if skip_external_error("test_grok_image_generation_basic", &e) {
+                return;
+            }
             panic!("test_grok_image_generation_basic failed: {}", e);
         }
     };
@@ -223,7 +290,9 @@ fn test_grok_image_generation_base64() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -264,6 +333,9 @@ fn test_grok_image_generation_base64() {
             }
         }
         Err(e) => {
+            if skip_external_error("test_grok_image_generation_base64", &e) {
+                return;
+            }
             panic!("test_grok_image_generation_base64 failed: {}", e);
         }
     }
@@ -288,7 +360,9 @@ fn test_grok_image_generation_multiple_images() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -326,6 +400,9 @@ fn test_grok_image_generation_multiple_images() {
             }
         }
         Err(e) => {
+            if skip_external_error("test_grok_image_generation_multiple_images", &e) {
+                return;
+            }
             panic!("test_grok_image_generation_multiple_images failed: {}", e);
         }
     }
@@ -350,7 +427,9 @@ fn test_grok_image_generation_detailed_prompt() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -390,6 +469,9 @@ fn test_grok_image_generation_detailed_prompt() {
             }
         }
         Err(e) => {
+            if skip_external_error("test_grok_image_generation_detailed_prompt", &e) {
+                return;
+            }
             panic!("test_grok_image_generation_detailed_prompt failed: {}", e);
         }
     }
@@ -414,7 +496,9 @@ fn test_grok_image_generation_model_name() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     // The model name should be grok-imagine-image for image generation
@@ -447,7 +531,9 @@ fn test_grok_image_generation_with_trait_object() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     // Test using the trait object interface
@@ -479,6 +565,9 @@ fn test_grok_image_generation_with_trait_object() {
             );
         }
         Err(e) => {
+            if skip_external_error("test_grok_image_generation_with_trait_object", &e) {
+                return;
+            }
             panic!("test_grok_image_generation_with_trait_object failed: {}", e);
         }
     }
@@ -503,7 +592,9 @@ fn test_grok_image_generation_with_factory() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
 
     // Use the factory function to create the client
     let client_result = cloudllm::cloudllm::new_image_generation_client(
@@ -542,6 +633,9 @@ fn test_grok_image_generation_with_factory() {
             log::info!("Factory-created client model: {}", client.model_name());
         }
         Err(e) => {
+            if skip_external_error("test_grok_image_generation_with_factory", &e) {
+                return;
+            }
             panic!("test_grok_image_generation_with_factory failed: {}", e);
         }
     }
@@ -568,7 +662,9 @@ fn test_openai_image_generation_basic() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let Some(api_key) = api_key_or_skip("OPEN_AI_SECRET") else {
+        return;
+    };
     let client = OpenAIClient::new_with_model_string(&api_key, "gpt-4o-mini");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -616,6 +712,9 @@ fn test_openai_image_generation_basic() {
             response
         }
         Err(e) => {
+            if skip_external_error("test_openai_image_generation_basic", &e) {
+                return;
+            }
             panic!("test_openai_image_generation_basic failed: {}", e);
         }
     };
@@ -658,7 +757,9 @@ fn test_openai_image_generation_landscape() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let Some(api_key) = api_key_or_skip("OPEN_AI_SECRET") else {
+        return;
+    };
     let client = OpenAIClient::new_with_model_string(&api_key, "gpt-4o-mini");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -684,6 +785,9 @@ fn test_openai_image_generation_landscape() {
             log::info!("Successfully generated landscape image with 16:9 aspect ratio");
         }
         Err(e) => {
+            if skip_external_error("test_openai_image_generation_landscape", &e) {
+                return;
+            }
             panic!("test_openai_image_generation_landscape failed: {}", e);
         }
     }
@@ -708,7 +812,9 @@ fn test_openai_image_generation_multiple() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let Some(api_key) = api_key_or_skip("OPEN_AI_SECRET") else {
+        return;
+    };
     let client = OpenAIClient::new_with_model_string(&api_key, "gpt-4o-mini");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -738,6 +844,9 @@ fn test_openai_image_generation_multiple() {
             );
         }
         Err(e) => {
+            if skip_external_error("test_openai_image_generation_multiple", &e) {
+                return;
+            }
             panic!("test_openai_image_generation_multiple failed: {}", e);
         }
     }
@@ -762,7 +871,9 @@ fn test_openai_image_generation_model_name() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let Some(api_key) = api_key_or_skip("OPEN_AI_SECRET") else {
+        return;
+    };
     let client = OpenAIClient::new_with_model_string(&api_key, "gpt-4o-mini");
 
     assert_eq!(
@@ -794,7 +905,9 @@ fn test_openai_image_generation_with_factory() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
+    let Some(api_key) = api_key_or_skip("OPEN_AI_SECRET") else {
+        return;
+    };
 
     // Use the factory function to create the client
     let client_result = cloudllm::cloudllm::new_image_generation_client(
@@ -836,6 +949,9 @@ fn test_openai_image_generation_with_factory() {
             );
         }
         Err(e) => {
+            if skip_external_error("test_openai_image_generation_with_factory", &e) {
+                return;
+            }
             panic!("test_openai_image_generation_with_factory failed: {}", e);
         }
     }
@@ -914,7 +1030,9 @@ fn test_grok_image_generation_types() {
     init_logger();
 
     // This test verifies types and trait implementations without making API calls
-    let api_key = std::env::var("XAI_API_KEY").expect("XAI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("XAI_API_KEY") else {
+        return;
+    };
     let client = GrokClient::new_with_model_str(&api_key, "grok-3-mini");
 
     // Test that ImageGenerationClient trait is properly implemented
@@ -959,7 +1077,9 @@ fn test_gemini_image_generation_basic() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1001,6 +1121,9 @@ fn test_gemini_image_generation_basic() {
             }
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_basic", &e) {
+                return;
+            }
             panic!("test_gemini_image_generation_basic failed: {}", e);
         }
     }
@@ -1025,7 +1148,9 @@ fn test_gemini_image_generation_landscape() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1051,6 +1176,9 @@ fn test_gemini_image_generation_landscape() {
             log::info!("Successfully generated landscape image with 16:9 aspect ratio");
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_landscape", &e) {
+                return;
+            }
             panic!("test_gemini_image_generation_landscape failed: {}", e);
         }
     }
@@ -1075,7 +1203,9 @@ fn test_gemini_image_generation_portrait() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1101,6 +1231,9 @@ fn test_gemini_image_generation_portrait() {
             log::info!("Successfully generated portrait image with 9:16 aspect ratio");
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_portrait", &e) {
+                return;
+            }
             panic!("test_gemini_image_generation_portrait failed: {}", e);
         }
     }
@@ -1125,7 +1258,9 @@ fn test_gemini_image_generation_square() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1151,6 +1286,9 @@ fn test_gemini_image_generation_square() {
             log::info!("Successfully generated square image with 1:1 aspect ratio");
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_square", &e) {
+                return;
+            }
             panic!("test_gemini_image_generation_square failed: {}", e);
         }
     }
@@ -1175,7 +1313,9 @@ fn test_gemini_image_generation_detailed_prompt() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     let detailed_prompt = "A hyper-realistic oil painting of a Japanese garden with a koi pond. \
@@ -1208,6 +1348,9 @@ fn test_gemini_image_generation_detailed_prompt() {
             log::info!("Successfully generated image with detailed artistic prompt");
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_detailed_prompt", &e) {
+                return;
+            }
             panic!("test_gemini_image_generation_detailed_prompt failed: {}", e);
         }
     }
@@ -1232,7 +1375,9 @@ fn test_gemini_image_generation_model_name() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     // The model name should be gemini-2.5-flash-image for image generation
@@ -1265,7 +1410,9 @@ fn test_gemini_image_generation_with_trait_object() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     // Test using the trait object interface
@@ -1300,6 +1447,9 @@ fn test_gemini_image_generation_with_trait_object() {
             );
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_with_trait_object", &e) {
+                return;
+            }
             panic!(
                 "test_gemini_image_generation_with_trait_object failed: {}",
                 e
@@ -1327,7 +1477,9 @@ fn test_gemini_image_generation_with_factory() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
 
     // Use the factory function to create the client
     let client_result = cloudllm::cloudllm::new_image_generation_client(
@@ -1369,6 +1521,9 @@ fn test_gemini_image_generation_with_factory() {
             );
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_with_factory", &e) {
+                return;
+            }
             panic!("test_gemini_image_generation_with_factory failed: {}", e);
         }
     }
@@ -1393,7 +1548,9 @@ fn test_gemini_image_generation_save_to_file() {
     // Initialize logger
     init_logger();
 
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1420,6 +1577,9 @@ fn test_gemini_image_generation_save_to_file() {
             response
         }
         Err(e) => {
+            if skip_external_error("test_gemini_image_generation_save_to_file", &e) {
+                return;
+            }
             panic!("test_gemini_image_generation_save_to_file failed: {}", e);
         }
     };
@@ -1462,7 +1622,9 @@ fn test_gemini_image_generation_types() {
     init_logger();
 
     // This test verifies types and trait implementations without making API calls
-    let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not set");
+    let Some(api_key) = api_key_or_skip("GEMINI_API_KEY") else {
+        return;
+    };
     let client = GeminiClient::new_with_model_string(&api_key, "gemini-2.5-flash-image");
 
     // Test that ImageGenerationClient trait is properly implemented
@@ -1682,6 +1844,12 @@ fn test_agent_with_image_generation_tool() {
                                     }
                                     Err(e) => {
                                         log::error!("Failed to save image: {}", e);
+                                        if skip_external_error(
+                                            "test_agent_with_image_generation_tool",
+                                            &e,
+                                        ) {
+                                            return;
+                                        }
                                         panic!("Could not save image: {}", e);
                                     }
                                 }
@@ -1701,6 +1869,12 @@ fn test_agent_with_image_generation_tool() {
                                     }
                                     Err(e) => {
                                         log::error!("Failed to save image: {}", e);
+                                        if skip_external_error(
+                                            "test_agent_with_image_generation_tool",
+                                            &e,
+                                        ) {
+                                            return;
+                                        }
                                         panic!("Could not save image: {}", e);
                                     }
                                 }
@@ -1714,27 +1888,26 @@ fn test_agent_with_image_generation_tool() {
                         }
                         Err(e) => {
                             log::error!("Tool execution failed: {}", e);
+                            if skip_external_error("test_agent_with_image_generation_tool", &e) {
+                                return;
+                            }
                             panic!("Could not execute image generation tool: {}", e);
                         }
                     }
                 }
                 Err(e) => {
-                    let err_msg = e.to_string();
-                    if err_msg.contains("quota") || err_msg.contains("RESOURCE_EXHAUSTED") {
-                        log::info!("⚠️  Skipping: API quota exhausted");
-                    } else {
-                        panic!("Agent generation failed: {}", e);
+                    if skip_external_error("test_agent_with_image_generation_tool", &e) {
+                        return;
                     }
+                    panic!("Agent generation failed: {}", e);
                 }
             }
         }
         Err(e) => {
-            let err_msg = e.to_string();
-            if err_msg.contains("quota") || err_msg.contains("RESOURCE_EXHAUSTED") {
-                log::info!("⚠️  Skipping: Image generation quota exhausted");
-            } else {
-                panic!("Failed to create image generation client: {}", e);
+            if skip_external_error("test_agent_with_image_generation_tool", &e) {
+                return;
             }
+            panic!("Failed to create image generation client: {}", e);
         }
     }
 }
@@ -1878,6 +2051,12 @@ fn test_grok_agent_with_image_generation_tool() {
                                     }
                                     Err(e) => {
                                         log::error!("Failed to save Grok image: {}", e);
+                                        if skip_external_error(
+                                            "test_grok_agent_with_image_generation_tool",
+                                            &e,
+                                        ) {
+                                            return;
+                                        }
                                         panic!("Could not save image: {}", e);
                                     }
                                 }
@@ -1900,6 +2079,12 @@ fn test_grok_agent_with_image_generation_tool() {
                                     }
                                     Err(e) => {
                                         log::error!("Failed to save Grok image: {}", e);
+                                        if skip_external_error(
+                                            "test_grok_agent_with_image_generation_tool",
+                                            &e,
+                                        ) {
+                                            return;
+                                        }
                                         panic!("Could not save image: {}", e);
                                     }
                                 }
@@ -1913,27 +2098,27 @@ fn test_grok_agent_with_image_generation_tool() {
                         }
                         Err(e) => {
                             log::error!("Grok tool execution failed: {}", e);
+                            if skip_external_error("test_grok_agent_with_image_generation_tool", &e)
+                            {
+                                return;
+                            }
                             panic!("Could not execute image generation tool: {}", e);
                         }
                     }
                 }
                 Err(e) => {
-                    let err_msg = e.to_string();
-                    if err_msg.contains("quota") || err_msg.contains("RESOURCE_EXHAUSTED") {
-                        log::info!("⚠️  Skipping: API quota exhausted");
-                    } else {
-                        panic!("Grok agent generation failed: {}", e);
+                    if skip_external_error("test_grok_agent_with_image_generation_tool", &e) {
+                        return;
                     }
+                    panic!("Grok agent generation failed: {}", e);
                 }
             }
         }
         Err(e) => {
-            let err_msg = e.to_string();
-            if err_msg.contains("quota") || err_msg.contains("RESOURCE_EXHAUSTED") {
-                log::info!("⚠️  Skipping: Image generation quota exhausted");
-            } else {
-                panic!("Failed to create Grok image client: {}", e);
+            if skip_external_error("test_grok_agent_with_image_generation_tool", &e) {
+                return;
             }
+            panic!("Failed to create Grok image client: {}", e);
         }
     }
 }

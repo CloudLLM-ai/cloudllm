@@ -618,12 +618,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## ThoughtChain: Persistent Agent Memory
 
-[`ThoughtChain`](https://docs.rs/cloudllm/latest/cloudllm/thought_chain/struct.ThoughtChain.html) is an
-append-only, SHA-256 hash-chained, disk-persisted log of agent thoughts. Each thought can carry
+[`ThoughtChain`](https://docs.rs/thoughtchain/latest/thoughtchain/struct.ThoughtChain.html) is an
+append-only, SHA-256 hash-chained, adapter-backed memory log of agent thoughts. Each thought can carry
 back-references to ancestor thoughts, forming a DAG that enables graph-based context resolution.
 
 ```text
-ThoughtChain (.jsonl on disk)
+ThoughtChain (adapter-backed; JSONL by default)
   ├─ Thought #0  Finding      hash=abc1...   refs=[]
   ├─ Thought #1  Decision     hash=def2...   refs=[]      prev_hash=abc1...
   ├─ Thought #2  Finding      hash=789a...   refs=[]      prev_hash=def2...
@@ -634,7 +634,7 @@ ThoughtChain (.jsonl on disk)
 
 ```rust,no_run
 use cloudllm::Agent;
-use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
+use thoughtchain::{ThoughtChain, ThoughtType};
 use cloudllm::clients::openai::OpenAIClient;
 use std::sync::Arc;
 use std::path::PathBuf;
@@ -666,7 +666,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 ```
 
-ThoughtChain files are newline-delimited JSON (`.jsonl`), one thought per line.
+ThoughtChain persistence is adapter-backed. The current default backend is newline-delimited JSON
+(`.jsonl`), one thought per line, via `JsonlStorageAdapter`. This keeps storage swappable while
+preserving the same hashing, query, replay, and export behavior.
 Use `ThoughtChain::verify_integrity()` to detect tampering, and
 `ThoughtChain::resolve_context(index)` to reconstruct the minimal context
 graph for any thought.
@@ -675,7 +677,7 @@ Resume a previously running agent from its chain:
 
 ```rust,no_run
 use cloudllm::Agent;
-use cloudllm::thought_chain::ThoughtChain;
+use thoughtchain::ThoughtChain;
 use cloudllm::clients::openai::OpenAIClient;
 use std::sync::Arc;
 use std::path::PathBuf;

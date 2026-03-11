@@ -1,0 +1,29 @@
+0.1.0 MAR/11/2026
+ - feat: First public release of `thoughtchain`
+   - Standalone Rust crate for semantic, hash-chained memory in long-running and multi-agent systems
+   - Append-only, adapter-backed storage with explicit integrity verification
+   - `StorageAdapter` abstraction for pluggable persistence backends
+   - `JsonlStorageAdapter` as the current default backend
+   - Stable crate metadata prepared for crates.io publishing
+ - feat: Semantic thought model for durable agent memory
+   - Rich `ThoughtType` taxonomy covering preferences, insights, facts, plans, corrections, checkpoints, summaries, surprises, and more
+   - `ThoughtRole` separates semantic meaning from runtime roles such as memory, summary, compression, checkpoint, handoff, and audit
+   - Stable thought ids, timestamps, importance, confidence, tags, concepts, refs, and typed relations
+   - Shared-chain agent attribution via `agent_id`, `agent_name`, and optional `agent_owner`
+ - feat: Query, replay, and export capabilities
+   - Query by text, type, role, tags, concepts, agent ids, importance, confidence, and date range
+   - Prompt-oriented catch-up rendering for session resumption
+   - `MEMORY.md`-style Markdown export generated from chain walks and filters
+   - Chain head inspection and integrity checks for durable memory operations
+ - feat: Server support and standalone daemon
+   - `thoughtchain::server` module behind the `server` feature
+   - MCP server surface for remote agents
+   - REST server surface for services, dashboards, CLIs, and generic HTTP clients
+   - `thoughtchaind` binary to run ThoughtChain as a long-lived process
+   - Env-configurable host, ports, default chain key, and storage directory
+ - docs: Fully documented public API
+   - Rustdoc coverage across public functions, enums, structs, and implementations
+   - Added protocol documentation in the parent repository for both MCP and REST use
+ - test: Dedicated crate test coverage
+   - Separate tests under `thoughtchain/tests`
+   - Coverage for persistence, integrity, querying, export behavior, and server routing

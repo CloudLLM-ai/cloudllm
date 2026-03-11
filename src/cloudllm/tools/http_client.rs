@@ -436,10 +436,6 @@ impl HttpClient {
         let domain = extract_domain(url)
             .ok_or_else(|| HttpClientError::new("Could not extract domain from URL"))?;
 
-        // Hard-coded SSRF deny-list — checked before any user-configured lists.
-        // Resolves the hostname to IP(s) via spawn_blocking to avoid stalling the executor.
-        check_ssrf_blocked(&domain).await?;
-
         // Check blocklist first
         if self.denied_domains.contains(&domain) {
             return Err(HttpClientError::new(format!(
@@ -447,6 +443,10 @@ impl HttpClient {
                 domain
             )));
         }
+
+        // Hard-coded SSRF deny-list — checked before any allowlist decisions.
+        // Resolves the hostname to IP(s) via spawn_blocking to avoid stalling the executor.
+        check_ssrf_blocked(&domain).await?;
 
         // Check allowlist if it exists
         if !self.allowed_domains.is_empty() && !self.allowed_domains.contains(&domain) {

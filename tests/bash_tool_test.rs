@@ -17,7 +17,6 @@ use cloudllm::tools::{BashError, BashTool, Platform};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use tempfile;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -349,11 +348,8 @@ async fn test_allowlist_permits_absolute_path_variant() {
     // "/bin/echo hello" must be allowed when "echo" is in the allowlist.
     let bash = BashTool::new(Platform::Linux).with_allowed_commands(vec!["echo".to_string()]);
     // We only check the allowlist decision, not that /bin/echo exists.
-    match bash.execute("/bin/echo hello").await {
-        Err(BashError::CommandDenied(_)) => {
-            panic!("/bin/echo should be allowed when 'echo' is in the allowlist")
-        }
-        _ => {} // Ok or other OS error is acceptable
+    if let Err(BashError::CommandDenied(_)) = bash.execute("/bin/echo hello").await {
+        panic!("/bin/echo should be allowed when 'echo' is in the allowlist");
     }
 }
 
@@ -455,14 +451,11 @@ async fn test_allowlist_prefix_only_does_not_stop_chained_commands() {
     let r = bash.execute("echo hello && date").await;
     // The allowlist check passes; date runs fine.
     // The important thing is that CommandDenied was NOT returned.
-    match r {
-        Err(BashError::CommandDenied(_)) => {
-            panic!(
-                "prefix-only allowlist should NOT block chained commands — \
-                 this test documents the known limitation"
-            )
-        }
-        _ => {} // Ok or other OS-level error is acceptable
+    if let Err(BashError::CommandDenied(_)) = r {
+        panic!(
+            "prefix-only allowlist should NOT block chained commands — \
+             this test documents the known limitation"
+        );
     }
 }
 

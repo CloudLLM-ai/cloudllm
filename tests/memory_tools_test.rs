@@ -120,12 +120,13 @@ async fn test_memory_list_keys_excludes_expired() {
 fn test_memory_protocol_spec_not_empty() {
     let spec = Memory::get_protocol_spec();
     assert!(!spec.is_empty());
-    assert!(spec.contains("Put (P)"));
-    assert!(spec.contains("Get (G)"));
-    assert!(spec.contains("List Keys (L)"));
-    assert!(spec.contains("Delete (D)"));
-    assert!(spec.contains("Clear (C)"));
-    assert!(spec.contains("Total Bytes (T)"));
+    assert!(spec.contains("Memory tool quick-reference"));
+    assert!(spec.contains("P <key> <value>"));
+    assert!(spec.contains("G <key>"));
+    assert!(spec.contains("L"));
+    assert!(spec.contains("D <key>"));
+    assert!(spec.contains("C"));
+    assert!(spec.contains("T A"));
 }
 
 #[tokio::test]

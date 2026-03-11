@@ -310,8 +310,12 @@ pub use cloudllm::context_strategy::{
     ContextStrategy, NoveltyAwareStrategy, SelfCompressionStrategy, TrimStrategy,
 };
 pub use cloudllm::llm_session::LLMSession;
-pub use cloudllm::thought_chain;
-pub use cloudllm::thought_chain::{Thought, ThoughtChain, ThoughtType};
+pub use mcp;
+pub use thoughtchain;
+pub use thoughtchain::{
+    JsonlStorageAdapter, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
+    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
+};
 
 // Re-export tool protocol and orchestration functionality
 pub use cloudllm::event;

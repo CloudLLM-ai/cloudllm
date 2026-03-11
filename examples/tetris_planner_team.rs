@@ -243,7 +243,7 @@ impl EventHandler for TetrisEventHandler {
                 self.log("planner", format!("❌ Plan error: {error}"));
             }
             PlannerEvent::ToolMaxIterationsReached { .. } => {
-                self.log("planner", format!("❌ Plan hit max tool iterations"));
+                self.log("planner", "❌ Plan hit max tool iterations");
             }
             _ => {}
         }
@@ -543,7 +543,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 // Create parent directories if needed
                 let target_path = PathBuf::from(path_value);
                 if let Some(parent) = target_path.parent() {
-                    if parent.as_os_str().len() > 0 {
+                    if !parent.as_os_str().is_empty() {
                         if let Err(err) = fs::create_dir_all(parent) {
                             eprintln!("[write_tetris_file] ERROR creating parent dir: {}", err);
                             return Ok(ToolResult::failure(format!("Failed to create parent directory: {}", err)));

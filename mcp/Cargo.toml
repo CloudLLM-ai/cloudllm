@@ -1,0 +1,28 @@
+[package]
+name = "mcp"
+version = "0.1.0"
+authors = ["Angel Leon <gubatron@gmail.com>"]
+edition = "2021"
+license = "MIT"
+description = "Reusable MCP runtime, protocol types, and HTTP server/client primitives."
+repository = "https://github.com/CloudLLM-ai/cloudllm"
+documentation = "https://docs.rs/mcp/latest/mcp/"
+readme = "README.md"
+keywords = ["mcp", "model-context-protocol", "tools", "agents", "server"]
+categories = ["development-tools", "network-programming", "asynchronous"]
+
+[features]
+default = []
+server = ["dep:axum"]
+
+[dependencies]
+async-trait = "0.1.89"
+reqwest = { version = "0.12.24", features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10"
+subtle = "2"
+tokio = { version = "1.48.0", features = ["full"] }
+axum = { version = "0.8.7", optional = true }
+
+[dev-dependencies]

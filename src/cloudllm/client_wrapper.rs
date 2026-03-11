@@ -64,6 +64,7 @@
 
 use async_trait::async_trait;
 use futures_util::stream::Stream;
+pub use mcp::protocol::ToolDefinition;
 use std::error::Error;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -94,40 +95,6 @@ pub struct NativeToolCall {
     pub name: String,
     /// Parsed JSON arguments supplied by the LLM for this call.
     pub arguments: serde_json::Value,
-}
-
-/// Provider-agnostic tool schema passed to the LLM along with a chat request.
-///
-/// Derived from [`ToolMetadata`](crate::tool_protocol::ToolMetadata) via
-/// [`ToolMetadata::to_tool_definition`](crate::tool_protocol::ToolMetadata::to_tool_definition).
-/// Serialised as an OpenAI-compatible `tools` array entry before transmission.
-///
-/// # Example
-///
-/// ```rust
-/// use cloudllm::client_wrapper::ToolDefinition;
-///
-/// let def = ToolDefinition {
-///     name: "calculator".to_string(),
-///     description: "Evaluates a mathematical expression.".to_string(),
-///     parameters_schema: serde_json::json!({
-///         "type": "object",
-///         "properties": {
-///             "expression": {"type": "string", "description": "The expression to evaluate"}
-///         },
-///         "required": ["expression"]
-///     }),
-/// };
-/// assert_eq!(def.name, "calculator");
-/// ```
-#[derive(Debug, Clone)]
-pub struct ToolDefinition {
-    /// Tool name as it will appear in the API `tools` array.
-    pub name: String,
-    /// Human-readable description surfaced to the LLM to aid tool selection.
-    pub description: String,
-    /// JSON Schema object describing the accepted parameters.
-    pub parameters_schema: serde_json::Value,
 }
 
 /// Trait-driven abstraction for a concrete cloud provider.

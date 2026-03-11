@@ -52,13 +52,13 @@ use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage, ToolDefini
 use crate::cloudllm::context_strategy::{ContextStrategy, TrimStrategy};
 use crate::cloudllm::event::{AgentEvent, EventHandler, PlannerEvent};
 use crate::cloudllm::llm_session::LLMSession;
-use crate::cloudllm::thought_chain::{Thought, ThoughtChain, ThoughtType};
 use crate::cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
 use openai_rust2::chat::{GrokTool, OpenAITool};
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::sync::Arc;
+use thoughtchain::{Thought, ThoughtChain, ThoughtType};
 use tokio::sync::RwLock;
 
 /// Internal representation of a resolved tool call.
@@ -324,7 +324,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use cloudllm::thought_chain::ThoughtChain;
+    /// use thoughtchain::ThoughtChain;
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -539,7 +539,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
+    /// use thoughtchain::{ThoughtChain, ThoughtType};
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -567,7 +567,7 @@ impl Agent {
         content: impl Into<String>,
     ) -> io::Result<()> {
         if let Some(chain) = &self.thought_chain {
-            let thought_type = entry_type.clone();
+            let thought_type = entry_type;
             let mut chain = chain.write().await;
             chain.append(&self.id, entry_type, &content.into())?;
             self.emit(AgentEvent::ThoughtCommitted {
@@ -607,7 +607,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
+    /// use thoughtchain::{ThoughtChain, ThoughtType};
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -676,7 +676,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use cloudllm::thought_chain::ThoughtChain;
+    /// use thoughtchain::ThoughtChain;
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -900,38 +900,37 @@ impl Agent {
             Some(tool_defs)
         };
 
-        // When no native tools are available, fall back to text-parsing: append tool
-        // descriptions to the message so providers without function-calling can still
-        // select tools.
+        // Always include a textual tool summary in the prompt. Native tool definitions
+        // remain enabled when available, but the text description keeps behavior
+        // consistent for mocks, debugging, and providers that still rely on prompt
+        // guidance.
         let mut message_with_tools = user_message.to_string();
-        if tools.is_none() {
-            let registry = self.tool_registry.read().await;
-            let registry_tools = registry.list_tools();
-            if !registry_tools.is_empty() {
-                message_with_tools.push_str("\n\nYou have access to the following tools:\n");
-                for tool_metadata in registry_tools {
-                    message_with_tools.push_str(&format!(
-                        "- {}: {}\n",
-                        tool_metadata.name, tool_metadata.description
-                    ));
-                    if !tool_metadata.parameters.is_empty() {
-                        message_with_tools.push_str("  Parameters:\n");
-                        for param in &tool_metadata.parameters {
-                            message_with_tools.push_str(&format!(
-                                "    - {} ({:?}): {}\n",
-                                param.name,
-                                param.param_type,
-                                param.description.as_deref().unwrap_or("No description")
-                            ));
-                        }
+        let registry = self.tool_registry.read().await;
+        let registry_tools = registry.list_tools();
+        if !registry_tools.is_empty() {
+            message_with_tools.push_str("\n\nYou have access to the following tools:\n");
+            for tool_metadata in registry_tools {
+                message_with_tools.push_str(&format!(
+                    "- {}: {}\n",
+                    tool_metadata.name, tool_metadata.description
+                ));
+                if !tool_metadata.parameters.is_empty() {
+                    message_with_tools.push_str("  Parameters:\n");
+                    for param in &tool_metadata.parameters {
+                        message_with_tools.push_str(&format!(
+                            "    - {} ({:?}): {}\n",
+                            param.name,
+                            param.param_type,
+                            param.description.as_deref().unwrap_or("No description")
+                        ));
                     }
                 }
-                message_with_tools.push_str(
-                    "\nTo use a tool, respond with a JSON object in the following format:\n\
-                     {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-                     After tool execution, I'll provide the result and you can continue.\n",
-                );
             }
+            message_with_tools.push_str(
+                "\nTo use a tool, respond with a JSON object in the following format:\n\
+                 {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
+                 After tool execution, I'll provide the result and you can continue.\n",
+            );
         }
 
         // Tool execution loop
@@ -999,22 +998,190 @@ impl Agent {
         let mut current_response = current_msg.content.to_string();
 
         loop {
-            // Primary path: native tool calls from the provider; fallback: text-parsing.
-            let tool_call: Option<ToolCall> = if !current_msg.tool_calls.is_empty() {
-                let ntc = &current_msg.tool_calls[0];
-                Some(ToolCall {
+            let native_tool_calls: Vec<ToolCall> = current_msg
+                .tool_calls
+                .iter()
+                .map(|ntc| ToolCall {
                     name: ntc.name.clone(),
                     parameters: ntc.arguments.clone(),
                     native_id: Some(ntc.id.clone()),
                 })
-            } else {
+                .collect();
+
+            if !native_tool_calls.is_empty() {
+                if tool_iteration >= max_tool_iterations {
+                    self.emit(AgentEvent::ToolMaxIterationsReached {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                    })
+                    .await;
+                    self.emit_planner(PlannerEvent::ToolMaxIterationsReached {
+                        plan_id: self.id.clone(),
+                    })
+                    .await;
+                    current_response = format!(
+                        "{}\n\n[Warning: Maximum tool iterations reached]",
+                        current_response
+                    );
+                    break;
+                }
+
+                for tool_call in native_tool_calls {
+                    tool_iteration += 1;
+
+                    let tool_params_snapshot = tool_call.parameters.clone();
+                    let tool_name = tool_call.name.clone();
+                    let native_id = tool_call.native_id.clone();
+
+                    self.emit(AgentEvent::ToolCallDetected {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                        tool_name: tool_name.clone(),
+                        parameters: tool_params_snapshot.clone(),
+                        iteration: tool_iteration,
+                    })
+                    .await;
+                    self.emit_planner(PlannerEvent::ToolCallDetected {
+                        plan_id: self.id.clone(),
+                        tool_name: tool_name.clone(),
+                        parameters: tool_params_snapshot.clone(),
+                        iteration: tool_iteration,
+                    })
+                    .await;
+
+                    let tool_result = {
+                        let registry = self.tool_registry.read().await;
+                        registry
+                            .execute_tool(&tool_call.name, tool_call.parameters)
+                            .await
+                    };
+
+                    let (tool_result_message, tool_success, tool_error, tool_output) =
+                        match &tool_result {
+                            Ok(result) => {
+                                if result.success {
+                                    (
+                                        format!(
+                                            "Tool '{}' executed successfully. Result: {}",
+                                            tool_call.name,
+                                            serde_json::to_string_pretty(&result.output)
+                                                .unwrap_or_else(|_| format!("{:?}", result.output))
+                                        ),
+                                        true,
+                                        None,
+                                        Some(result.output.clone()),
+                                    )
+                                } else {
+                                    let err = result
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| "Unknown error".to_string());
+                                    (
+                                        format!("Tool '{}' failed. Error: {}", tool_call.name, err),
+                                        false,
+                                        Some(err),
+                                        None,
+                                    )
+                                }
+                            }
+                            Err(e) => (
+                                format!("Tool execution error: {}", e),
+                                false,
+                                Some(e.to_string()),
+                                None,
+                            ),
+                        };
+
+                    self.emit(AgentEvent::ToolExecutionCompleted {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                        tool_name: tool_call.name.clone(),
+                        parameters: tool_params_snapshot.clone(),
+                        success: tool_success,
+                        error: tool_error.clone(),
+                        result: tool_output.clone(),
+                        iteration: tool_iteration,
+                    })
+                    .await;
+                    self.emit_planner(PlannerEvent::ToolExecutionCompleted {
+                        plan_id: self.id.clone(),
+                        tool_name,
+                        parameters: tool_params_snapshot,
+                        success: tool_success,
+                        error: tool_error,
+                        result: tool_output,
+                        iteration: tool_iteration,
+                    })
+                    .await;
+
+                    if let Some(call_id) = native_id {
+                        self.session
+                            .inject_message(Role::Tool { call_id }, tool_result_message);
+                    }
+                }
+
+                // Send tool result back through session.
+                let next_iteration = tool_iteration + 1;
+                self.emit(AgentEvent::LLMCallStarted {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    iteration: next_iteration,
+                })
+                .await;
+                self.emit_planner(PlannerEvent::LLMCallStarted {
+                    plan_id: self.id.clone(),
+                    iteration: next_iteration,
+                })
+                .await;
+
+                let follow_up = self
+                    .session
+                    .send_current_history(tools.clone())
+                    .await
+                    .map_err(|e| {
+                        Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
+                            e.to_string(),
+                        )) as Box<dyn Error + Send + Sync>
+                    })?;
+
+                if let Some(usage) = self.session.client().get_last_usage().await {
+                    total_input_tokens += usage.input_tokens;
+                    total_output_tokens += usage.output_tokens;
+                    total_tokens += usage.total_tokens;
+                }
+
+                let follow_up_response_length = follow_up.content.len();
+                self.emit(AgentEvent::LLMCallCompleted {
+                    agent_id: self.id.clone(),
+                    agent_name: self.name.clone(),
+                    iteration: next_iteration,
+                    tokens_used: if total_tokens > 0 {
+                        Some(TokenUsage {
+                            input_tokens: total_input_tokens,
+                            output_tokens: total_output_tokens,
+                            total_tokens,
+                        })
+                    } else {
+                        None
+                    },
+                    response_length: follow_up_response_length,
+                })
+                .await;
+                self.emit_planner(PlannerEvent::LLMCallCompleted {
+                    plan_id: self.id.clone(),
+                    iteration: next_iteration,
+                    response_length: follow_up_response_length,
+                })
+                .await;
+
+                current_response = follow_up.content.to_string();
+                current_msg = follow_up;
+            } else if let Some(tool_call) =
                 self.parse_tool_call(&current_response).map(|tc| ToolCall {
                     native_id: None,
                     ..tc
                 })
-            };
-
-            if let Some(tool_call) = tool_call {
+            {
                 if tool_iteration >= max_tool_iterations {
                     self.emit(AgentEvent::ToolMaxIterationsReached {
                         agent_id: self.id.clone(),
@@ -1035,7 +1202,6 @@ impl Agent {
 
                 let tool_params_snapshot = tool_call.parameters.clone();
                 let tool_name = tool_call.name.clone();
-                let native_id = tool_call.native_id.clone();
 
                 self.emit(AgentEvent::ToolCallDetected {
                     agent_id: self.id.clone(),
@@ -1053,7 +1219,6 @@ impl Agent {
                 })
                 .await;
 
-                // Execute the tool
                 let tool_result = {
                     let registry = self.tool_registry.read().await;
                     registry
@@ -1119,9 +1284,6 @@ impl Agent {
                 })
                 .await;
 
-                // Send tool result back through session.
-                // Native path: inject result as Role::Tool so the provider correlates the call.
-                // Text-parsing fallback: inject as Role::User (existing behaviour).
                 let next_iteration = tool_iteration + 1;
                 self.emit(AgentEvent::LLMCallStarted {
                     agent_id: self.id.clone(),
@@ -1135,15 +1297,9 @@ impl Agent {
                 })
                 .await;
 
-                let result_role = if let Some(call_id) = native_id {
-                    Role::Tool { call_id }
-                } else {
-                    Role::User
-                };
-
                 let follow_up = self
                     .session
-                    .send_message(result_role, tool_result_message, tools.clone())
+                    .send_message(Role::User, tool_result_message, tools.clone())
                     .await
                     .map_err(|e| {
                         Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -1328,36 +1484,36 @@ impl Agent {
         // Build message array
         let mut messages = Vec::new();
 
-        // System message — when no native tools, append text descriptions for fallback parsing
+        // Always include a textual tool summary in the system prompt. Native tool
+        // definitions remain enabled when available, but the text description keeps
+        // prompt behavior stable across clients and tests.
         let mut system_with_tools = augmented_system.clone();
-        if gwt_tools.is_none() {
-            let registry = self.tool_registry.read().await;
-            let registry_tools = registry.list_tools();
-            if !registry_tools.is_empty() {
-                system_with_tools.push_str("\n\nYou have access to the following tools:\n");
-                for tool_metadata in registry_tools {
-                    system_with_tools.push_str(&format!(
-                        "- {}: {}\n",
-                        tool_metadata.name, tool_metadata.description
-                    ));
-                    if !tool_metadata.parameters.is_empty() {
-                        system_with_tools.push_str("  Parameters:\n");
-                        for param in &tool_metadata.parameters {
-                            system_with_tools.push_str(&format!(
-                                "    - {} ({:?}): {}\n",
-                                param.name,
-                                param.param_type,
-                                param.description.as_deref().unwrap_or("No description")
-                            ));
-                        }
+        let registry = self.tool_registry.read().await;
+        let registry_tools = registry.list_tools();
+        if !registry_tools.is_empty() {
+            system_with_tools.push_str("\n\nYou have access to the following tools:\n");
+            for tool_metadata in registry_tools {
+                system_with_tools.push_str(&format!(
+                    "- {}: {}\n",
+                    tool_metadata.name, tool_metadata.description
+                ));
+                if !tool_metadata.parameters.is_empty() {
+                    system_with_tools.push_str("  Parameters:\n");
+                    for param in &tool_metadata.parameters {
+                        system_with_tools.push_str(&format!(
+                            "    - {} ({:?}): {}\n",
+                            param.name,
+                            param.param_type,
+                            param.description.as_deref().unwrap_or("No description")
+                        ));
                     }
                 }
-                system_with_tools.push_str(
-                    "\nTo use a tool, respond with a JSON object in the following format:\n\
-                     {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-                     After tool execution, I'll provide the result and you can continue.\n",
-                );
             }
+            system_with_tools.push_str(
+                "\nTo use a tool, respond with a JSON object in the following format:\n\
+                 {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
+                 After tool execution, I'll provide the result and you can continue.\n",
+            );
         }
 
         messages.push(Message {
@@ -1441,22 +1597,17 @@ impl Agent {
             })
             .await;
 
-            // Primary: native tool calls from provider; fallback: text-parsing
-            let tool_call: Option<ToolCall> = if !response.tool_calls.is_empty() {
-                let ntc = &response.tool_calls[0];
-                Some(ToolCall {
+            let native_tool_calls: Vec<ToolCall> = response
+                .tool_calls
+                .iter()
+                .map(|ntc| ToolCall {
                     name: ntc.name.clone(),
                     parameters: ntc.arguments.clone(),
                     native_id: Some(ntc.id.clone()),
                 })
-            } else {
-                self.parse_tool_call(&current_response).map(|tc| ToolCall {
-                    native_id: None,
-                    ..tc
-                })
-            };
+                .collect();
 
-            if let Some(tool_call) = tool_call {
+            if !native_tool_calls.is_empty() {
                 if tool_iteration >= max_tool_iterations {
                     self.emit(AgentEvent::ToolMaxIterationsReached {
                         agent_id: self.id.clone(),
@@ -1471,10 +1622,119 @@ impl Agent {
                     break;
                 }
 
+                // Add assistant's message (with tool_calls for native path) to messages
+                messages.push(Message {
+                    role: Role::Assistant,
+                    content: response.content.clone(),
+                    tool_calls: response.tool_calls.clone(),
+                });
+
+                for tool_call in native_tool_calls {
+                    tool_iteration += 1;
+
+                    let gwt_params_snapshot = tool_call.parameters.clone();
+                    let gwt_native_id = tool_call.native_id.clone();
+
+                    self.emit(AgentEvent::ToolCallDetected {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                        tool_name: tool_call.name.clone(),
+                        parameters: gwt_params_snapshot.clone(),
+                        iteration: tool_iteration,
+                    })
+                    .await;
+
+                    let tool_result = {
+                        let registry = self.tool_registry.read().await;
+                        registry
+                            .execute_tool(&tool_call.name, tool_call.parameters)
+                            .await
+                    };
+
+                    let (tool_result_message, gwt_tool_success, gwt_tool_error, gwt_tool_output) =
+                        match &tool_result {
+                            Ok(result) => {
+                                if result.success {
+                                    (
+                                        format!(
+                                            "Tool '{}' executed successfully. Result: {}",
+                                            tool_call.name,
+                                            serde_json::to_string_pretty(&result.output)
+                                                .unwrap_or_else(|_| format!("{:?}", result.output))
+                                        ),
+                                        true,
+                                        None,
+                                        Some(result.output.clone()),
+                                    )
+                                } else {
+                                    let err = result
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| "Unknown error".to_string());
+                                    (
+                                        format!("Tool '{}' failed. Error: {}", tool_call.name, err),
+                                        false,
+                                        Some(err),
+                                        None,
+                                    )
+                                }
+                            }
+                            Err(e) => (
+                                format!("Tool execution error: {}", e),
+                                false,
+                                Some(e.to_string()),
+                                None,
+                            ),
+                        };
+
+                    self.emit(AgentEvent::ToolExecutionCompleted {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                        tool_name: tool_call.name.clone(),
+                        parameters: gwt_params_snapshot,
+                        success: gwt_tool_success,
+                        error: gwt_tool_error,
+                        result: gwt_tool_output,
+                        iteration: tool_iteration,
+                    })
+                    .await;
+
+                    let gwt_result_role = if let Some(call_id) = gwt_native_id {
+                        Role::Tool { call_id }
+                    } else {
+                        Role::User
+                    };
+                    messages.push(Message {
+                        role: gwt_result_role,
+                        content: Arc::from(tool_result_message.as_str()),
+                        tool_calls: vec![],
+                    });
+                }
+
+                // Continue loop to get next response
+                continue;
+            } else if let Some(tool_call) =
+                self.parse_tool_call(&current_response).map(|tc| ToolCall {
+                    native_id: None,
+                    ..tc
+                })
+            {
+                if tool_iteration >= max_tool_iterations {
+                    self.emit(AgentEvent::ToolMaxIterationsReached {
+                        agent_id: self.id.clone(),
+                        agent_name: self.name.clone(),
+                    })
+                    .await;
+                    final_response = format!(
+                        "{}\n\n[Warning: Maximum tool iterations reached]",
+                        current_response
+                    );
+                    break;
+                }
+
                 tool_iteration += 1;
 
                 let gwt_params_snapshot = tool_call.parameters.clone();
-                let gwt_native_id = tool_call.native_id.clone();
 
                 self.emit(AgentEvent::ToolCallDetected {
                     agent_id: self.id.clone(),
@@ -1485,7 +1745,6 @@ impl Agent {
                 })
                 .await;
 
-                // Execute the tool via the registry
                 let tool_result = {
                     let registry = self.tool_registry.read().await;
                     registry
@@ -1493,14 +1752,6 @@ impl Agent {
                         .await
                 };
 
-                // Add assistant's message (with tool_calls for native path) to messages
-                messages.push(Message {
-                    role: Role::Assistant,
-                    content: response.content.clone(),
-                    tool_calls: response.tool_calls.clone(),
-                });
-
-                // Add tool result to messages
                 let (tool_result_message, gwt_tool_success, gwt_tool_error, gwt_tool_output) =
                     match &tool_result {
                         Ok(result) => {
@@ -1549,19 +1800,12 @@ impl Agent {
                 })
                 .await;
 
-                // Inject tool result: native path uses Role::Tool; fallback uses Role::User
-                let gwt_result_role = if let Some(call_id) = gwt_native_id {
-                    Role::Tool { call_id }
-                } else {
-                    Role::User
-                };
                 messages.push(Message {
-                    role: gwt_result_role,
+                    role: Role::User,
                     content: Arc::from(tool_result_message.as_str()),
                     tool_calls: vec![],
                 });
 
-                // Continue loop to get next response
                 continue;
             } else {
                 // No tool call found, return the response
