@@ -4,6 +4,14 @@
    - CloudLLM now depends on `thoughtchain` as an external crate instead of an internal module
    - Removed the legacy internal `thought_chain.rs`
    - Preserved append-only, hash-chained memory semantics while redesigning the schema for richer semantic retrieval
+ - feat: Restructure the repository as a multi-crate workspace
+   - The root repository now contains three Rust crates with clear dependency direction:
+     - `cloudllm/` remains the main agent framework crate
+     - `thoughtchain/` is the standalone semantic memory and daemon crate
+     - `mcp/` is the new shared MCP runtime/protocol crate used by both `cloudllm` and `thoughtchain`
+   - This removes the old risk of circular dependencies between CloudLLM and ThoughtChain
+   - Shared MCP protocol/server/client types now live in `mcp/` instead of being embedded only inside CloudLLM
+   - CloudLLM keeps its higher-level agent/tool integrations, while ThoughtChain consumes the shared MCP layer independently
  - feat: World-class ThoughtChain schema and query model
    - Added richer `ThoughtType` taxonomy for semantic agent memory
    - Added `ThoughtRole` to separate semantic meaning from operational lifecycle concerns
@@ -20,11 +28,18 @@
    - Added `thoughtchaind` binary with env-based configuration:
      - `THOUGHTCHAIN_DIR`
      - `THOUGHTCHAIN_DEFAULT_KEY`
+     - `THOUGHTCHAIN_STORAGE_ADAPTER`
      - `THOUGHTCHAIN_BIND_HOST`
      - `THOUGHTCHAIN_MCP_PORT`
      - `THOUGHTCHAIN_REST_PORT`
    - Added REST endpoints for bootstrap, append, search, recent context, memory markdown export, and chain head inspection
    - Moved ThoughtChain MCP implementation out of example-local code and into the crate itself
+ - feat: Introduce shared `mcp/` crate for protocol and runtime reuse
+   - Extracted reusable MCP-facing protocol types out of CloudLLM into `mcp/`
+   - Added shared tool metadata, parameters, results, registry, resource metadata, MCP events, and HTTP runtime utilities
+   - Added shared `McpClientProtocol`, `UnifiedMcpServer`, generic `MCPServerBuilder`, `IpFilter`, and `AuthConfig`
+   - Refactored CloudLLM MCP modules into compatibility wrappers/re-exports over the new crate
+   - Refactored ThoughtChain server metadata/results to use shared `mcp` types instead of local duplicated MCP schema structs
  - feat: Persistent agent chat example backed by ThoughtChain over MCP
    - Added a long-running GPT-5.4 chat example that boots a ThoughtChain on first run
    - The example restores prior context from ThoughtChain and persists new durable memories after each turn
@@ -42,6 +57,9 @@
    - Updated provider-backed tests to skip cleanly on missing API keys, quota exhaustion, and offline/network failures
    - Updated memory/protocol/orchestration/planner/tool integration tests to match current tool metadata and prompt/tool delivery behavior
    - Verified all CloudLLM tests and examples build successfully, including `mcp-server` examples
+ - build: Makefile now builds the whole workspace
+   - `make build` now builds `cloudllm`, `mcp`, `thoughtchain`, and the `thoughtchaind` binary
+   - `make check`, `make clippy`, `make test`, and `make doc` now operate on the workspace rather than only the root crate
 
 0.11.3 MAR/05/2026
  - feat: Add GPT-5.4 model support for OpenAI client

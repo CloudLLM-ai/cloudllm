@@ -27,6 +27,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
+use mcp::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -671,108 +672,6 @@ struct HeadResponse {
     storage_location: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct McpToolResult {
-    success: bool,
-    output: Value,
-    error: Option<String>,
-    metadata: HashMap<String, Value>,
-}
-
-impl McpToolResult {
-    fn success(output: Value) -> Self {
-        Self {
-            success: true,
-            output,
-            error: None,
-            metadata: HashMap::new(),
-        }
-    }
-
-    fn failure(message: impl Into<String>) -> Self {
-        Self {
-            success: false,
-            output: Value::Null,
-            error: Some(message.into()),
-            metadata: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-struct McpToolParameterType(String);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct McpToolParameter {
-    name: String,
-    #[serde(rename = "type")]
-    param_type: McpToolParameterType,
-    description: Option<String>,
-    required: bool,
-    default: Option<Value>,
-    items: Option<Box<McpToolParameterType>>,
-    properties: Option<HashMap<String, McpToolParameter>>,
-}
-
-impl McpToolParameter {
-    fn string(name: &str, description: &str, required: bool) -> Self {
-        Self {
-            name: name.to_string(),
-            param_type: McpToolParameterType("string".to_string()),
-            description: Some(description.to_string()),
-            required,
-            default: None,
-            items: None,
-            properties: None,
-        }
-    }
-
-    fn number(name: &str, description: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            param_type: McpToolParameterType("number".to_string()),
-            description: Some(description.to_string()),
-            required: false,
-            default: None,
-            items: None,
-            properties: None,
-        }
-    }
-
-    fn integer(name: &str, description: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            param_type: McpToolParameterType("integer".to_string()),
-            description: Some(description.to_string()),
-            required: false,
-            default: None,
-            items: None,
-            properties: None,
-        }
-    }
-
-    fn array(name: &str, description: &str, item_type: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            param_type: McpToolParameterType("array".to_string()),
-            description: Some(description.to_string()),
-            required: false,
-            default: None,
-            items: Some(Box::new(McpToolParameterType(item_type.to_string()))),
-            properties: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct McpToolMetadata {
-    name: String,
-    description: String,
-    parameters: Vec<McpToolParameter>,
-    protocol_metadata: HashMap<String, Value>,
-}
-
 async fn start_router(
     addr: SocketAddr,
     router: Router,
@@ -838,11 +737,11 @@ async fn mcp_execute_handler(
     match result {
         Ok(output) => (
             StatusCode::OK,
-            Json(json!({ "result": McpToolResult::success(output) })),
+            Json(json!({ "result": ToolResult::success(output) })),
         ),
         Err(error) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "result": McpToolResult::failure(error.to_string()) })),
+            Json(json!({ "result": ToolResult::failure(error.to_string()) })),
         ),
     }
 }
@@ -914,107 +813,104 @@ fn service_call<T: Serialize>(
     })
 }
 
-fn mcp_tool_metadata() -> Vec<McpToolMetadata> {
+fn mcp_tool_metadata() -> Vec<ToolMetadata> {
     vec![
-        McpToolMetadata {
-            name: "thoughtchain_bootstrap".to_string(),
-            description:
-                "Ensure a thought chain exists and initialize it the first time with a bootstrap memory."
-                    .to_string(),
-            parameters: vec![
-                McpToolParameter::string("chain_key", "Optional durable chain key. Defaults to the server's default chain.", false),
-                McpToolParameter::string("agent_id", "Optional producing agent id. Defaults to 'system' for bootstrap.", false),
-                McpToolParameter::string("agent_name", "Optional producing agent name.", false),
-                McpToolParameter::string("agent_owner", "Optional producing agent owner or tenant label.", false),
-                McpToolParameter::string("content", "Bootstrap summary to store if the chain is empty.", true),
-                McpToolParameter::number("importance", "Optional importance score between 0.0 and 1.0."),
-                McpToolParameter::array("tags", "Optional tags for the bootstrap memory.", "string"),
-                McpToolParameter::array("concepts", "Optional concepts for the bootstrap memory.", "string"),
-            ],
-            protocol_metadata: HashMap::new(),
-        },
-        McpToolMetadata {
-            name: "thoughtchain_append".to_string(),
-            description:
-                "Append a durable semantic memory to ThoughtChain. Use exact ThoughtType names like PreferenceUpdate, Constraint, Decision, Insight, Wonder, Question, Summary, Mistake, or Correction."
-                    .to_string(),
-            parameters: vec![
-                McpToolParameter::string("chain_key", "Optional durable chain key.", false),
-                McpToolParameter::string("agent_id", "Optional producing agent id. Defaults to the chain key when omitted.", false),
-                McpToolParameter::string("agent_name", "Optional producing agent name.", false),
-                McpToolParameter::string("agent_owner", "Optional producing agent owner or tenant label.", false),
-                McpToolParameter::string("thought_type", "Semantic type of the thought.", true),
-                McpToolParameter::string("content", "Concise durable memory content.", true),
-                McpToolParameter::string("role", "Optional thought role such as Memory, Summary, Compression, Checkpoint, or Handoff.", false),
-                McpToolParameter::number("importance", "Optional importance score between 0.0 and 1.0."),
-                McpToolParameter::number("confidence", "Optional confidence score between 0.0 and 1.0."),
-                McpToolParameter::array("tags", "Optional tags.", "string"),
-                McpToolParameter::array("concepts", "Optional semantic concepts.", "string"),
-                McpToolParameter::array("refs", "Optional referenced thought indices.", "integer"),
-            ],
-            protocol_metadata: HashMap::new(),
-        },
-        McpToolMetadata {
-            name: "thoughtchain_search".to_string(),
-            description:
-                "Search durable memories by text, type, role, tags, concepts, and importance."
-                    .to_string(),
-            parameters: vec![
-                McpToolParameter::string("chain_key", "Optional durable chain key.", false),
-                McpToolParameter::string("text", "Optional text filter applied to content, tags, and concepts.", false),
-                McpToolParameter::array("thought_types", "Optional list of ThoughtType names.", "string"),
-                McpToolParameter::array("roles", "Optional list of ThoughtRole names.", "string"),
-                McpToolParameter::array("tags_any", "Optional tags to match.", "string"),
-                McpToolParameter::array("concepts_any", "Optional concepts to match.", "string"),
-                McpToolParameter::array("agent_ids", "Optional producing agent ids to match.", "string"),
-                McpToolParameter::array("agent_names", "Optional producing agent names to match.", "string"),
-                McpToolParameter::array("agent_owners", "Optional producing agent owners to match.", "string"),
-                McpToolParameter::number("min_importance", "Optional minimum importance threshold."),
-                McpToolParameter::integer("limit", "Optional maximum number of results."),
-            ],
-            protocol_metadata: HashMap::new(),
-        },
-        McpToolMetadata {
-            name: "thoughtchain_recent_context".to_string(),
-            description:
-                "Render recent ThoughtChain context as a prompt snippet suitable for resuming work."
-                    .to_string(),
-            parameters: vec![
-                McpToolParameter::string("chain_key", "Optional durable chain key.", false),
-                McpToolParameter::integer("last_n", "How many recent thoughts to include."),
-            ],
-            protocol_metadata: HashMap::new(),
-        },
-        McpToolMetadata {
-            name: "thoughtchain_memory_markdown".to_string(),
-            description: "Export a MEMORY.md style Markdown summary from ThoughtChain.".to_string(),
-            parameters: vec![
-                McpToolParameter::string("chain_key", "Optional durable chain key.", false),
-                McpToolParameter::string("text", "Optional text filter.", false),
-                McpToolParameter::array("thought_types", "Optional list of ThoughtType names.", "string"),
-                McpToolParameter::array("roles", "Optional list of ThoughtRole names.", "string"),
-                McpToolParameter::array("tags_any", "Optional tags to match.", "string"),
-                McpToolParameter::array("concepts_any", "Optional concepts to match.", "string"),
-                McpToolParameter::array("agent_ids", "Optional producing agent ids to match.", "string"),
-                McpToolParameter::array("agent_names", "Optional producing agent names to match.", "string"),
-                McpToolParameter::array("agent_owners", "Optional producing agent owners to match.", "string"),
-                McpToolParameter::number("min_importance", "Optional minimum importance threshold."),
-                McpToolParameter::integer("limit", "Optional maximum number of thoughts."),
-            ],
-            protocol_metadata: HashMap::new(),
-        },
-        McpToolMetadata {
-            name: "thoughtchain_head".to_string(),
-            description:
-                "Return head metadata for a ThoughtChain including length, latest thought, and head hash."
-                    .to_string(),
-            parameters: vec![McpToolParameter::string(
-                "chain_key",
-                "Optional durable chain key.",
-                false,
-            )],
-            protocol_metadata: HashMap::new(),
-        },
+        ToolMetadata::new(
+            "thoughtchain_bootstrap",
+            "Ensure a thought chain exists and initialize it the first time with a bootstrap memory.",
+        )
+        .with_parameter(
+            ToolParameter::new("chain_key", ToolParameterType::String)
+                .with_description("Optional durable chain key. Defaults to the server's default chain."),
+        )
+        .with_parameter(
+            ToolParameter::new("agent_id", ToolParameterType::String)
+                .with_description("Optional producing agent id. Defaults to 'system' for bootstrap."),
+        )
+        .with_parameter(
+            ToolParameter::new("agent_name", ToolParameterType::String)
+                .with_description("Optional producing agent name."),
+        )
+        .with_parameter(
+            ToolParameter::new("agent_owner", ToolParameterType::String)
+                .with_description("Optional producing agent owner or tenant label."),
+        )
+        .with_parameter(
+            ToolParameter::new("content", ToolParameterType::String)
+                .with_description("Bootstrap summary to store if the chain is empty.")
+                .required(),
+        )
+        .with_parameter(
+            ToolParameter::new("importance", ToolParameterType::Number)
+                .with_description("Optional importance score between 0.0 and 1.0."),
+        )
+        .with_parameter(
+            ToolParameter::new("tags", ToolParameterType::Array)
+                .with_description("Optional tags for the bootstrap memory.")
+                .with_items(ToolParameterType::String),
+        )
+        .with_parameter(
+            ToolParameter::new("concepts", ToolParameterType::Array)
+                .with_description("Optional concepts for the bootstrap memory.")
+                .with_items(ToolParameterType::String),
+        ),
+        ToolMetadata::new(
+            "thoughtchain_append",
+            "Append a durable semantic memory to ThoughtChain. Use exact ThoughtType names like PreferenceUpdate, Constraint, Decision, Insight, Wonder, Question, Summary, Mistake, or Correction.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Optional producing agent id. Defaults to the chain key when omitted."))
+        .with_parameter(ToolParameter::new("agent_name", ToolParameterType::String).with_description("Optional producing agent name."))
+        .with_parameter(ToolParameter::new("agent_owner", ToolParameterType::String).with_description("Optional producing agent owner or tenant label."))
+        .with_parameter(ToolParameter::new("thought_type", ToolParameterType::String).with_description("Semantic type of the thought.").required())
+        .with_parameter(ToolParameter::new("content", ToolParameterType::String).with_description("Concise durable memory content.").required())
+        .with_parameter(ToolParameter::new("role", ToolParameterType::String).with_description("Optional thought role such as Memory, Summary, Compression, Checkpoint, or Handoff."))
+        .with_parameter(ToolParameter::new("importance", ToolParameterType::Number).with_description("Optional importance score between 0.0 and 1.0."))
+        .with_parameter(ToolParameter::new("confidence", ToolParameterType::Number).with_description("Optional confidence score between 0.0 and 1.0."))
+        .with_parameter(ToolParameter::new("tags", ToolParameterType::Array).with_description("Optional tags.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("concepts", ToolParameterType::Array).with_description("Optional semantic concepts.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("refs", ToolParameterType::Array).with_description("Optional referenced thought indices.").with_items(ToolParameterType::Integer)),
+        ToolMetadata::new(
+            "thoughtchain_search",
+            "Search durable memories by text, type, role, tags, concepts, and importance.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
+        .with_parameter(ToolParameter::new("text", ToolParameterType::String).with_description("Optional text filter applied to content, tags, and concepts."))
+        .with_parameter(ToolParameter::new("thought_types", ToolParameterType::Array).with_description("Optional list of ThoughtType names.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("roles", ToolParameterType::Array).with_description("Optional list of ThoughtRole names.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("tags_any", ToolParameterType::Array).with_description("Optional tags to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("concepts_any", ToolParameterType::Array).with_description("Optional concepts to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_ids", ToolParameterType::Array).with_description("Optional producing agent ids to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_names", ToolParameterType::Array).with_description("Optional producing agent names to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_owners", ToolParameterType::Array).with_description("Optional producing agent owners to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("min_importance", ToolParameterType::Number).with_description("Optional minimum importance threshold."))
+        .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of results.")),
+        ToolMetadata::new(
+            "thoughtchain_recent_context",
+            "Render recent ThoughtChain context as a prompt snippet suitable for resuming work.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
+        .with_parameter(ToolParameter::new("last_n", ToolParameterType::Integer).with_description("How many recent thoughts to include.")),
+        ToolMetadata::new(
+            "thoughtchain_memory_markdown",
+            "Export a MEMORY.md style Markdown summary from ThoughtChain.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
+        .with_parameter(ToolParameter::new("text", ToolParameterType::String).with_description("Optional text filter."))
+        .with_parameter(ToolParameter::new("thought_types", ToolParameterType::Array).with_description("Optional list of ThoughtType names.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("roles", ToolParameterType::Array).with_description("Optional list of ThoughtRole names.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("tags_any", ToolParameterType::Array).with_description("Optional tags to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("concepts_any", ToolParameterType::Array).with_description("Optional concepts to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_ids", ToolParameterType::Array).with_description("Optional producing agent ids to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_names", ToolParameterType::Array).with_description("Optional producing agent names to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_owners", ToolParameterType::Array).with_description("Optional producing agent owners to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("min_importance", ToolParameterType::Number).with_description("Optional minimum importance threshold."))
+        .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of thoughts.")),
+        ToolMetadata::new(
+            "thoughtchain_head",
+            "Return head metadata for a ThoughtChain including length, latest thought, and head hash.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key.")),
     ]
 }
 

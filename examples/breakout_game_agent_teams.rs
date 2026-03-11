@@ -842,7 +842,7 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
     println!("{}\n", "=".repeat(80));
 
     // Print message summary
-    for (_i, msg) in response.messages.iter().take(10).enumerate() {
+    for msg in response.messages.iter().take(10) {
         let agent = msg.agent_name.as_deref().unwrap_or("system");
         let preview = if msg.content.len() > 80 {
             format!("{}...", &msg.content[..80])

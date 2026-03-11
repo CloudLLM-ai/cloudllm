@@ -1,5 +1,5 @@
 # Makefile
-.PHONY: build release clean fmt check test install doc help tasks clippy publish
+.PHONY: build release clean fmt check test install doc help tasks clippy publish publish-dry-run build-thoughtchaind
 
 default: help
 CARGO_CMD=/usr/bin/env cargo
@@ -13,8 +13,12 @@ CARGO_CMD=/usr/bin/env cargo
 # ----------------------------------------------------------------------------------------------------------------------
 
 # Default target (ensures formatting before building)
-build: fmt ## Build the project in release mode (runs fmt first)
-	${CARGO_CMD} build --release
+build: fmt build-thoughtchaind ## Build the full workspace in release mode (runs fmt first)
+	${CARGO_CMD} build --workspace --release
+
+# Explicit daemon build so the ThoughtChain binary is always validated too
+build-thoughtchaind: ## Build the thoughtchaind binary in release mode
+	${CARGO_CMD} build -p thoughtchain --features server --bin thoughtchaind --release
 
 # Full release process (ensures everything runs in the correct order)
 release: fmt check clippy build test doc ## Perform a full release (fmt, check, clippy, build, test, doc)
@@ -25,25 +29,34 @@ fmt: ## Format the code using cargo fmt
 
 # Check for errors without building
 check: ## Run cargo check to analyze the code without compiling
-	${CARGO_CMD} check
+	${CARGO_CMD} check --workspace
+	${CARGO_CMD} check -p thoughtchain --features server --bin thoughtchaind
 
 # Strict linter, fails on warning and suggests fixes
-clippy: ## Checks a package to catch common mistakes and improve your Rust code
+clippy: ## Run clippy across the workspace and fail on warnings
 	${CARGO_CMD} fmt
-	${CARGO_CMD} clippy --package cloudllm --lib
-	${CARGO_CMD} clippy -- -D warnings
+	${CARGO_CMD} clippy --workspace --all-targets --all-features -- -D warnings
 
 # Run tests
 test: ## Run tests using cargo test
-	${CARGO_CMD} test
+	${CARGO_CMD} test --workspace
+	${CARGO_CMD} test -p thoughtchain --features server
 
 # Generate documentation
 doc: ## Generate project documentation using cargo doc
-	${CARGO_CMD} doc
+	${CARGO_CMD} doc --workspace --all-features
 
-# Publish to crates.io
-publish: ## Publish the crate to crates.io
-	${CARGO_CMD} publish
+# Publish workspace crates to crates.io in dependency order
+publish: ## Publish mcp, thoughtchain, then cloudllm to crates.io
+	${CARGO_CMD} publish -p mcp
+	${CARGO_CMD} publish -p thoughtchain
+	${CARGO_CMD} publish -p cloudllm
+
+# Dry-run workspace publish in dependency order
+publish-dry-run: ## Dry-run publish for mcp, thoughtchain, then cloudllm
+	${CARGO_CMD} publish -p mcp --dry-run
+	${CARGO_CMD} publish -p thoughtchain --dry-run
+	${CARGO_CMD} publish -p cloudllm --dry-run
 
 # Clean build artifacts
 clean: ## Remove build artifacts using cargo clean

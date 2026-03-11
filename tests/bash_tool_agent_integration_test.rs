@@ -450,8 +450,8 @@ async fn test_agent_retry_logic_with_bash_tool() {
             .execute("bash", serde_json::json!({"command": "echo attempt"}))
             .await;
 
-        if result.is_ok() {
-            assert!(result.unwrap().success);
+        if let Ok(tool_result) = result {
+            assert!(tool_result.success);
             break;
         }
 

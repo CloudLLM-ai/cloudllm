@@ -310,6 +310,7 @@ pub use cloudllm::context_strategy::{
     ContextStrategy, NoveltyAwareStrategy, SelfCompressionStrategy, TrimStrategy,
 };
 pub use cloudllm::llm_session::LLMSession;
+pub use mcp;
 pub use thoughtchain;
 pub use thoughtchain::{
     JsonlStorageAdapter, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,

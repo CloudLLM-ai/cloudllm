@@ -14,7 +14,7 @@ mod persistent_agent_tools;
 use std::env;
 use std::io::{self, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
@@ -187,11 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn build_system_prompt(
-    chain_key: &str,
-    filesystem_root: &PathBuf,
-    restored_memory: &str,
-) -> String {
+fn build_system_prompt(chain_key: &str, filesystem_root: &Path, restored_memory: &str) -> String {
     format!(
         "You are a persistent GPT-5.4 powered CloudLLM agent in a terminal chat.\n\
 Your durable memory lives in ThoughtChain and is exposed over MCP tools.\n\

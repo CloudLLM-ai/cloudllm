@@ -84,16 +84,15 @@ async fn save_image(image_url_or_b64: &str, filename: &str) -> std::io::Result<(
             .get(image_url_or_b64)
             .send()
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+            .map_err(std::io::Error::other)?
             .bytes()
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         fs::write(filename, data)?;
         log::info!("Saved image from URL to: {}", filename);
     } else {
         // It's base64 data - decode and save
-        let decoded = decode_base64(image_url_or_b64)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let decoded = decode_base64(image_url_or_b64).map_err(std::io::Error::other)?;
         fs::write(filename, decoded)?;
         log::info!("Saved base64 image to: {}", filename);
     }
