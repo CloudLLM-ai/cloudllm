@@ -53,6 +53,7 @@
 use crate::client_wrapper;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role, ToolDefinition};
 use bumpalo::Bump;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub struct LLMSession {
@@ -156,86 +157,8 @@ impl LLMSession {
         content: String,
         tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
-        // Allocate message content in arena and create Arc<str>
-        let content_str = self.arena.alloc_str(&content);
-        let content_arc: Arc<str> = Arc::from(content_str);
-
-        let message = Message {
-            role,
-            content: content_arc,
-            tool_calls: vec![],
-        };
-
-        // Cache the token count for the new message before adding it
-        let message_token_count = estimate_message_token_count(&message);
-
-        // Add the new message to the conversation history
-        self.conversation_history.push(message);
-        self.cached_token_counts.push(message_token_count);
-
-        // Estimate total tokens before sending:
-        // system prompt + all conversation history
-        let system_prompt_tokens = estimate_message_token_count(&self.system_prompt);
-        let mut estimated_total: usize = system_prompt_tokens;
-        for msg in &self.conversation_history {
-            estimated_total += estimate_message_token_count(msg);
-        }
-
-        // Trim oldest messages if estimated total exceeds max_tokens
-        while estimated_total > self.max_tokens && !self.conversation_history.is_empty() {
-            self.conversation_history.remove(0);
-            if !self.cached_token_counts.is_empty() {
-                let removed_tokens = self.cached_token_counts.remove(0);
-                estimated_total = estimated_total.saturating_sub(removed_tokens);
-            }
-        }
-
-        // Build request buffer by reusing the existing Vec to avoid allocation
-        self.request_buffer.clear();
-        self.request_buffer
-            .reserve(1 + self.conversation_history.len());
-        self.request_buffer.push(self.system_prompt.clone());
-        self.request_buffer
-            .extend_from_slice(&self.conversation_history);
-
-        // Send the messages to the LLM
-        let response = self
-            .client
-            .send_message(&self.request_buffer, tools)
-            .await?;
-
-        // Clone response for return before adding to history
-        // This way we keep the owned response from client, push it to history (no clone),
-        // and return a clone only for the caller
-        let response_to_return = response.clone();
-
-        // Cache token count and add the owned response to history
-        let response_token_count = estimate_message_token_count(&response);
-        self.cached_token_counts.push(response_token_count);
-        self.conversation_history.push(response);
-
-        // Update token counts from actual provider usage
-        if let Some(usage) = self.client.get_last_usage().await {
-            self.total_input_tokens = usage.input_tokens;
-            self.total_output_tokens = usage.output_tokens;
-            self.total_token_count = usage.total_tokens;
-
-            // Trim again if actual usage exceeded max_tokens
-            // This can happen if our estimate was off or if the response was large
-            if self.total_token_count > self.max_tokens {
-                let mut excess = self.total_token_count - self.max_tokens;
-
-                // Remove oldest messages until we're back under the limit
-                while excess > 0 && !self.conversation_history.is_empty() {
-                    self.conversation_history.remove(0);
-                    let removed = self.cached_token_counts.remove(0);
-                    excess = excess.saturating_sub(removed);
-                }
-            }
-        }
-
-        // Return the response (cloned earlier for caller)
-        Ok(response_to_return)
+        self.inject_message(role, content);
+        self.send_current_history(tools).await
     }
 
     /// Send a message and return a stream of partial responses when the provider supports it.
@@ -290,29 +213,8 @@ impl LLMSession {
             content: content_arc,
             tool_calls: vec![],
         };
-
-        // Cache the token count for the new message before adding it
-        let message_token_count = estimate_message_token_count(&message);
-
-        // Add the new message to the conversation history
-        self.conversation_history.push(message);
-        self.cached_token_counts.push(message_token_count);
-
-        // Estimate total tokens before sending
-        let system_prompt_tokens = estimate_message_token_count(&self.system_prompt);
-        let mut estimated_total: usize = system_prompt_tokens;
-        for msg in &self.conversation_history {
-            estimated_total += estimate_message_token_count(msg);
-        }
-
-        // Trim oldest messages if estimated total exceeds max_tokens
-        while estimated_total > self.max_tokens && !self.conversation_history.is_empty() {
-            self.conversation_history.remove(0);
-            if !self.cached_token_counts.is_empty() {
-                let removed_tokens = self.cached_token_counts.remove(0);
-                estimated_total = estimated_total.saturating_sub(removed_tokens);
-            }
-        }
+        self.push_history_message(message);
+        self.trim_history_to_fit();
 
         // Build request buffer
         self.request_buffer.clear();
@@ -489,16 +391,23 @@ impl LLMSession {
     /// assert_eq!(session.get_conversation_history().len(), 1);
     /// ```
     pub fn inject_message(&mut self, role: Role, content: String) {
+        self.inject_message_with_tool_calls(role, content, vec![]);
+    }
+
+    pub(crate) fn inject_message_with_tool_calls(
+        &mut self,
+        role: Role,
+        content: String,
+        tool_calls: Vec<crate::client_wrapper::NativeToolCall>,
+    ) {
         let content_str = self.arena.alloc_str(&content);
         let content_arc: Arc<str> = Arc::from(content_str);
         let message = Message {
             role,
             content: content_arc,
-            tool_calls: vec![],
+            tool_calls,
         };
-        let token_count = estimate_message_token_count(&message);
-        self.conversation_history.push(message);
-        self.cached_token_counts.push(token_count);
+        self.push_history_message(message);
     }
 
     /// Sum of estimated tokens across all messages currently in history.
@@ -527,6 +436,118 @@ impl LLMSession {
     /// ```
     pub fn estimated_history_tokens(&self) -> usize {
         self.cached_token_counts.iter().sum()
+    }
+
+    pub(crate) async fn send_current_history(
+        &mut self,
+        tools: Option<Vec<ToolDefinition>>,
+    ) -> Result<Message, Box<dyn std::error::Error>> {
+        self.trim_history_to_fit();
+
+        self.request_buffer.clear();
+        self.request_buffer
+            .reserve(1 + self.conversation_history.len());
+        self.request_buffer.push(self.system_prompt.clone());
+        self.request_buffer
+            .extend_from_slice(&self.conversation_history);
+
+        let response = self
+            .client
+            .send_message(&self.request_buffer, tools)
+            .await?;
+
+        let response_to_return = response.clone();
+        self.push_history_message(response);
+
+        if let Some(usage) = self.client.get_last_usage().await {
+            self.total_input_tokens = usage.input_tokens;
+            self.total_output_tokens = usage.output_tokens;
+            self.total_token_count = usage.total_tokens;
+
+            if self.total_token_count > self.max_tokens {
+                let mut excess = self.total_token_count - self.max_tokens;
+                while excess > 0 && !self.conversation_history.is_empty() {
+                    let removed = self.trim_oldest_message_group();
+                    if removed == 0 {
+                        break;
+                    }
+                    excess = excess.saturating_sub(removed);
+                }
+            }
+        }
+
+        Ok(response_to_return)
+    }
+
+    fn push_history_message(&mut self, message: Message) {
+        let token_count = estimate_message_token_count(&message);
+        self.conversation_history.push(message);
+        self.cached_token_counts.push(token_count);
+    }
+
+    fn trim_history_to_fit(&mut self) {
+        let system_prompt_tokens = estimate_message_token_count(&self.system_prompt);
+        let mut estimated_total = system_prompt_tokens + self.estimated_history_tokens();
+
+        while estimated_total > self.max_tokens && !self.conversation_history.is_empty() {
+            let removed = self.trim_oldest_message_group();
+            if removed == 0 {
+                break;
+            }
+            estimated_total = estimated_total.saturating_sub(removed);
+        }
+    }
+
+    fn trim_oldest_message_group(&mut self) -> usize {
+        if self.conversation_history.is_empty() || self.cached_token_counts.is_empty() {
+            return 0;
+        }
+
+        let mut remove_count = 1;
+
+        match &self.conversation_history[0] {
+            Message {
+                role: Role::Assistant,
+                tool_calls,
+                ..
+            } if !tool_calls.is_empty() => {
+                let mut pending_call_ids: HashSet<&str> =
+                    tool_calls.iter().map(|call| call.id.as_str()).collect();
+
+                let mut idx = 1;
+                while idx < self.conversation_history.len() {
+                    match &self.conversation_history[idx].role {
+                        Role::Tool { call_id } if pending_call_ids.remove(call_id.as_str()) => {
+                            remove_count += 1;
+                            idx += 1;
+                            if pending_call_ids.is_empty() {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            Message {
+                role: Role::Tool { .. },
+                ..
+            } => {
+                let mut idx = 1;
+                while idx < self.conversation_history.len() {
+                    if matches!(self.conversation_history[idx].role, Role::Tool { .. }) {
+                        remove_count += 1;
+                        idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        let removed_tokens: usize = self.cached_token_counts.drain(0..remove_count).sum();
+        self.conversation_history.drain(0..remove_count);
+        removed_tokens
     }
 }
 

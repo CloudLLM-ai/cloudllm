@@ -1,0 +1,186 @@
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use thoughtchain::{
+    chain_filename, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind,
+    ThoughtRole, ThoughtType,
+};
+use uuid::Uuid;
+
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn unique_chain_dir() -> PathBuf {
+    let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("thoughtchain_test_{}_{}", std::process::id(), n));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+#[test]
+fn append_and_reload_preserves_semantic_metadata() {
+    let dir = unique_chain_dir();
+    let session_id = Uuid::new_v4();
+
+    {
+        let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("rust"), None).unwrap();
+        chain
+            .append_thought(
+                "agent1",
+                ThoughtInput::new(
+                    ThoughtType::Insight,
+                    "The bottleneck is cache invalidation.",
+                )
+                .with_session_id(session_id)
+                .with_importance(0.95)
+                .with_confidence(0.8)
+                .with_tags(["performance", "cache"])
+                .with_concepts(["latency", "cache invalidation"]),
+            )
+            .unwrap();
+    }
+
+    let chain = ThoughtChain::open(
+        &dir,
+        "agent1",
+        "Analyst",
+        Some("different"),
+        Some("changed"),
+    )
+    .unwrap();
+    assert_eq!(chain.thoughts().len(), 1);
+    let thought = &chain.thoughts()[0];
+    assert_eq!(thought.session_id, Some(session_id));
+    assert_eq!(thought.thought_type, ThoughtType::Insight);
+    assert_eq!(thought.role, ThoughtRole::Memory);
+    assert_eq!(thought.tags, vec!["performance", "cache"]);
+    assert_eq!(thought.concepts, vec!["latency", "cache invalidation"]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn resolve_context_follows_refs_and_relations() {
+    let dir = unique_chain_dir();
+    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+
+    let base_id = chain
+        .append(
+            "agent1",
+            ThoughtType::FactLearned,
+            "The dataset has 4 million rows.",
+        )
+        .unwrap()
+        .id;
+    chain
+        .append_thought(
+            "agent1",
+            ThoughtInput::new(
+                ThoughtType::Hypothesis,
+                "Failures may come from stale partitions.",
+            )
+            .with_relations(vec![ThoughtRelation {
+                kind: ThoughtRelationKind::DerivedFrom,
+                target_id: base_id,
+            }]),
+        )
+        .unwrap();
+    chain
+        .append_with_refs(
+            "agent1",
+            ThoughtType::Summary,
+            "Important memory snapshot",
+            vec![1],
+        )
+        .unwrap();
+
+    let resolved = chain.resolve_context(2);
+    let indices: Vec<u64> = resolved.iter().map(|thought| thought.index).collect();
+    assert_eq!(indices, vec![0, 1, 2]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn query_filters_by_type_tag_and_text() {
+    let dir = unique_chain_dir();
+    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("memory"), None).unwrap();
+
+    chain
+        .append_thought(
+            "agent1",
+            ThoughtInput::new(
+                ThoughtType::Constraint,
+                "Memory must survive session resets.",
+            )
+            .with_importance(0.9)
+            .with_tags(["durability"])
+            .with_concepts(["persistence"]),
+        )
+        .unwrap();
+    chain
+        .append_thought(
+            "agent1",
+            ThoughtInput::new(ThoughtType::Idea, "Consider vector search later.")
+                .with_importance(0.4)
+                .with_tags(["retrieval"]),
+        )
+        .unwrap();
+
+    let results = chain.query(
+        &ThoughtQuery::new()
+            .with_types(vec![ThoughtType::Constraint])
+            .with_tags_any(["durability"])
+            .with_text("survive"),
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].thought_type, ThoughtType::Constraint);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn memory_markdown_groups_thoughts_into_sections() {
+    let dir = unique_chain_dir();
+    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("memory"), None).unwrap();
+
+    chain
+        .append(
+            "agent1",
+            ThoughtType::PreferenceUpdate,
+            "User prefers short Markdown outputs.",
+        )
+        .unwrap();
+    chain
+        .append(
+            "agent1",
+            ThoughtType::Decision,
+            "Use SQLite for local memory indexing.",
+        )
+        .unwrap();
+    chain
+        .append(
+            "agent1",
+            ThoughtType::Question,
+            "Should embeddings be optional?",
+        )
+        .unwrap();
+
+    let markdown = chain.to_memory_markdown(None);
+    assert!(markdown.contains("# MEMORY"));
+    assert!(markdown.contains("## Identity"));
+    assert!(markdown.contains("## Constraints And Decisions"));
+    assert!(markdown.contains("## Open Threads"));
+    assert!(markdown.contains("User prefers short Markdown outputs."));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn filename_depends_only_on_chain_key() {
+    let first = chain_filename("agent1", "Analyst", Some("rust"), Some("friendly"));
+    let second = chain_filename("agent1", "Different", Some("go"), Some("severe"));
+    let third = chain_filename("agent2", "Analyst", Some("rust"), Some("friendly"));
+
+    assert_eq!(first, second);
+    assert_ne!(first, third);
+}

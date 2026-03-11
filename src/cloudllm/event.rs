@@ -56,8 +56,8 @@
 //! ```
 
 use crate::client_wrapper::TokenUsage;
-use crate::cloudllm::thought_chain::ThoughtType;
 use async_trait::async_trait;
+use thoughtchain::ThoughtType;
 
 /// Events emitted by an [`Agent`](crate::Agent) during its lifecycle.
 ///
@@ -208,7 +208,7 @@ pub enum AgentEvent {
     },
 
     // ── ThoughtChain ─────────────────────────────────────────────────────
-    /// A thought was appended to the agent's [`ThoughtChain`](crate::thought_chain::ThoughtChain).
+    /// A thought was appended to the agent's [`ThoughtChain`](thoughtchain::ThoughtChain).
     ///
     /// Emitted after a successful [`Agent::commit`](crate::Agent::commit) call.
     ThoughtCommitted {

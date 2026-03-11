@@ -634,7 +634,7 @@ ThoughtChain (.jsonl on disk)
 
 ```rust,no_run
 use cloudllm::Agent;
-use cloudllm::thought_chain::{ThoughtChain, ThoughtType};
+use thoughtchain::{ThoughtChain, ThoughtType};
 use cloudllm::clients::openai::OpenAIClient;
 use std::sync::Arc;
 use std::path::PathBuf;
@@ -675,7 +675,7 @@ Resume a previously running agent from its chain:
 
 ```rust,no_run
 use cloudllm::Agent;
-use cloudllm::thought_chain::ThoughtChain;
+use thoughtchain::ThoughtChain;
 use cloudllm::clients::openai::OpenAIClient;
 use std::sync::Arc;
 use std::path::PathBuf;

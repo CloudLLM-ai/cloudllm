@@ -40,11 +40,11 @@
 
 use crate::client_wrapper::Role;
 use crate::cloudllm::llm_session::LLMSession;
-use crate::cloudllm::thought_chain::{ThoughtChain, ThoughtType};
 use async_trait::async_trait;
 use std::collections::HashSet;
 use std::error::Error;
 use std::sync::Arc;
+use thoughtchain::{ThoughtChain, ThoughtInput, ThoughtRole, ThoughtType};
 use tokio::sync::RwLock;
 
 /// Trait for pluggable context-window management strategies.
@@ -58,7 +58,7 @@ use tokio::sync::RwLock;
 /// ```rust,no_run
 /// use cloudllm::context_strategy::ContextStrategy;
 /// use cloudllm::LLMSession;
-/// use cloudllm::thought_chain::ThoughtChain;
+/// use thoughtchain::ThoughtChain;
 /// use async_trait::async_trait;
 /// use std::sync::Arc;
 /// use tokio::sync::RwLock;
@@ -192,8 +192,8 @@ impl ContextStrategy for TrimStrategy {
 /// 1. Sends a compression prompt asking the LLM to produce a structured summary
 ///    covering key findings, decisions, current state, open questions, and next steps.
 /// 2. Parses `REFS:` lines from the response via [`parse_refs`].
-/// 3. Appends a [`Compression`](crate::thought_chain::ThoughtType::Compression) thought
-///    to the [`ThoughtChain`] with back-references.
+/// 3. Appends a [`Summary`](thoughtchain::ThoughtType::Summary) thought to the
+///    [`ThoughtChain`] with back-references.
 /// 4. Clears the session history.
 /// 5. Injects the resolved bootstrap prompt from the ThoughtChain into the fresh session.
 ///
@@ -205,7 +205,7 @@ impl ContextStrategy for TrimStrategy {
 /// ```rust,no_run
 /// use cloudllm::Agent;
 /// use cloudllm::context_strategy::SelfCompressionStrategy;
-/// use cloudllm::thought_chain::ThoughtChain;
+/// use thoughtchain::ThoughtChain;
 /// use cloudllm::clients::openai::OpenAIClient;
 /// use std::sync::Arc;
 /// use std::path::PathBuf;
@@ -288,7 +288,11 @@ Be concise but preserve all critical information.";
         // Persist to ThoughtChain if available
         if let Some(chain) = thought_chain {
             let mut chain = chain.write().await;
-            chain.append_with_refs(agent_id, ThoughtType::Compression, &summary, refs)?;
+            let summary_thought = ThoughtInput::new(ThoughtType::Summary, &summary)
+                .with_role(ThoughtRole::Compression)
+                .with_importance(0.9)
+                .with_refs(refs);
+            chain.append_thought(agent_id, summary_thought)?;
 
             // Clear session and inject bootstrap
             session.clear_history();

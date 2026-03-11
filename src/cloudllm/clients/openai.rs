@@ -9,7 +9,7 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use std::sync::Arc;
 //!
 //! use cloudllm::clients::openai::{OpenAIClient, Model};

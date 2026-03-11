@@ -1,6 +1,6 @@
-use cloudllm::thought_chain::{chain_filename, ThoughtChain, ThoughtType};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use thoughtchain::{chain_filename, ThoughtChain, ThoughtType};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -113,11 +113,11 @@ fn test_thought_chain_resolve_context() {
     chain
         .append("agent1", ThoughtType::Decision, "Another decision")
         .unwrap();
-    // #4: Compression referencing #0 and #2
+    // #4: Summary referencing #0 and #2
     chain
         .append_with_refs(
             "agent1",
-            ThoughtType::Compression,
+            ThoughtType::Summary,
             "Summary of findings",
             vec![0, 2],
         )
@@ -132,16 +132,16 @@ fn test_thought_chain_resolve_context() {
 
 #[test]
 fn test_thought_chain_filename_determinism() {
-    // Same attributes -> same filename
+    // Same chain key -> same filename
     let f1 = chain_filename("id1", "Name", Some("exp"), Some("pers"));
     let f2 = chain_filename("id1", "Name", Some("exp"), Some("pers"));
     assert_eq!(f1, f2);
 
-    // Different attributes -> different filename
+    // Descriptor changes do not fork durable memory storage
     let f3 = chain_filename("id1", "Name", Some("different"), Some("pers"));
-    assert_ne!(f1, f3);
+    assert_eq!(f1, f3);
 
-    // Different id -> different filename
+    // Different chain key -> different filename
     let f4 = chain_filename("id2", "Name", Some("exp"), Some("pers"));
     assert_ne!(f1, f4);
 }
@@ -155,12 +155,7 @@ fn test_thought_chain_bootstrap_prompt() {
         .append("agent1", ThoughtType::Finding, "Key insight")
         .unwrap();
     chain
-        .append_with_refs(
-            "agent1",
-            ThoughtType::Compression,
-            "Compressed view",
-            vec![0],
-        )
+        .append_with_refs("agent1", ThoughtType::Summary, "Compressed view", vec![0])
         .unwrap();
 
     let prompt = chain.to_bootstrap_prompt(1);
