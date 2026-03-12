@@ -5,10 +5,11 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use thoughtchain::{
     chain_filename, chain_key_from_storage_filename, chain_storage_filename,
-    load_registered_chains, migrate_registered_chains, signable_thought_payload,
-    BinaryStorageAdapter, StorageAdapter, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput,
-    ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
-    THOUGHTCHAIN_CURRENT_VERSION,
+    load_registered_chains, migrate_registered_chains, migrate_registered_chains_with_adapter,
+    signable_thought_payload,
+    BinaryStorageAdapter, JsonlStorageAdapter, StorageAdapter, StorageAdapterKind, Thought,
+    ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole,
+    ThoughtType, THOUGHTCHAIN_CURRENT_VERSION,
 };
 use uuid::Uuid;
 
@@ -507,13 +508,13 @@ fn migrate_v0_jsonl_and_binary_chains_to_v1() {
         let reports = migrate_registered_chains(&dir, |_| {}).unwrap();
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].chain_key, chain_key);
-        assert_eq!(reports[0].storage_adapter, kind);
+        assert_eq!(reports[0].storage_adapter, StorageAdapterKind::Binary);
         assert_eq!(reports[0].to_version, THOUGHTCHAIN_CURRENT_VERSION);
 
         let registry = load_registered_chains(&dir).unwrap();
         let entry = registry.chains.get(&chain_key).unwrap();
         assert_eq!(entry.version, THOUGHTCHAIN_CURRENT_VERSION);
-        assert_eq!(entry.storage_adapter, kind);
+        assert_eq!(entry.storage_adapter, StorageAdapterKind::Binary);
         assert_eq!(entry.thought_count, 1);
 
         let chain = ThoughtChain::open_with_key(&dir, &chain_key).unwrap();
@@ -526,6 +527,8 @@ fn migrate_v0_jsonl_and_binary_chains_to_v1() {
         let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
         assert_eq!(record.display_name, "Legacy Agent");
         assert_eq!(record.owner.as_deref(), Some("legacy-team"));
+        let active_path = dir.join(chain_storage_filename(&chain_key, StorageAdapterKind::Binary));
+        assert!(active_path.exists());
 
         let archived = dir
             .join("migrations")
@@ -535,4 +538,93 @@ fn migrate_v0_jsonl_and_binary_chains_to_v1() {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+#[test]
+fn migrate_v0_chains_can_target_an_explicit_storage_adapter() {
+    let dir = unique_chain_dir();
+    let chain_key = "legacy-jsonl-explicit";
+    write_legacy_v0_chain(&dir, chain_key, StorageAdapterKind::Binary);
+
+    let reports =
+        migrate_registered_chains_with_adapter(&dir, StorageAdapterKind::Jsonl, |_| {}).unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].storage_adapter, StorageAdapterKind::Jsonl);
+
+    let registry = load_registered_chains(&dir).unwrap();
+    let entry = registry.chains.get(chain_key).unwrap();
+    assert_eq!(entry.storage_adapter, StorageAdapterKind::Jsonl);
+
+    let active_path = dir.join(chain_storage_filename(chain_key, StorageAdapterKind::Jsonl));
+    assert!(active_path.exists());
+    let archived = dir
+        .join("migrations")
+        .join(format!("v{}_to_v{}", 0, THOUGHTCHAIN_CURRENT_VERSION))
+        .join(chain_storage_filename(chain_key, StorageAdapterKind::Binary));
+    assert!(archived.exists());
+
+    let chain = ThoughtChain::open_with_key_and_storage_kind(&dir, chain_key, StorageAdapterKind::Jsonl)
+        .unwrap();
+    assert_eq!(chain.thoughts().len(), 1);
+    assert_eq!(chain.thoughts()[0].schema_version, THOUGHTCHAIN_CURRENT_VERSION);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn current_version_jsonl_chain_is_reconciled_to_default_binary_storage() {
+    let dir = unique_chain_dir();
+    let chain_key = "current-jsonl";
+
+    {
+        let adapter = JsonlStorageAdapter::for_chain_key(&dir, chain_key);
+        let mut chain = ThoughtChain::open_with_storage(Box::new(adapter)).unwrap();
+        chain
+            .append_thought(
+                "legacy-agent",
+                ThoughtInput::new(ThoughtType::Insight, "Current schema chain in JSONL.")
+                    .with_agent_name("Legacy Agent")
+                    .with_agent_owner("legacy-team"),
+            )
+            .unwrap();
+    }
+
+    let before = load_registered_chains(&dir).unwrap();
+    let before_entry = before.chains.get(chain_key).unwrap();
+    assert_eq!(before_entry.version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(before_entry.storage_adapter, StorageAdapterKind::Jsonl);
+
+    let reports = migrate_registered_chains_with_adapter(&dir, StorageAdapterKind::Binary, |_| {})
+        .unwrap();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].chain_key, chain_key);
+    assert_eq!(reports[0].from_version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(reports[0].to_version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(reports[0].source_storage_adapter, StorageAdapterKind::Jsonl);
+    assert_eq!(reports[0].storage_adapter, StorageAdapterKind::Binary);
+
+    let after = load_registered_chains(&dir).unwrap();
+    let after_entry = after.chains.get(chain_key).unwrap();
+    assert_eq!(after_entry.storage_adapter, StorageAdapterKind::Binary);
+
+    let active_binary = dir.join(chain_storage_filename(chain_key, StorageAdapterKind::Binary));
+    assert!(active_binary.exists());
+    let archived_jsonl = dir
+        .join("migrations")
+        .join(format!(
+            "v{}_to_v{}",
+            THOUGHTCHAIN_CURRENT_VERSION,
+            THOUGHTCHAIN_CURRENT_VERSION
+        ))
+        .join(chain_storage_filename(chain_key, StorageAdapterKind::Jsonl));
+    assert!(archived_jsonl.exists());
+
+    let chain = ThoughtChain::open_with_key(&dir, chain_key).unwrap();
+    assert_eq!(chain.thoughts().len(), 1);
+    assert_eq!(chain.thoughts()[0].schema_version, THOUGHTCHAIN_CURRENT_VERSION);
+    let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
+    assert_eq!(record.display_name, "Legacy Agent");
+    assert_eq!(record.owner.as_deref(), Some("legacy-team"));
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
