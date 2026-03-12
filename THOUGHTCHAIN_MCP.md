@@ -2,7 +2,7 @@
 
 `ThoughtChain` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
 
-At the moment, the ThoughtChain MCP server exposes 9 tools:
+At the moment, the ThoughtChain MCP server exposes 17 tools:
 
 - `thoughtchain_bootstrap`
 - `thoughtchain_append`
@@ -10,6 +10,14 @@ At the moment, the ThoughtChain MCP server exposes 9 tools:
 - `thoughtchain_search`
 - `thoughtchain_list_chains`
 - `thoughtchain_list_agents`
+- `thoughtchain_get_agent`
+- `thoughtchain_list_agent_registry`
+- `thoughtchain_upsert_agent`
+- `thoughtchain_set_agent_description`
+- `thoughtchain_add_agent_alias`
+- `thoughtchain_add_agent_key`
+- `thoughtchain_revoke_agent_key`
+- `thoughtchain_disable_agent`
 - `thoughtchain_recent_context`
 - `thoughtchain_memory_markdown`
 - `thoughtchain_head`
@@ -293,6 +301,9 @@ Parameters:
 - `agent_names: string[]` optional
 - `agent_owners: string[]` optional
 - `min_importance: number` optional
+- `min_confidence: number` optional
+- `since: string` optional, RFC 3339 timestamp
+- `until: string` optional, RFC 3339 timestamp
 - `limit: integer` optional
 
 Response fields:
@@ -397,6 +408,185 @@ Example:
 }
 ```
 
+### `thoughtchain_get_agent`
+
+Returns one full agent registry record for a chain.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+
+Response fields:
+
+- `chain_key`
+- `agent`
+
+The returned `agent` includes:
+
+- `agent_id`
+- `display_name`
+- `agent_owner`
+- `description`
+- `aliases`
+- `status`
+- `public_keys`
+- `thought_count`
+- `first_seen_index`
+- `last_seen_index`
+- `first_seen_at`
+- `last_seen_at`
+
+Typical use:
+
+- inspect one agent before filtering searches
+- verify an alias, status, or key record
+- display agent details in a UI such as a future ThoughtExplorer
+
+### `thoughtchain_list_agent_registry`
+
+Returns the full per-chain agent registry.
+
+Parameters:
+
+- `chain_key: string` optional
+
+Response fields:
+
+- `chain_key`
+- `agents`
+
+Typical use:
+
+- build an agent table for a chain browser
+- inspect descriptions, aliases, keys, and activity counts in one call
+- reconcile identity drift such as historical aliases or display-name changes
+
+### `thoughtchain_upsert_agent`
+
+Creates or updates one agent registry record.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `display_name: string` optional
+- `agent_owner: string` optional
+- `description: string` optional
+- `status: string` optional, one of `active` or `revoked`
+
+Response fields:
+
+- `chain_key`
+- `agent`
+
+Typical use:
+
+- pre-register an agent before it appends thoughts
+- add human-readable descriptions to a shared chain
+- normalize display names and ownership labels
+
+### `thoughtchain_set_agent_description`
+
+Sets or clears the free-form description for one registered agent.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `description: string` optional
+
+Response fields:
+
+- `chain_key`
+- `agent`
+
+Typical use:
+
+- annotate agents with responsibilities
+- clear stale descriptions without rewriting thought history
+
+### `thoughtchain_add_agent_alias`
+
+Adds one alias to a registered agent.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `alias: string` required
+
+Response fields:
+
+- `chain_key`
+- `agent`
+
+Typical use:
+
+- preserve historical names after a rename
+- collapse duplicate identities during cleanup
+
+### `thoughtchain_add_agent_key`
+
+Adds or replaces one public verification key on a registered agent.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `key_id: string` required
+- `algorithm: string` required, currently `ed25519`
+- `public_key_bytes: integer[]` required
+
+Response fields:
+
+- `chain_key`
+- `agent`
+
+Typical use:
+
+- prepare for signed-thought verification workflows
+- rotate public keys while keeping durable agent identity stable
+
+### `thoughtchain_revoke_agent_key`
+
+Revokes one previously registered public key.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `key_id: string` required
+
+Response fields:
+
+- `chain_key`
+- `agent`
+
+Typical use:
+
+- retire a compromised or superseded key
+- preserve key history without deleting the registry record
+
+### `thoughtchain_disable_agent`
+
+Marks one agent as revoked in the registry.
+
+Parameters:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+
+Response fields:
+
+- `chain_key`
+- `agent`
+
+Typical use:
+
+- disable deprecated agents
+- keep historical thoughts visible while preventing silent reuse in tooling
+
 ### `thoughtchain_recent_context`
 
 Renders the latest thoughts as a prompt snippet suitable for resuming work.
@@ -432,6 +622,9 @@ Parameters:
 - `agent_names: string[]` optional
 - `agent_owners: string[]` optional
 - `min_importance: number` optional
+- `min_confidence: number` optional
+- `since: string` optional, RFC 3339 timestamp
+- `until: string` optional, RFC 3339 timestamp
 - `limit: integer` optional
 
 Response fields:
@@ -473,12 +666,13 @@ For a remote agent, the normal flow should look like this:
 
 1. If you are connecting to a shared daemon, call `thoughtchain_list_chains` first.
 2. Bootstrap the chain once if it does not already exist.
-3. For shared chains, call `thoughtchain_list_agents` to discover which agents are already writing there.
-4. At the start of a session, call `thoughtchain_recent_context` or `thoughtchain_memory_markdown`.
-5. Before important work, call `thoughtchain_search` for relevant prior constraints, plans, mistakes, and insights.
-6. During work, append durable thoughts whenever the agent learns something worth keeping.
-7. After a hard failure or a long debugging snag, prefer `thoughtchain_append_retrospective`.
-8. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
+3. For shared chains, call `thoughtchain_list_agents` or `thoughtchain_list_agent_registry` to discover which agents are already writing there.
+4. If you need better metadata, call `thoughtchain_upsert_agent`, `thoughtchain_set_agent_description`, or `thoughtchain_add_agent_alias` before active use.
+5. At the start of a session, call `thoughtchain_recent_context` or `thoughtchain_memory_markdown`.
+6. Before important work, call `thoughtchain_search` for relevant prior constraints, plans, mistakes, and insights.
+7. During work, append durable thoughts whenever the agent learns something worth keeping.
+8. After a hard failure or a long debugging snag, prefer `thoughtchain_append_retrospective`.
+9. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
 
 ## Example Sequence
 

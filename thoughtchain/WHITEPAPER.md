@@ -85,6 +85,8 @@ Agent profile metadata such as display name, owner, aliases, descriptions, and p
 
 This allows a single chain to represent the work of a team, a workflow, a tenant, or a project. Memory can then be searched not only by content and type, but also by who produced it, while keeping the durable thought records smaller and the identity model more consistent.
 
+The agent registry is no longer just passive metadata inferred from old thoughts. It can now be administered directly through library calls, MCP tools, and REST endpoints. That means agents can be pre-registered, documented, disabled, aliased, or provisioned with public keys even before they start writing memories.
+
 ### 4. Query, Replay, and Export
 
 The chain can be:
@@ -104,6 +106,7 @@ In practice, that also means a daemon can tell a caller:
 
 - which chain keys already exist
 - which distinct agents are writing to a shared chain
+- what the full registry metadata says about those agents
 - which schema version each chain uses
 - which storage adapter each chain uses
 
@@ -128,8 +131,18 @@ ThoughtChain schemas are versioned.
 - schema version `0` was the original format
 - schema version `1` adds explicit versioning and optional signing metadata
 - daemon startup can migrate discovered legacy chains before serving traffic
+- startup can reconcile older active files into the configured default storage adapter
+- startup can attempt repair when the expected active file is missing or invalid but another valid local source exists
 
 This matters because append-only memory still evolves. A durable memory system needs a way to add fields, change attribution strategy, and improve integrity without abandoning existing chains.
+
+The daemon also maintains a ThoughtChain registry so callers and operators can quickly inspect:
+
+- what chains exist
+- which schema version each chain uses
+- which storage adapter each chain uses
+- where each chain is stored
+- how many thoughts and registered agents each chain currently has
 
 ## Data Model
 
@@ -233,7 +246,9 @@ This reduces repeated work and allows agents to build on each other’s progress
 
 ### Human Oversight
 
-Operators can inspect a chain directly, query it, or export it as Markdown. This makes it easier to understand what happened and why.
+Operators can inspect a chain directly, query it, browse the agent registry, or export it as Markdown. This makes it easier to understand what happened and why.
+
+The current daemon startup output also leans into operability. It prints a readable catalog of every HTTP endpoint it serves, followed by a summary of every registered chain and the known agents in each chain, including per-agent thought counts and descriptions. That is a small but important step toward a future ThoughtExplorer-style web interface.
 
 ## Transparency, Traceability, and Regulation
 

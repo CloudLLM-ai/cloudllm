@@ -109,8 +109,16 @@ When it starts, it serves both:
 - an MCP server
 - a REST server
 
-It prints the active chain directory, default chain key, and bound MCP/REST addresses on startup.
-Before serving traffic, it also migrates any discovered legacy chains to the current schema version and shows per-chain progress in stdout.
+Before serving traffic, it:
+
+- migrates or reconciles discovered chains to the current schema and default storage adapter
+- verifies chain integrity and attempts repair from valid local sources when possible
+
+Once startup completes, it prints:
+
+- the active chain directory, default chain key, and bound MCP/REST addresses
+- a catalog of all exposed HTTP endpoints with one-line descriptions
+- a per-chain summary with version, adapter, thought count, and per-agent counts
 
 ## Daemon Configuration
 
@@ -159,12 +167,63 @@ REST endpoints:
 - `GET /v1/chains`
 - `POST /v1/bootstrap`
 - `POST /v1/agents`
+- `POST /v1/agent`
+- `POST /v1/agent-registry`
+- `POST /v1/agents/upsert`
+- `POST /v1/agents/description`
+- `POST /v1/agents/aliases`
+- `POST /v1/agents/keys`
+- `POST /v1/agents/keys/revoke`
+- `POST /v1/agents/disable`
 - `POST /v1/thoughts`
 - `POST /v1/retrospectives`
 - `POST /v1/search`
 - `POST /v1/recent-context`
 - `POST /v1/memory-markdown`
 - `POST /v1/head`
+
+## MCP Tool Catalog
+
+The daemon currently exposes 17 MCP tools:
+
+- `thoughtchain_bootstrap`
+  Create a chain if needed and write one bootstrap checkpoint when it is empty.
+- `thoughtchain_append`
+  Append a durable semantic thought with optional tags, concepts, refs, and signature metadata.
+- `thoughtchain_append_retrospective`
+  Append a retrospective memory intended to prevent future agents from repeating a hard failure.
+- `thoughtchain_search`
+  Search thoughts by semantic filters, identity filters, time bounds, and scoring thresholds.
+- `thoughtchain_list_chains`
+  List known chains with version, storage adapter, counts, and storage location.
+- `thoughtchain_list_agents`
+  List the distinct agent identities participating in one chain.
+- `thoughtchain_get_agent`
+  Return one full agent registry record, including status, aliases, description, keys, and per-chain activity metadata.
+- `thoughtchain_list_agent_registry`
+  Return the full per-chain agent registry.
+- `thoughtchain_upsert_agent`
+  Create or update a registry record before or after an agent writes thoughts.
+- `thoughtchain_set_agent_description`
+  Set or clear the description stored for one registered agent.
+- `thoughtchain_add_agent_alias`
+  Add a historical or alternate alias to a registered agent.
+- `thoughtchain_add_agent_key`
+  Add or replace one public verification key on a registered agent.
+- `thoughtchain_revoke_agent_key`
+  Revoke one previously registered public key.
+- `thoughtchain_disable_agent`
+  Disable one agent by marking its registry status as revoked.
+- `thoughtchain_recent_context`
+  Render recent thoughts into a prompt snippet for session resumption.
+- `thoughtchain_memory_markdown`
+  Export a `MEMORY.md`-style Markdown view of the full chain or a filtered subset.
+- `thoughtchain_head`
+  Return head metadata, latest thought summary, and integrity state.
+
+The detailed request and response shapes for the MCP surface live in
+[`THOUGHTCHAIN_MCP.md`](../THOUGHTCHAIN_MCP.md). The REST equivalents live in
+[`THOUGHTCHAIN_REST.md`](../THOUGHTCHAIN_REST.md).
 
 ## Using With MCP Clients
 
@@ -303,11 +362,20 @@ The retrospective helper:
 
 Multiple agents can write to the same `chain_key`.
 
-Each stored thought carries:
+Each stored thought carries a stable:
 
 - `agent_id`
-- `agent_name`
-- optional `agent_owner`
+
+Agent profile metadata now lives in the per-chain agent registry instead of
+being duplicated into every thought record. Registry records can store:
+
+- `display_name`
+- `agent_owner`
+- `description`
+- `aliases`
+- `status`
+- `public_keys`
+- per-chain activity counters such as `thought_count`, `first_seen_index`, and `last_seen_index`
 
 That allows a shared chain to represent memory from:
 
@@ -320,6 +388,10 @@ Queries can filter by:
 - `agent_id`
 - `agent_name`
 - `agent_owner`
+
+Administrative tools can also inspect and mutate the agent registry directly,
+so agents can be documented, disabled, aliased, or provisioned with public keys
+before they start writing thoughts.
 
 ## Related Docs
 

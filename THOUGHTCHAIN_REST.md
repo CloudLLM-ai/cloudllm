@@ -67,7 +67,8 @@ Every memory belongs to a `chain_key`.
 - Each chain is stored through a pluggable storage adapter.
 - The current daemon uses the binary storage adapter by default.
 - `thoughtchaind` migrates legacy schema-version `0` chains to the current schema on startup before serving traffic.
-- The server verifies chain integrity when it opens a chain.
+- Startup also reconciles older active storage files into the configured default adapter when needed.
+- The server verifies chain integrity when it opens a chain and attempts local repair during startup reconciliation when possible.
 
 For a remote client, `chain_key` is the durable identity of the memory stream.
 
@@ -147,6 +148,142 @@ curl -s http://127.0.0.1:9472/v1/agents \
   }'
 ```
 
+### `POST /v1/agent`
+
+Returns one full agent registry record for a chain.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+
+Response body:
+
+- `chain_key: string`
+- `agent: object`
+
+The returned `agent` includes:
+
+- `agent_id`
+- `display_name`
+- `agent_owner`
+- `description`
+- `aliases`
+- `status`
+- `public_keys`
+- `thought_count`
+- `first_seen_index`
+- `last_seen_index`
+- `first_seen_at`
+- `last_seen_at`
+
+### `POST /v1/agent-registry`
+
+Returns the full per-chain agent registry.
+
+Request body:
+
+- `chain_key: string` optional
+
+Response body:
+
+- `chain_key: string`
+- `agents: object[]`
+
+### `POST /v1/agents/upsert`
+
+Creates or updates one agent registry record.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `display_name: string` optional
+- `agent_owner: string` optional
+- `description: string` optional
+- `status: string` optional, one of `active` or `revoked`
+
+Response body:
+
+- `chain_key: string`
+- `agent: object`
+
+### `POST /v1/agents/description`
+
+Sets or clears one agent description.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `description: string` optional
+
+Response body:
+
+- `chain_key: string`
+- `agent: object`
+
+### `POST /v1/agents/aliases`
+
+Adds one alias to a registered agent.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `alias: string` required
+
+Response body:
+
+- `chain_key: string`
+- `agent: object`
+
+### `POST /v1/agents/keys`
+
+Adds or replaces one public verification key.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `key_id: string` required
+- `algorithm: string` required, currently `ed25519`
+- `public_key_bytes: integer[]` required
+
+Response body:
+
+- `chain_key: string`
+- `agent: object`
+
+### `POST /v1/agents/keys/revoke`
+
+Revokes one previously registered public key.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+- `key_id: string` required
+
+Response body:
+
+- `chain_key: string`
+- `agent: object`
+
+### `POST /v1/agents/disable`
+
+Marks one agent as revoked in the registry.
+
+Request body:
+
+- `chain_key: string` optional
+- `agent_id: string` required
+
+Response body:
+
+- `chain_key: string`
+- `agent: object`
+
 ### `POST /v1/bootstrap`
 
 Creates the chain if needed and writes a bootstrap thought only when the chain is empty.
@@ -224,8 +361,6 @@ Request body:
 - `tags: string[]` optional
 - `concepts: string[]` optional
 - `refs: integer[]` optional
-- `signing_key_id: string | null` optional
-- `thought_signature: integer[] | null` optional
 - `signing_key_id: string | null` optional
 - `thought_signature: integer[] | null` optional
 
@@ -345,6 +480,8 @@ Request body:
 - `tags: string[]` optional
 - `concepts: string[]` optional
 - `refs: integer[]` optional
+- `signing_key_id: string | null` optional
+- `thought_signature: integer[] | null` optional
 
 Notes:
 
