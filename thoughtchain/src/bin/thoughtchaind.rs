@@ -18,7 +18,7 @@
 
 use env_logger::Env;
 use thoughtchain::server::{start_servers, ThoughtChainServerConfig};
-use thoughtchain::{migrate_registered_chains, ThoughtChainMigrationEvent};
+use thoughtchain::{migrate_registered_chains_with_adapter, ThoughtChainMigrationEvent};
 
 const THOUGHTCHAIN_BANNER: &str = r#"████████╗██╗  ██╗ ██████╗ ██╗   ██╗ ██████╗ ██╗  ██╗████████╗ ██████╗██╗  ██╗ █████╗ ██╗███╗   ██╗
 ╚══██╔══╝██║  ██║██╔═══██╗██║   ██║██╔════╝ ██║  ██║╚══██╔══╝██╔════╝██║  ██║██╔══██╗██║████╗  ██║
@@ -65,8 +65,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Some(config.rest_addr.port().to_string()),
     );
 
-    let migration_reports =
-        migrate_registered_chains(&config.service.chain_dir, |event| match event {
+    let migration_reports = migrate_registered_chains_with_adapter(
+        &config.service.chain_dir,
+        config.service.default_storage_adapter,
+        |event| match event {
             ThoughtChainMigrationEvent::Started {
                 chain_key,
                 from_version,
@@ -93,7 +95,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 from_version,
                 to_version
             ),
-        })?;
+            ThoughtChainMigrationEvent::StartedReconciliation {
+                chain_key,
+                from_storage_adapter,
+                to_storage_adapter,
+                current,
+                total,
+            } => println!(
+                "{} Reconciling chain {} from {} storage to {} storage",
+                progress_bar(current, total),
+                chain_key,
+                from_storage_adapter,
+                to_storage_adapter
+            ),
+            ThoughtChainMigrationEvent::CompletedReconciliation {
+                chain_key,
+                from_storage_adapter,
+                to_storage_adapter,
+                current,
+                total,
+            } => println!(
+                "{} Reconciled chain {} from {} storage to {} storage",
+                progress_bar(current, total),
+                chain_key,
+                from_storage_adapter,
+                to_storage_adapter
+            ),
+        },
+    )?;
     if migration_reports.is_empty() {
         println!("No chain migrations required.");
     }
