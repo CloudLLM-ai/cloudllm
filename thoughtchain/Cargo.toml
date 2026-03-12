@@ -12,7 +12,7 @@ keywords = ["agents", "memory", "event-sourcing", "llm", "orchestration"]
 categories = ["data-structures", "development-tools", "asynchronous"]
 
 [features]
-default = []
+default = ["server"]
 server = ["dep:axum", "dep:env_logger", "dep:log", "dep:tokio", "mcp/server"]
 
 [dependencies]

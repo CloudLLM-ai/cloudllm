@@ -21,7 +21,7 @@ other agent systems without creating circular dependencies.
 `thoughtchain/` contains:
 
 - the standalone `thoughtchain` library crate
-- an optional `server` feature for HTTP MCP and REST servers
+- server support for HTTP MCP and REST, enabled by default
 - the `thoughtchaind` daemon binary
 - dedicated tests under `thoughtchain/tests`
 
@@ -33,10 +33,10 @@ From inside `thoughtchain/`:
 cargo build
 ```
 
-Build with server support:
+Build only the library without the default daemon/server stack:
 
 ```bash
-cargo build --features server
+cargo build --no-default-features
 ```
 
 ## Test
@@ -47,10 +47,10 @@ Run the crate tests:
 cargo test
 ```
 
-Run tests including the server feature:
+Run tests without the default server feature:
 
 ```bash
-cargo test --features server
+cargo test --no-default-features
 ```
 
 Run rustdoc tests:
@@ -67,20 +67,26 @@ Build local Rust documentation:
 cargo doc --no-deps
 ```
 
-Include the server API docs:
+Generate docs for the library-only build:
 
 ```bash
-cargo doc --no-deps --features server
+cargo doc --no-deps --no-default-features
 ```
 
 ## Run The Daemon
 
 The standalone daemon binary is `thoughtchaind`.
 
-Run it with the server feature enabled:
+Run it:
 
 ```bash
-cargo run --features server --bin thoughtchaind
+cargo run --bin thoughtchaind
+```
+
+Install it from the crate directory:
+
+```bash
+cargo install --path . --locked
 ```
 
 When it starts, it serves both:
@@ -117,7 +123,7 @@ THOUGHTCHAIN_STORAGE_ADAPTER=jsonl \
 THOUGHTCHAIN_BIND_HOST=127.0.0.1 \
 THOUGHTCHAIN_MCP_PORT=9471 \
 THOUGHTCHAIN_REST_PORT=9472 \
-cargo run --features server --bin thoughtchaind
+cargo run --bin thoughtchaind
 ```
 
 ## Server Surfaces

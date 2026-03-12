@@ -18,7 +18,7 @@ build: fmt build-thoughtchaind ## Build the full workspace in release mode (runs
 
 # Explicit daemon build so the ThoughtChain binary is always validated too
 build-thoughtchaind: ## Build the thoughtchaind binary in release mode
-	${CARGO_CMD} build -p thoughtchain --features server --bin thoughtchaind --release
+	${CARGO_CMD} build -p thoughtchain --bin thoughtchaind --release
 
 # Full release process (ensures everything runs in the correct order)
 release: fmt check clippy build test doc ## Perform a full release (fmt, check, clippy, build, test, doc)
@@ -30,7 +30,7 @@ fmt: ## Format the code using cargo fmt
 # Check for errors without building
 check: ## Run cargo check to analyze the code without compiling
 	${CARGO_CMD} check --workspace
-	${CARGO_CMD} check -p thoughtchain --features server --bin thoughtchaind
+	${CARGO_CMD} check -p thoughtchain --bin thoughtchaind
 
 # Strict linter, fails on warning and suggests fixes
 clippy: ## Run clippy across the workspace and fail on warnings
@@ -40,7 +40,7 @@ clippy: ## Run clippy across the workspace and fail on warnings
 # Run tests
 test: ## Run tests using cargo test
 	${CARGO_CMD} test --workspace
-	${CARGO_CMD} test -p thoughtchain --features server
+	${CARGO_CMD} test -p thoughtchain
 
 # Generate documentation
 doc: ## Generate project documentation using cargo doc

@@ -718,7 +718,7 @@ standalone daemon from the `thoughtchain/` crate:
 
 ```bash
 cd thoughtchain
-cargo run --features server --bin thoughtchaind
+cargo run --bin thoughtchaind
 ```
 
 `thoughtchaind` exposes:

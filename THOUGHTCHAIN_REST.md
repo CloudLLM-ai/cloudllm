@@ -32,7 +32,7 @@ The standalone daemon is `thoughtchaind`.
 Example:
 
 ```bash
-cargo run -p thoughtchain --features server --bin thoughtchaind
+cargo run -p thoughtchain --bin thoughtchaind
 ```
 
 Environment variables:

@@ -1,4 +1,8 @@
 0.2.1 MAR/11/2026
+ - feat: Enable the ThoughtChain server stack by default
+   - `thoughtchain` now enables the `server` feature by default so `cargo install thoughtchain` and `cargo run --bin thoughtchaind` work without extra feature flags
+   - Updated workspace manifests and launcher scripts to rely on the default server-enabled build
+   - Updated ThoughtChain and CloudLLM documentation to remove stale `--features server` instructions
  - feat: Add env-controlled verbose interaction logging to `thoughtchaind`
    - Added `THOUGHTCHAIN_VERBOSE` with support for `1`, `0`, `true`, and `false`
    - When enabled, the daemon logs each ThoughtChain read and write interaction with chain key, touched agents, thought types, roles, tags, and concepts

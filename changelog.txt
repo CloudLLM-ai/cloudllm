@@ -1,4 +1,8 @@
 0.13.0 MAR/11/2026
+ - feat: Make ThoughtChain's server stack the default crate experience
+   - Updated the workspace to consume `thoughtchain 0.2.1` without an explicit `server` feature flag
+   - Updated daemon build/run instructions to use `cargo run --bin thoughtchaind`
+   - Aligned the launcher script and ThoughtChain REST documentation with the new default
  - feat: Deepen ThoughtChain as an effectively unbounded agent memory primitive
    - Updated CloudLLM positioning and README guidance to present ThoughtChain as a first-class durable memory layer rather than a small persistence helper
    - Documented the standalone `thoughtchaind` daemon more explicitly, including standard MCP, legacy MCP compatibility, REST, and the new retrospective endpoint
