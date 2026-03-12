@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 # Optional configuration overrides:
 # export THOUGHTCHAIN_DIR="$HOME/.cloudllm/thoughtchain"
 # export THOUGHTCHAIN_DEFAULT_KEY="borganism-brain"
-# export THOUGHTCHAIN_STORAGE_ADAPTER="jsonl"   # jsonl | binary
+# export THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER="binary"   # binary | jsonl
 # export THOUGHTCHAIN_BIND_HOST="127.0.0.1"
 # export THOUGHTCHAIN_MCP_PORT="9471"
 # export THOUGHTCHAIN_REST_PORT="9472"

@@ -95,6 +95,7 @@ When it starts, it serves both:
 - a REST server
 
 It prints the active chain directory, default chain key, and bound MCP/REST addresses on startup.
+Before serving traffic, it also migrates any discovered legacy chains to the current schema version and shows per-chain progress in stdout.
 
 ## Daemon Configuration
 
@@ -104,9 +105,11 @@ It prints the active chain directory, default chain key, and bound MCP/REST addr
   Directory where ThoughtChain storage adapters store chain files.
 - `THOUGHTCHAIN_DEFAULT_KEY`
   Default `chain_key` used when requests omit one. Default: `borganism-brain`
+- `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
+  Default storage backend for newly created chains. Supported values: `binary`, `jsonl`.
+  Default: `binary`
 - `THOUGHTCHAIN_STORAGE_ADAPTER`
-  Storage backend for newly opened chains. Supported values: `jsonl`, `binary`.
-  Default: `jsonl`
+  Legacy alias for `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
 - `THOUGHTCHAIN_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
 - `THOUGHTCHAIN_MCP_PORT`
@@ -119,7 +122,7 @@ Example:
 ```bash
 THOUGHTCHAIN_DIR=/tmp/thoughtchain \
 THOUGHTCHAIN_DEFAULT_KEY=borganism-brain \
-THOUGHTCHAIN_STORAGE_ADAPTER=jsonl \
+THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER=binary \
 THOUGHTCHAIN_BIND_HOST=127.0.0.1 \
 THOUGHTCHAIN_MCP_PORT=9471 \
 THOUGHTCHAIN_REST_PORT=9472 \

@@ -41,9 +41,11 @@ Environment variables:
   Directory where ThoughtChain storage adapters store chain files.
 - `THOUGHTCHAIN_DEFAULT_KEY`
   Default `chain_key` used when a request omits one.
+- `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
+  Default storage backend for newly created chains. Supported values: `binary`, `jsonl`.
+  Default: `binary`
 - `THOUGHTCHAIN_STORAGE_ADAPTER`
-  Storage backend for newly opened chains. Supported values: `jsonl`, `binary`.
-  Default: `jsonl`
+  Legacy alias for `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
 - `THOUGHTCHAIN_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
 - `THOUGHTCHAIN_MCP_PORT`
@@ -63,7 +65,8 @@ Every memory belongs to a `chain_key`.
 
 - If `chain_key` is omitted, the server uses its configured default chain.
 - Each chain is stored through a pluggable storage adapter.
-- The current daemon uses the JSONL storage adapter by default.
+- The current daemon uses the binary storage adapter by default.
+- `thoughtchaind` migrates legacy schema-version `0` chains to the current schema on startup before serving traffic.
 - The server verifies chain integrity when it opens a chain.
 
 For a remote client, `chain_key` is the durable identity of the memory stream.
@@ -98,6 +101,16 @@ Response body:
 
 - `default_chain_key: string`
 - `chain_keys: string[]`
+- `chains: object[]`
+
+Each returned `chain` contains:
+
+- `chain_key`
+- `version`
+- `storage_adapter`
+- `thought_count`
+- `agent_count`
+- `storage_location`
 
 Example:
 
@@ -148,6 +161,7 @@ Request body:
 - `importance: number` optional
 - `tags: string[]` optional
 - `concepts: string[]` optional
+- `storage_adapter: string` optional, one of `binary` or `jsonl`
 
 Behavior:
 
@@ -156,6 +170,7 @@ Behavior:
   - `thought_type = Summary`
   - `role = Checkpoint`
 - if `agent_id` is omitted, bootstrap uses a system producer identity
+- if `storage_adapter` is omitted, bootstrap uses the daemon default
 - if the chain already contains thoughts, nothing is overwritten
 
 Response body:
@@ -209,6 +224,10 @@ Request body:
 - `tags: string[]` optional
 - `concepts: string[]` optional
 - `refs: integer[]` optional
+- `signing_key_id: string | null` optional
+- `thought_signature: integer[] | null` optional
+- `signing_key_id: string | null` optional
+- `thought_signature: integer[] | null` optional
 
 Notes:
 
@@ -218,6 +237,8 @@ Notes:
 - if `agent_id` is omitted, it defaults to the current `chain_key`
 - if `agent_name` is omitted, it defaults to `agent_id`
 - `refs` points to prior thought indices in the same chain
+- `signing_key_id` identifies which registered public key should verify the signature
+- `thought_signature` stores the detached signature bytes for the signable thought payload
 
 Response body:
 
@@ -331,6 +352,8 @@ Notes:
 - the stored thought always uses `role = Retrospective`
 - this endpoint is the right fit when the memory is specifically meant to help
   future agents avoid repeating the same struggle
+- `signing_key_id` identifies which registered public key should verify the signature
+- `thought_signature` stores the detached signature bytes for the signable thought payload
 
 Example:
 

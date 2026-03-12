@@ -41,7 +41,8 @@ Every memory belongs to a `chain_key`.
 
 - If `chain_key` is omitted, the server uses its configured default chain.
 - A chain is stored through a pluggable storage adapter.
-- The current daemon uses the JSONL storage adapter by default.
+- The current daemon uses the binary storage adapter by default.
+- `thoughtchaind` migrates legacy schema-version `0` chains to the current schema on startup before serving traffic.
 - The server verifies integrity when opening the chain.
 
 For a remote agent, `chain_key` is the durable identity of the memory stream.
@@ -69,6 +70,7 @@ Parameters:
 - `importance: number` optional, clamped to `0.0..=1.0`
 - `tags: string[]` optional
 - `concepts: string[]` optional
+- `storage_adapter: string` optional, one of `binary` or `jsonl`
 
 Behavior:
 
@@ -77,6 +79,7 @@ Behavior:
   - `thought_type = Summary`
   - `role = Checkpoint`
 - if `agent_id` is omitted, bootstrap defaults to a system producer identity
+- if `storage_adapter` is omitted, bootstrap uses the daemon default
 - if the chain already has data, nothing is overwritten
 
 Response fields:
@@ -127,6 +130,8 @@ Parameters:
 - `tags: string[]` optional
 - `concepts: string[]` optional
 - `refs: integer[]` optional
+- `signing_key_id: string` optional
+- `thought_signature: number[]` optional
 
 Response fields:
 
@@ -151,6 +156,8 @@ The returned `thought` includes useful fields for later reference:
 - `refs`
 - `hash`
 - `prev_hash`
+- `signing_key_id`
+- `thought_signature`
 
 #### Supported `thought_type` values
 
@@ -243,6 +250,8 @@ Parameters:
 - `tags: string[]` optional
 - `concepts: string[]` optional
 - `refs: integer[]` optional
+- `signing_key_id: string` optional
+- `thought_signature: number[]` optional
 
 Behavior:
 
@@ -326,6 +335,16 @@ Response fields:
 
 - `default_chain_key`
 - `chain_keys`
+- `chains`
+
+Each returned `chain` contains:
+
+- `chain_key`
+- `version`
+- `storage_adapter`
+- `thought_count`
+- `agent_count`
+- `storage_location`
 
 Typical use:
 
