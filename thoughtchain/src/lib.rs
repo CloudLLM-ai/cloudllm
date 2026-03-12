@@ -487,6 +487,8 @@ pub struct ThoughtChainMigrationReport {
     pub from_version: u32,
     /// New storage schema version.
     pub to_version: u32,
+    /// Storage adapter used by the source chain file.
+    pub source_storage_adapter: StorageAdapterKind,
     /// Storage adapter used by the migrated chain.
     pub storage_adapter: StorageAdapterKind,
     /// Number of migrated thoughts.
@@ -522,6 +524,33 @@ pub enum ThoughtChainMigrationEvent {
         /// One-based chain counter within this migration run.
         current: usize,
         /// Total number of chains in this migration run.
+        total: usize,
+    },
+    /// A current-version chain is being reconciled to the target storage adapter
+    /// or repaired after an integrity/storage mismatch.
+    StartedReconciliation {
+        /// Stable chain identifier.
+        chain_key: String,
+        /// Storage adapter used by the source chain file.
+        from_storage_adapter: StorageAdapterKind,
+        /// Storage adapter expected after reconciliation.
+        to_storage_adapter: StorageAdapterKind,
+        /// One-based chain counter within this reconciliation run.
+        current: usize,
+        /// Total number of chains in this reconciliation run.
+        total: usize,
+    },
+    /// A current-version chain finished reconciling successfully.
+    CompletedReconciliation {
+        /// Stable chain identifier.
+        chain_key: String,
+        /// Storage adapter used by the source chain file.
+        from_storage_adapter: StorageAdapterKind,
+        /// Storage adapter expected after reconciliation.
+        to_storage_adapter: StorageAdapterKind,
+        /// One-based chain counter within this reconciliation run.
+        current: usize,
+        /// Total number of chains in this reconciliation run.
         total: usize,
     },
 }
@@ -2325,6 +2354,20 @@ pub fn load_registered_chains<P: AsRef<Path>>(chain_dir: P) -> io::Result<Though
 /// Migrate all legacy v0 chain files in a storage directory to the current format.
 pub fn migrate_registered_chains<P, F>(
     chain_dir: P,
+    progress: F,
+) -> io::Result<Vec<ThoughtChainMigrationReport>>
+where
+    P: AsRef<Path>,
+    F: FnMut(ThoughtChainMigrationEvent),
+{
+    migrate_registered_chains_with_adapter(chain_dir, StorageAdapterKind::default(), progress)
+}
+
+/// Migrate all legacy v0 chain files in a storage directory to the current format
+/// and target storage adapter.
+pub fn migrate_registered_chains_with_adapter<P, F>(
+    chain_dir: P,
+    target_storage_adapter: StorageAdapterKind,
     mut progress: F,
 ) -> io::Result<Vec<ThoughtChainMigrationReport>>
 where
@@ -2360,32 +2403,8 @@ where
             total,
         });
 
-        let report = migrate_legacy_chain_v0(chain_dir, &candidate)?;
-        registry.chains.insert(
-            report.chain_key.clone(),
-            ThoughtChainRegistration {
-                chain_key: report.chain_key.clone(),
-                version: report.to_version,
-                storage_adapter: report.storage_adapter,
-                storage_location: chain_dir
-                    .join(chain_storage_filename(
-                        &report.chain_key,
-                        report.storage_adapter,
-                    ))
-                    .display()
-                    .to_string(),
-                thought_count: report.thought_count,
-                agent_count: load_agent_registry(
-                    chain_dir,
-                    &report.chain_key,
-                    report.storage_adapter,
-                )?
-                .agents
-                .len(),
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-            },
-        );
+        let report = migrate_legacy_chain_v0(chain_dir, &candidate, target_storage_adapter)?;
+        upsert_chain_registration_from_report(chain_dir, &mut registry, &report)?;
         save_thoughtchain_registry(chain_dir, &registry)?;
         progress(ThoughtChainMigrationEvent::Completed {
             chain_key: report.chain_key.clone(),
@@ -2395,6 +2414,78 @@ where
             total,
         });
         reports.push(report);
+    }
+
+    let discovered = discover_chain_files(chain_dir)?;
+    let mut discovered_by_key: BTreeMap<String, Vec<DiscoveredChainFile>> = BTreeMap::new();
+    for candidate in discovered {
+        discovered_by_key
+            .entry(candidate.chain_key.clone())
+            .or_default()
+            .push(candidate);
+    }
+
+    let reconciliation_candidates: Vec<String> = registry
+        .chains
+        .keys()
+        .filter(|chain_key| {
+            chain_needs_reconciliation(
+                chain_dir,
+                chain_key,
+                registry.chains.get(*chain_key),
+                discovered_by_key
+                    .get(*chain_key)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]),
+                target_storage_adapter,
+            )
+        })
+        .cloned()
+        .collect();
+
+    let reconciliation_total = reconciliation_candidates.len();
+    for (position, chain_key) in reconciliation_candidates.into_iter().enumerate() {
+        let current = position + 1;
+        let discovered = discovered_by_key
+            .get(&chain_key)
+            .cloned()
+            .unwrap_or_default();
+        let source_storage_adapter = select_reconciliation_source(
+            chain_dir,
+            &chain_key,
+            registry.chains.get(&chain_key),
+            &discovered,
+            target_storage_adapter,
+        )?
+        .map(|(candidate, _)| candidate.storage_kind)
+        .unwrap_or(target_storage_adapter);
+
+        progress(ThoughtChainMigrationEvent::StartedReconciliation {
+            chain_key: chain_key.clone(),
+            from_storage_adapter: source_storage_adapter,
+            to_storage_adapter: target_storage_adapter,
+            current,
+            total: reconciliation_total,
+        });
+
+        if let Some(report) = reconcile_current_chain(
+            chain_dir,
+            &chain_key,
+            registry.chains.get(&chain_key),
+            &discovered,
+            target_storage_adapter,
+        )? {
+            upsert_chain_registration_from_report(chain_dir, &mut registry, &report)?;
+            save_thoughtchain_registry(chain_dir, &registry)?;
+            progress(ThoughtChainMigrationEvent::CompletedReconciliation {
+                chain_key: report.chain_key.clone(),
+                from_storage_adapter: report.source_storage_adapter,
+                to_storage_adapter: report.storage_adapter,
+                current,
+                total: reconciliation_total,
+            });
+            reports.push(report);
+        }
     }
 
     Ok(reports)
@@ -2437,24 +2528,260 @@ fn discover_chain_files(chain_dir: &Path) -> io::Result<Vec<DiscoveredChainFile>
     Ok(discovered)
 }
 
+fn storage_adapter_for_path(
+    storage_kind: StorageAdapterKind,
+    path: &Path,
+) -> Box<dyn StorageAdapter> {
+    match storage_kind {
+        StorageAdapterKind::Jsonl => Box::new(JsonlStorageAdapter::new(path.to_path_buf())),
+        StorageAdapterKind::Binary => Box::new(BinaryStorageAdapter::new(path.to_path_buf())),
+    }
+}
+
+fn open_current_chain_at(path: &Path, storage_kind: StorageAdapterKind) -> io::Result<ThoughtChain> {
+    ThoughtChain::open_with_storage(storage_adapter_for_path(storage_kind, path))
+}
+
+fn persist_thoughts_to_path(
+    path: &Path,
+    storage_kind: StorageAdapterKind,
+    thoughts: &[Thought],
+) -> io::Result<()> {
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+
+    for thought in thoughts {
+        match storage_kind {
+            StorageAdapterKind::Jsonl => persist_jsonl_thought(path, thought)?,
+            StorageAdapterKind::Binary => persist_binary_thought(path, thought)?,
+        }
+    }
+
+    Ok(())
+}
+
+fn archive_chain_file(
+    chain_dir: &Path,
+    source_path: &Path,
+    from_version: u32,
+    to_version: u32,
+) -> io::Result<PathBuf> {
+    let archive_dir = chain_dir
+        .join("migrations")
+        .join(format!("v{}_to_v{}", from_version, to_version));
+    fs::create_dir_all(&archive_dir)?;
+    let archived_path = archive_dir.join(
+        source_path
+            .file_name()
+            .map(|value| value.to_owned())
+            .unwrap_or_default(),
+    );
+    if archived_path.exists() {
+        fs::remove_file(&archived_path)?;
+    }
+    fs::rename(source_path, &archived_path)?;
+    Ok(archived_path)
+}
+
+fn upsert_chain_registration_from_report(
+    chain_dir: &Path,
+    registry: &mut ThoughtChainRegistry,
+    report: &ThoughtChainMigrationReport,
+) -> io::Result<()> {
+    let now = Utc::now();
+    let created_at = registry
+        .chains
+        .get(&report.chain_key)
+        .map(|entry| entry.created_at)
+        .unwrap_or(now);
+    registry.chains.insert(
+        report.chain_key.clone(),
+        ThoughtChainRegistration {
+            chain_key: report.chain_key.clone(),
+            version: report.to_version,
+            storage_adapter: report.storage_adapter,
+            storage_location: chain_dir
+                .join(chain_storage_filename(
+                    &report.chain_key,
+                    report.storage_adapter,
+                ))
+                .display()
+                .to_string(),
+            thought_count: report.thought_count,
+            agent_count: load_agent_registry(chain_dir, &report.chain_key, report.storage_adapter)?
+                .agents
+                .len(),
+            created_at,
+            updated_at: now,
+        },
+    );
+    Ok(())
+}
+
+fn chain_needs_reconciliation(
+    chain_dir: &Path,
+    chain_key: &str,
+    registration: Option<&ThoughtChainRegistration>,
+    discovered: &[DiscoveredChainFile],
+    target_storage_adapter: StorageAdapterKind,
+) -> bool {
+    let Some(registration) = registration else {
+        return false;
+    };
+
+    if registration.version < THOUGHTCHAIN_CURRENT_VERSION {
+        return false;
+    }
+
+    let expected_path = chain_dir.join(chain_storage_filename(chain_key, target_storage_adapter));
+    if registration.storage_adapter != target_storage_adapter {
+        return true;
+    }
+    if !expected_path.exists() {
+        return true;
+    }
+    if open_current_chain_at(&expected_path, target_storage_adapter).is_err() {
+        return true;
+    }
+
+    discovered.iter().any(|candidate| candidate.path != expected_path)
+}
+
+fn select_reconciliation_source(
+    chain_dir: &Path,
+    chain_key: &str,
+    registration: Option<&ThoughtChainRegistration>,
+    discovered: &[DiscoveredChainFile],
+    target_storage_adapter: StorageAdapterKind,
+) -> io::Result<Option<(DiscoveredChainFile, ThoughtChain)>> {
+    let mut candidates = discovered.to_vec();
+    candidates.sort_by_key(|candidate| {
+        if registration
+            .map(|entry| entry.storage_adapter == candidate.storage_kind)
+            .unwrap_or(false)
+        {
+            0
+        } else if candidate.storage_kind == target_storage_adapter {
+            1
+        } else {
+            2
+        }
+    });
+
+    for candidate in candidates {
+        if let Ok(chain) = open_current_chain_at(&candidate.path, candidate.storage_kind) {
+            return Ok(Some((candidate, chain)));
+        }
+    }
+
+    let expected_path = chain_dir.join(chain_storage_filename(chain_key, target_storage_adapter));
+    if expected_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "No valid ThoughtChain source found to repair chain '{chain_key}' at {}",
+                expected_path.display()
+            ),
+        ));
+    }
+
+    Ok(None)
+}
+
+fn reconcile_current_chain(
+    chain_dir: &Path,
+    chain_key: &str,
+    registration: Option<&ThoughtChainRegistration>,
+    discovered: &[DiscoveredChainFile],
+    target_storage_adapter: StorageAdapterKind,
+) -> io::Result<Option<ThoughtChainMigrationReport>> {
+    let expected_path = chain_dir.join(chain_storage_filename(chain_key, target_storage_adapter));
+    let Some((source, chain)) = select_reconciliation_source(
+        chain_dir,
+        chain_key,
+        registration,
+        discovered,
+        target_storage_adapter,
+    )? else {
+        return Ok(None);
+    };
+
+    let source_is_target = source.storage_kind == target_storage_adapter && source.path == expected_path;
+    let target_missing = !expected_path.exists();
+    let target_invalid = expected_path.exists()
+        && open_current_chain_at(&expected_path, target_storage_adapter).is_err();
+    let has_extra_files = discovered.iter().any(|candidate| candidate.path != expected_path);
+    if source_is_target && !target_missing && !target_invalid && !has_extra_files {
+        return Ok(None);
+    }
+
+    let temp_path =
+        expected_path.with_extension(format!("{}.tmp", target_storage_adapter.file_extension()));
+    if temp_path.exists() {
+        fs::remove_file(&temp_path)?;
+    }
+    persist_thoughts_to_path(&temp_path, target_storage_adapter, chain.thoughts())?;
+    save_agent_registry(
+        chain_dir,
+        chain_key,
+        target_storage_adapter,
+        chain.agent_registry(),
+    )?;
+
+    if expected_path.exists() {
+        fs::remove_file(&expected_path)?;
+    }
+    fs::rename(&temp_path, &expected_path)?;
+
+    let mut archived_path = None;
+    for candidate in discovered {
+        if candidate.path == expected_path {
+            continue;
+        }
+        if candidate.path.exists() {
+            let archived = archive_chain_file(
+                chain_dir,
+                &candidate.path,
+                THOUGHTCHAIN_CURRENT_VERSION,
+                THOUGHTCHAIN_CURRENT_VERSION,
+            )?;
+            if archived_path.is_none() {
+                archived_path = Some(archived);
+            }
+        }
+    }
+
+    Ok(Some(ThoughtChainMigrationReport {
+        chain_key: chain_key.to_string(),
+        from_version: THOUGHTCHAIN_CURRENT_VERSION,
+        to_version: THOUGHTCHAIN_CURRENT_VERSION,
+        source_storage_adapter: source.storage_kind,
+        storage_adapter: target_storage_adapter,
+        thought_count: chain.thoughts().len() as u64,
+        archived_legacy_path: archived_path,
+    }))
+}
+
 fn migrate_legacy_chain_v0(
     chain_dir: &Path,
     discovered: &DiscoveredChainFile,
+    target_storage_adapter: StorageAdapterKind,
 ) -> io::Result<ThoughtChainMigrationReport> {
     let legacy_thoughts = load_legacy_v0_thoughts(&discovered.path, discovered.storage_kind)?;
     let (thoughts, agent_registry) = migrate_legacy_thoughts(legacy_thoughts);
     let active_path = chain_dir.join(chain_storage_filename(
         &discovered.chain_key,
-        discovered.storage_kind,
+        target_storage_adapter,
     ));
     let temp_path =
-        active_path.with_extension(format!("{}.tmp", discovered.storage_kind.file_extension()));
+        active_path.with_extension(format!("{}.tmp", target_storage_adapter.file_extension()));
     if temp_path.exists() {
         fs::remove_file(&temp_path)?;
     }
 
     for thought in &thoughts {
-        match discovered.storage_kind {
+        match target_storage_adapter {
             StorageAdapterKind::Jsonl => persist_jsonl_thought(&temp_path, thought)?,
             StorageAdapterKind::Binary => persist_binary_thought(&temp_path, thought)?,
         }
@@ -2463,33 +2790,24 @@ fn migrate_legacy_chain_v0(
     save_agent_registry(
         chain_dir,
         &discovered.chain_key,
-        discovered.storage_kind,
+        target_storage_adapter,
         &agent_registry,
     )?;
 
-    let archive_dir = chain_dir.join("migrations").join(format!(
-        "v{}_to_v{}",
-        THOUGHTCHAIN_SCHEMA_V0, THOUGHTCHAIN_CURRENT_VERSION
-    ));
-    fs::create_dir_all(&archive_dir)?;
-    let archived_legacy_path = archive_dir.join(
-        discovered
-            .path
-            .file_name()
-            .map(|value| value.to_owned())
-            .unwrap_or_default(),
-    );
-    if archived_legacy_path.exists() {
-        fs::remove_file(&archived_legacy_path)?;
-    }
-    fs::rename(&discovered.path, &archived_legacy_path)?;
+    let archived_legacy_path = archive_chain_file(
+        chain_dir,
+        &discovered.path,
+        THOUGHTCHAIN_SCHEMA_V0,
+        THOUGHTCHAIN_CURRENT_VERSION,
+    )?;
     fs::rename(&temp_path, &active_path)?;
 
     Ok(ThoughtChainMigrationReport {
         chain_key: discovered.chain_key.clone(),
         from_version: THOUGHTCHAIN_SCHEMA_V0,
         to_version: THOUGHTCHAIN_CURRENT_VERSION,
-        storage_adapter: discovered.storage_kind,
+        source_storage_adapter: discovered.storage_kind,
+        storage_adapter: target_storage_adapter,
         thought_count: thoughts.len() as u64,
         archived_legacy_path: Some(archived_legacy_path),
     })
