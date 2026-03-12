@@ -2,14 +2,38 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
 use thoughtchain::{
     chain_filename, chain_key_from_storage_filename, chain_storage_filename, BinaryStorageAdapter,
-    StorageAdapter, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
-    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
+    load_registered_chains, migrate_registered_chains, signable_thought_payload, StorageAdapter,
+    StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation,
+    ThoughtRelationKind, ThoughtRole, ThoughtType, THOUGHTCHAIN_CURRENT_VERSION,
 };
 use uuid::Uuid;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LegacyThoughtV0Record {
+    id: Uuid,
+    index: u64,
+    timestamp: chrono::DateTime<chrono::Utc>,
+    session_id: Option<Uuid>,
+    agent_id: String,
+    agent_name: String,
+    agent_owner: Option<String>,
+    thought_type: ThoughtType,
+    role: ThoughtRole,
+    content: String,
+    confidence: Option<f32>,
+    importance: f32,
+    tags: Vec<String>,
+    concepts: Vec<String>,
+    refs: Vec<u64>,
+    relations: Vec<ThoughtRelation>,
+    prev_hash: String,
+    hash: String,
+}
 
 fn unique_chain_dir() -> PathBuf {
     let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -57,8 +81,9 @@ fn append_and_reload_preserves_semantic_metadata() {
     assert_eq!(thought.thought_type, ThoughtType::Insight);
     assert_eq!(thought.role, ThoughtRole::Memory);
     assert_eq!(thought.agent_id, "agent1");
-    assert_eq!(thought.agent_name, "Analyst");
-    assert_eq!(thought.agent_owner.as_deref(), Some("cloudllm"));
+    let record = chain.agent_registry().agents.get("agent1").unwrap();
+    assert_eq!(record.display_name, "Analyst");
+    assert_eq!(record.owner.as_deref(), Some("cloudllm"));
     assert_eq!(thought.tags, vec!["performance", "cache"]);
     assert_eq!(thought.concepts, vec!["latency", "cache invalidation"]);
 
@@ -214,6 +239,14 @@ impl StorageAdapter for MemoryStorageAdapter {
     fn storage_location(&self) -> String {
         self.location.clone()
     }
+
+    fn storage_kind(&self) -> StorageAdapterKind {
+        StorageAdapterKind::Binary
+    }
+
+    fn storage_path(&self) -> Option<&std::path::Path> {
+        None
+    }
 }
 
 #[test]
@@ -297,11 +330,17 @@ fn shared_chain_queries_can_filter_by_agent_identity() {
 
     let by_owner = chain.query(&ThoughtQuery::new().with_agent_owners(["team-blue"]));
     assert_eq!(by_owner.len(), 1);
-    assert_eq!(by_owner[0].agent_name, "Executor");
+    assert_eq!(
+        chain.agent_registry().agents.get("agent-beta").unwrap().display_name,
+        "Executor"
+    );
 
     let by_text = chain.query(&ThoughtQuery::new().with_text("team-red"));
     assert_eq!(by_text.len(), 1);
-    assert_eq!(by_text[0].agent_name, "Planner");
+    assert_eq!(
+        chain.agent_registry().agents.get("agent-alpha").unwrap().display_name,
+        "Planner"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -382,4 +421,100 @@ fn chain_key_can_be_recovered_from_storage_filename() {
 
     assert_eq!(recovered, "borganism-brain");
     assert!(chain_key_from_storage_filename("not-a-thoughtchain-file.txt").is_none());
+}
+
+fn write_legacy_v0_chain(dir: &PathBuf, chain_key: &str, kind: StorageAdapterKind) {
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join(chain_storage_filename(chain_key, kind));
+    let legacy = LegacyThoughtV0Record {
+        id: Uuid::new_v4(),
+        index: 0,
+        timestamp: chrono::Utc::now(),
+        session_id: None,
+        agent_id: "legacy-agent".to_string(),
+        agent_name: "Legacy Agent".to_string(),
+        agent_owner: Some("legacy-team".to_string()),
+        thought_type: ThoughtType::Insight,
+        role: ThoughtRole::Memory,
+        content: "Legacy thought content".to_string(),
+        confidence: Some(0.8),
+        importance: 0.9,
+        tags: vec!["legacy".to_string()],
+        concepts: vec!["migration".to_string()],
+        refs: vec![],
+        relations: vec![],
+        prev_hash: String::new(),
+        hash: "legacy-hash".to_string(),
+    };
+
+    match kind {
+        StorageAdapterKind::Jsonl => {
+            std::fs::write(&path, format!("{}\n", serde_json::to_string(&legacy).unwrap())).unwrap();
+        }
+        StorageAdapterKind::Binary => {
+            let payload =
+                bincode::serde::encode_to_vec(&legacy, bincode::config::standard()).unwrap();
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+            bytes.extend_from_slice(&payload);
+            std::fs::write(&path, bytes).unwrap();
+        }
+    }
+}
+
+#[test]
+fn signable_payload_is_stable_for_normalized_input() {
+    let first = signable_thought_payload(
+        "astro",
+        &ThoughtInput::new(ThoughtType::Decision, "Persist the agent registry.")
+            .with_importance(1.2)
+            .with_tags(["ops", "ops", " "])
+            .with_concepts(["registry", "Registry"]),
+    );
+    let second = signable_thought_payload(
+        "astro",
+        &ThoughtInput::new(ThoughtType::Decision, "Persist the agent registry.")
+            .with_importance(1.0)
+            .with_tags(["ops"])
+            .with_concepts(["registry"]),
+    );
+
+    assert_eq!(first, second);
+}
+
+#[test]
+fn migrate_v0_jsonl_and_binary_chains_to_v1() {
+    for kind in [StorageAdapterKind::Jsonl, StorageAdapterKind::Binary] {
+        let dir = unique_chain_dir();
+        let chain_key = format!("legacy-{kind}");
+        write_legacy_v0_chain(&dir, &chain_key, kind);
+
+        let reports = migrate_registered_chains(&dir, |_| {}).unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].chain_key, chain_key);
+        assert_eq!(reports[0].storage_adapter, kind);
+        assert_eq!(reports[0].to_version, THOUGHTCHAIN_CURRENT_VERSION);
+
+        let registry = load_registered_chains(&dir).unwrap();
+        let entry = registry.chains.get(&chain_key).unwrap();
+        assert_eq!(entry.version, THOUGHTCHAIN_CURRENT_VERSION);
+        assert_eq!(entry.storage_adapter, kind);
+        assert_eq!(entry.thought_count, 1);
+
+        let chain = ThoughtChain::open_with_key(&dir, &chain_key).unwrap();
+        assert_eq!(chain.thoughts().len(), 1);
+        assert_eq!(chain.thoughts()[0].schema_version, THOUGHTCHAIN_CURRENT_VERSION);
+        assert!(chain.thoughts()[0].signing_key_id.is_none());
+        let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
+        assert_eq!(record.display_name, "Legacy Agent");
+        assert_eq!(record.owner.as_deref(), Some("legacy-team"));
+
+        let archived = dir
+            .join("migrations")
+            .join(format!("v{}_to_v{}", 0, THOUGHTCHAIN_CURRENT_VERSION))
+            .join(chain_storage_filename(&chain_key, kind));
+        assert!(archived.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -25,8 +25,8 @@
 //! - `POST /v1/agents`
 
 use crate::{
-    chain_key_from_storage_filename, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput,
-    ThoughtQuery, ThoughtRole, ThoughtType,
+    load_registered_chains, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
+    ThoughtRole, ThoughtType, THOUGHTCHAIN_CURRENT_VERSION,
 };
 use async_trait::async_trait;
 use axum::extract::State;
@@ -41,7 +41,7 @@ use mcp::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -72,8 +72,8 @@ pub struct ThoughtChainServiceConfig {
     pub chain_dir: PathBuf,
     /// Default chain key used when requests omit `chain_key`.
     pub default_chain_key: String,
-    /// Storage adapter used for newly opened chains.
-    pub storage_adapter: StorageAdapterKind,
+    /// Default storage adapter used when creating new chains.
+    pub default_storage_adapter: StorageAdapterKind,
     /// When true, log each ThoughtChain read or write interaction to stderr.
     pub verbose: bool,
 }
@@ -83,12 +83,12 @@ impl ThoughtChainServiceConfig {
     pub fn new(
         chain_dir: PathBuf,
         default_chain_key: impl Into<String>,
-        storage_adapter: StorageAdapterKind,
+        default_storage_adapter: StorageAdapterKind,
     ) -> Self {
         Self {
             chain_dir,
             default_chain_key: default_chain_key.into(),
-            storage_adapter,
+            default_storage_adapter,
             verbose: false,
         }
     }
@@ -106,7 +106,7 @@ impl ThoughtChainServiceConfig {
 ///
 /// - `THOUGHTCHAIN_DIR`
 /// - `THOUGHTCHAIN_DEFAULT_KEY`
-/// - `THOUGHTCHAIN_STORAGE_ADAPTER`
+/// - `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
 /// - `THOUGHTCHAIN_VERBOSE`
 /// - `THOUGHTCHAIN_BIND_HOST`
 /// - `THOUGHTCHAIN_MCP_PORT`
@@ -137,10 +137,11 @@ impl ThoughtChainServerConfig {
             .ok()
             .and_then(|value| value.parse::<IpAddr>().ok())
             .unwrap_or(IpAddr::from([127, 0, 0, 1]));
-        let storage_adapter = std::env::var("THOUGHTCHAIN_STORAGE_ADAPTER")
+        let storage_adapter = std::env::var("THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER")
+            .or_else(|_| std::env::var("THOUGHTCHAIN_STORAGE_ADAPTER"))
             .ok()
-            .map(|value| value.parse().unwrap_or(StorageAdapterKind::Jsonl))
-            .unwrap_or(StorageAdapterKind::Jsonl);
+            .map(|value| value.parse().unwrap_or(StorageAdapterKind::Binary))
+            .unwrap_or(StorageAdapterKind::Binary);
         let verbose = env_bool("THOUGHTCHAIN_VERBOSE").unwrap_or(false);
         let mcp_port = env_u16("THOUGHTCHAIN_MCP_PORT").unwrap_or(9471);
         let rest_port = env_u16("THOUGHTCHAIN_REST_PORT").unwrap_or(9472);
@@ -491,6 +492,7 @@ impl ThoughtChainService {
     async fn get_chain(
         &self,
         chain_key: Option<&str>,
+        storage_adapter: Option<StorageAdapterKind>,
     ) -> Result<Arc<RwLock<ThoughtChain>>, Box<dyn Error + Send + Sync>> {
         let chain_key = chain_key
             .unwrap_or(&self.config.default_chain_key)
@@ -500,10 +502,10 @@ impl ThoughtChainService {
             return Ok(existing);
         }
 
-        let chain = Arc::new(RwLock::new(ThoughtChain::open_with_storage(
-            self.config
-                .storage_adapter
-                .for_chain_key(&self.config.chain_dir, &chain_key),
+        let chain = Arc::new(RwLock::new(ThoughtChain::open_with_key_and_storage_kind(
+            &self.config.chain_dir,
+            &chain_key,
+            storage_adapter.unwrap_or(self.config.default_storage_adapter),
         )?));
 
         let mut chains = self.chains.write().await;
@@ -516,7 +518,12 @@ impl ThoughtChainService {
         request: BootstrapRequest,
     ) -> Result<BootstrapResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let storage_adapter = request
+            .storage_adapter
+            .as_deref()
+            .map(parse_storage_adapter_kind)
+            .transpose()?;
+        let chain = self.get_chain(Some(&chain_key), storage_adapter).await?;
         let mut chain = chain.write().await;
         let bootstrapped = if chain.thoughts().is_empty() {
             let (agent_id, agent_name, agent_owner) = self.resolve_agent_identity(
@@ -538,12 +545,12 @@ impl ThoughtChainService {
             } else {
                 input
             };
-            let thought = chain.append_thought(&agent_id, input)?;
+            let thought = chain.append_thought(&agent_id, input)?.clone();
             self.log_interaction(InteractionLogEntry {
                 access: "write",
                 operation: "bootstrap",
                 chain_key: chain_key.clone(),
-                metadata: InteractionMetadata::from_thought(thought),
+                metadata: InteractionMetadata::from_chain_thought(&chain, &thought),
                 result_count: Some(1),
                 note: Some("bootstrapped=true".to_string()),
             });
@@ -572,7 +579,7 @@ impl ThoughtChainService {
         request: AppendThoughtRequest,
     ) -> Result<AppendThoughtResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = self.get_chain(Some(&chain_key), None).await?;
         let mut chain = chain.write().await;
 
         let thought_type = parse_thought_type(&request.thought_type)?;
@@ -602,21 +609,27 @@ impl ThoughtChainService {
         if let Some(agent_owner) = agent_owner {
             input = input.with_agent_owner(agent_owner);
         }
+        if let Some(signing_key_id) = request.signing_key_id {
+            input = input.with_signing_key_id(signing_key_id);
+        }
+        if let Some(thought_signature) = request.thought_signature {
+            input = input.with_thought_signature(thought_signature);
+        }
         if let Some(confidence) = request.confidence {
             input = input.with_confidence(confidence);
         }
 
-        let thought = chain.append_thought(&agent_id, input)?;
+        let thought = chain.append_thought(&agent_id, input)?.clone();
         self.log_interaction(InteractionLogEntry {
             access: "write",
             operation: "append",
             chain_key,
-            metadata: InteractionMetadata::from_thought(thought),
+            metadata: InteractionMetadata::from_chain_thought(&chain, &thought),
             result_count: Some(1),
             note: None,
         });
         Ok(AppendThoughtResponse {
-            thought: thought_to_json(thought),
+            thought: thought_to_json(&chain, &thought),
             head_hash: chain.head_hash().map(ToOwned::to_owned),
         })
     }
@@ -626,7 +639,7 @@ impl ThoughtChainService {
         request: AppendRetrospectiveRequest,
     ) -> Result<AppendThoughtResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = self.get_chain(Some(&chain_key), None).await?;
         let mut chain = chain.write().await;
 
         let thought_type = request
@@ -655,21 +668,27 @@ impl ThoughtChainService {
         if let Some(agent_owner) = agent_owner {
             input = input.with_agent_owner(agent_owner);
         }
+        if let Some(signing_key_id) = request.signing_key_id {
+            input = input.with_signing_key_id(signing_key_id);
+        }
+        if let Some(thought_signature) = request.thought_signature {
+            input = input.with_thought_signature(thought_signature);
+        }
         if let Some(confidence) = request.confidence {
             input = input.with_confidence(confidence);
         }
 
-        let thought = chain.append_thought(&agent_id, input)?;
+        let thought = chain.append_thought(&agent_id, input)?.clone();
         self.log_interaction(InteractionLogEntry {
             access: "write",
             operation: "append_retrospective",
             chain_key,
-            metadata: InteractionMetadata::from_thought(thought),
+            metadata: InteractionMetadata::from_chain_thought(&chain, &thought),
             result_count: Some(1),
             note: None,
         });
         Ok(AppendThoughtResponse {
-            thought: thought_to_json(thought),
+            thought: thought_to_json(&chain, &thought),
             head_hash: chain.head_hash().map(ToOwned::to_owned),
         })
     }
@@ -679,7 +698,7 @@ impl ThoughtChainService {
         request: SearchRequest,
     ) -> Result<SearchResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = self.get_chain(Some(&chain_key), None).await?;
         let chain = chain.read().await;
         let query = build_query(&request)?;
         let matched = chain.query(&query);
@@ -687,11 +706,14 @@ impl ThoughtChainService {
             access: "read",
             operation: "search",
             chain_key,
-            metadata: InteractionMetadata::from_thoughts(matched.iter().copied()),
+            metadata: InteractionMetadata::from_chain_thoughts(&chain, matched.iter().copied()),
             result_count: Some(matched.len()),
             note: None,
         });
-        let thoughts = matched.into_iter().map(thought_to_json).collect::<Vec<_>>();
+        let thoughts = matched
+            .into_iter()
+            .map(|thought| thought_to_json(&chain, thought))
+            .collect::<Vec<_>>();
         Ok(SearchResponse { thoughts })
     }
 
@@ -701,30 +723,63 @@ impl ThoughtChainService {
 
     async fn list_chains(&self) -> Result<ListChainsResponse, Box<dyn Error + Send + Sync>> {
         let mut chain_keys = BTreeSet::new();
+        let registry = load_registered_chains(&self.config.chain_dir)?;
+        chain_keys.extend(registry.chains.keys().cloned());
 
-        if self.config.chain_dir.exists() {
-            for entry in std::fs::read_dir(&self.config.chain_dir)? {
-                let entry = entry?;
-                if !entry.file_type()?.is_file() {
-                    continue;
-                }
-                let file_name = entry.file_name();
-                let Some(file_name) = file_name.to_str() else {
-                    continue;
-                };
-                if let Some(chain_key) = chain_key_from_storage_filename(file_name) {
-                    chain_keys.insert(chain_key);
-                }
-            }
-        }
+        let mut chains_by_key: BTreeMap<String, ChainSummary> = registry
+            .chains
+            .values()
+            .map(|entry| {
+                (
+                    entry.chain_key.clone(),
+                    ChainSummary {
+                        chain_key: entry.chain_key.clone(),
+                        version: entry.version,
+                        storage_adapter: entry.storage_adapter.to_string(),
+                        thought_count: entry.thought_count,
+                        agent_count: entry.agent_count,
+                        storage_location: entry.storage_location.clone(),
+                    },
+                )
+            })
+            .collect();
 
-        for chain_key in self.chains.read().await.keys() {
+        let open_chains: Vec<(String, Arc<RwLock<ThoughtChain>>)> = self
+            .chains
+            .read()
+            .await
+            .iter()
+            .map(|(chain_key, chain)| (chain_key.clone(), Arc::clone(chain)))
+            .collect();
+
+        for (chain_key, chain) in open_chains {
             chain_keys.insert(chain_key.clone());
+            let chain = chain.read().await;
+            let storage_location = chain.storage_location();
+            chains_by_key
+                .entry(chain_key.clone())
+                .and_modify(|summary| {
+                    summary.version = THOUGHTCHAIN_CURRENT_VERSION;
+                    summary.thought_count = chain.thoughts().len() as u64;
+                    summary.agent_count = chain.agent_registry().agents.len();
+                    summary.storage_location = storage_location.clone();
+                })
+                .or_insert_with(|| ChainSummary {
+                    chain_key: chain_key.clone(),
+                    version: THOUGHTCHAIN_CURRENT_VERSION,
+                    storage_adapter: infer_storage_adapter_name(&storage_location),
+                    thought_count: chain.thoughts().len() as u64,
+                    agent_count: chain.agent_registry().agents.len(),
+                    storage_location: storage_location.clone(),
+                });
         }
+
+        let chains = chains_by_key.into_values().collect();
 
         let response = ListChainsResponse {
             default_chain_key: self.config.default_chain_key.clone(),
             chain_keys: chain_keys.into_iter().collect(),
+            chains,
         };
         self.log_interaction(InteractionLogEntry {
             access: "read",
@@ -742,24 +797,16 @@ impl ThoughtChainService {
         request: ListAgentsRequest,
     ) -> Result<ListAgentsResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = self.get_chain(Some(&chain_key), None).await?;
         let chain = chain.read().await;
-        let mut identities = BTreeSet::new();
-
-        for thought in chain.thoughts() {
-            identities.insert((
-                thought.agent_name.clone(),
-                thought.agent_id.clone(),
-                thought.agent_owner.clone(),
-            ));
-        }
-
-        let agents = identities
-            .into_iter()
-            .map(|(agent_name, agent_id, agent_owner)| AgentIdentitySummary {
-                agent_id,
-                agent_name,
-                agent_owner,
+        let agents = chain
+            .agent_registry()
+            .agents
+            .values()
+            .map(|record| AgentIdentitySummary {
+                agent_id: record.agent_id.clone(),
+                agent_name: record.display_name.clone(),
+                agent_owner: record.owner.clone(),
             })
             .collect();
 
@@ -767,8 +814,8 @@ impl ThoughtChainService {
             access: "read",
             operation: "list_agents",
             chain_key: chain_key.clone(),
-            metadata: InteractionMetadata::from_thoughts(chain.thoughts().iter()),
-            result_count: Some(chain.thoughts().len()),
+            metadata: InteractionMetadata::from_chain_thoughts(&chain, chain.thoughts().iter()),
+            result_count: Some(chain.agent_registry().agents.len()),
             note: None,
         });
         Ok(ListAgentsResponse { chain_key, agents })
@@ -779,7 +826,7 @@ impl ThoughtChainService {
         request: RecentContextRequest,
     ) -> Result<RecentContextResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = self.get_chain(Some(&chain_key), None).await?;
         let chain = chain.read().await;
         let last_n = request.last_n.unwrap_or(12);
         let start = chain.thoughts().len().saturating_sub(last_n);
@@ -788,7 +835,7 @@ impl ThoughtChainService {
             access: "read",
             operation: "recent_context",
             chain_key,
-            metadata: InteractionMetadata::from_thoughts(tail.iter()),
+            metadata: InteractionMetadata::from_chain_thoughts(&chain, tail.iter()),
             result_count: Some(tail.len()),
             note: Some(format!("last_n={last_n}")),
         });
@@ -802,7 +849,7 @@ impl ThoughtChainService {
         request: MemoryMarkdownRequest,
     ) -> Result<MemoryMarkdownResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = self.get_chain(Some(&chain_key), None).await?;
         let chain = chain.read().await;
         let query = build_markdown_query(&request)?;
         let matched = if query_is_empty(&query) {
@@ -814,7 +861,7 @@ impl ThoughtChainService {
             access: "read",
             operation: "memory_markdown",
             chain_key,
-            metadata: InteractionMetadata::from_thoughts(matched.iter().copied()),
+            metadata: InteractionMetadata::from_chain_thoughts(&chain, matched.iter().copied()),
             result_count: Some(matched.len()),
             note: None,
         });
@@ -831,7 +878,7 @@ impl ThoughtChainService {
         request: ChainHeadRequest,
     ) -> Result<HeadResponse, Box<dyn Error + Send + Sync>> {
         let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
-        let chain = self.get_chain(Some(&chain_key)).await?;
+        let chain = self.get_chain(Some(&chain_key), None).await?;
         let chain = chain.read().await;
         self.log_interaction(InteractionLogEntry {
             access: "read",
@@ -840,7 +887,7 @@ impl ThoughtChainService {
             metadata: chain
                 .thoughts()
                 .last()
-                .map(InteractionMetadata::from_thought)
+                .map(|thought| InteractionMetadata::from_chain_thought(&chain, thought))
                 .unwrap_or_default(),
             result_count: Some(chain.thoughts().len()),
             note: None,
@@ -849,7 +896,10 @@ impl ThoughtChainService {
             chain_key,
             thought_count: chain.thoughts().len(),
             head_hash: chain.head_hash().map(ToOwned::to_owned),
-            latest_thought: chain.thoughts().last().map(thought_to_json),
+            latest_thought: chain
+                .thoughts()
+                .last()
+                .map(|thought| thought_to_json(&chain, thought)),
             integrity_ok: chain.verify_integrity(),
             storage_location: chain.storage_location(),
         })
@@ -919,11 +969,11 @@ struct InteractionMetadata {
 }
 
 impl InteractionMetadata {
-    fn from_thought(thought: &Thought) -> Self {
-        Self::from_thoughts(std::iter::once(thought))
+    fn from_chain_thought(chain: &ThoughtChain, thought: &Thought) -> Self {
+        Self::from_chain_thoughts(chain, std::iter::once(thought))
     }
 
-    fn from_thoughts<'a, I>(thoughts: I) -> Self
+    fn from_chain_thoughts<'a, I>(chain: &ThoughtChain, thoughts: I) -> Self
     where
         I: IntoIterator<Item = &'a Thought>,
     {
@@ -936,8 +986,14 @@ impl InteractionMetadata {
 
         for thought in thoughts {
             agent_ids.insert(thought.agent_id.clone());
-            if !thought.agent_name.trim().is_empty() {
-                agent_names.insert(thought.agent_name.clone());
+            if let Some(agent_name) = chain
+                .agent_registry()
+                .agents
+                .get(&thought.agent_id)
+                .map(|record| record.display_name.clone())
+                .filter(|value| !value.trim().is_empty())
+            {
+                agent_names.insert(agent_name);
             }
             thought_types.insert(format!("{:?}", thought.thought_type));
             roles.insert(format!("{:?}", thought.role));
@@ -976,6 +1032,7 @@ struct McpExecuteRequest {
 #[derive(Debug, Deserialize)]
 struct BootstrapRequest {
     chain_key: Option<String>,
+    storage_adapter: Option<String>,
     agent_id: Option<String>,
     agent_name: Option<String>,
     agent_owner: Option<String>,
@@ -998,6 +1055,8 @@ struct AppendThoughtRequest {
     agent_id: Option<String>,
     agent_name: Option<String>,
     agent_owner: Option<String>,
+    signing_key_id: Option<String>,
+    thought_signature: Option<Vec<u8>>,
     thought_type: String,
     content: String,
     role: Option<String>,
@@ -1014,6 +1073,8 @@ struct AppendRetrospectiveRequest {
     agent_id: Option<String>,
     agent_name: Option<String>,
     agent_owner: Option<String>,
+    signing_key_id: Option<String>,
+    thought_signature: Option<Vec<u8>>,
     thought_type: Option<String>,
     content: String,
     importance: Option<f32>,
@@ -1061,6 +1122,17 @@ struct ListAgentsRequest {
 struct ListChainsResponse {
     default_chain_key: String,
     chain_keys: Vec<String>,
+    chains: Vec<ChainSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChainSummary {
+    chain_key: String,
+    version: u32,
+    storage_adapter: String,
+    thought_count: u64,
+    agent_count: usize,
+    storage_location: String,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -1531,13 +1603,26 @@ fn parse_thought_role(input: &str) -> Result<ThoughtRole, Box<dyn Error + Send +
     Ok(role)
 }
 
-fn thought_to_json(thought: &Thought) -> Value {
-    serde_json::to_value(thought).unwrap_or_else(|_| {
-        json!({
-            "index": thought.index,
-            "content": thought.content,
-        })
-    })
+fn parse_storage_adapter_kind(
+    input: &str,
+) -> Result<StorageAdapterKind, Box<dyn Error + Send + Sync>> {
+    input
+        .parse::<StorageAdapterKind>()
+        .map_err(|error| error.into())
+}
+
+fn infer_storage_adapter_name(storage_location: &str) -> String {
+    if storage_location.ends_with(".tcbin") {
+        StorageAdapterKind::Binary.to_string()
+    } else if storage_location.ends_with(".jsonl") {
+        StorageAdapterKind::Jsonl.to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
+fn thought_to_json(chain: &ThoughtChain, thought: &Thought) -> Value {
+    chain.thought_json(thought)
 }
 
 fn normalize_label(input: &str) -> String {

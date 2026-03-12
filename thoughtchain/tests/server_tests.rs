@@ -141,6 +141,7 @@ async fn rest_router_bootstraps_and_reports_head() {
                 .body(Body::from(
                     json!({
                         "chain_key": "server-test",
+                        "storage_adapter": "binary",
                         "content": "Bootstrap memory for the server test.",
                         "importance": 1.0
                     })
@@ -153,6 +154,7 @@ async fn rest_router_bootstraps_and_reports_head() {
     assert_eq!(bootstrap.status(), StatusCode::OK);
 
     let head = router
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -175,6 +177,34 @@ async fn rest_router_bootstraps_and_reports_head() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["thought_count"], 1);
     assert_eq!(json["integrity_ok"], true);
+
+    let chains = router
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/chains")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(chains.status(), StatusCode::OK);
+    let chains_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(chains.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let summary = chains_json["chains"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["chain_key"] == "server-test")
+        .unwrap();
+    assert_eq!(summary["version"], 1);
+    assert_eq!(summary["storage_adapter"], "binary");
+    assert_eq!(summary["thought_count"], 1);
+    assert_eq!(summary["agent_count"], 1);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -362,6 +392,16 @@ async fn rest_router_lists_chains_and_agents() {
     let chain_keys = chains_json["chain_keys"].as_array().unwrap();
     assert!(chain_keys.iter().any(|value| value == "shared-brain"));
     assert_eq!(chains_json["default_chain_key"], "shared-brain");
+    let summary = chains_json["chains"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["chain_key"] == "shared-brain")
+        .unwrap();
+    assert_eq!(summary["version"], 1);
+    assert_eq!(summary["storage_adapter"], "jsonl");
+    assert_eq!(summary["thought_count"], 2);
+    assert_eq!(summary["agent_count"], 2);
 
     let agents = router
         .oneshot(

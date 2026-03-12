@@ -13,7 +13,7 @@ pub mod server;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -47,6 +47,23 @@ pub trait StorageAdapter: Send + Sync {
 
     /// Return a human-readable storage location or descriptor.
     fn storage_location(&self) -> String;
+
+    /// Return the durable storage adapter kind.
+    fn storage_kind(&self) -> StorageAdapterKind;
+
+    /// Return the concrete backing path when the adapter is file-based.
+    fn storage_path(&self) -> Option<&Path>;
+}
+
+/// Legacy ThoughtChain storage schema version.
+pub const THOUGHTCHAIN_SCHEMA_V0: u32 = 0;
+/// First registry-backed ThoughtChain storage schema version.
+pub const THOUGHTCHAIN_SCHEMA_V1: u32 = 1;
+/// Alias for the latest supported ThoughtChain storage schema version.
+pub const THOUGHTCHAIN_CURRENT_VERSION: u32 = THOUGHTCHAIN_SCHEMA_V1;
+
+fn current_schema_version() -> u32 {
+    THOUGHTCHAIN_CURRENT_VERSION
 }
 
 /// Supported durable storage formats for ThoughtChain.
@@ -67,11 +84,11 @@ pub trait StorageAdapter: Send + Sync {
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub enum StorageAdapterKind {
-    /// Newline-delimited JSON storage.
-    #[default]
-    Jsonl,
     /// Length-prefixed binary serialization of `Thought` records.
+    #[default]
     Binary,
+    /// Newline-delimited JSON storage.
+    Jsonl,
 }
 
 impl StorageAdapterKind {
@@ -162,9 +179,10 @@ impl JsonlStorageAdapter {
 
     /// Create a JSONL adapter using the stable ThoughtChain filename for a chain key.
     pub fn for_chain_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> Self {
-        let file_path = chain_dir
-            .as_ref()
-            .join(chain_filename(chain_key, "", None, None));
+        let file_path = chain_dir.as_ref().join(chain_storage_filename(
+            chain_key,
+            StorageAdapterKind::Jsonl,
+        ));
         Self::new(file_path)
     }
 
@@ -205,6 +223,14 @@ impl StorageAdapter for JsonlStorageAdapter {
 
     fn storage_location(&self) -> String {
         self.file_path.display().to_string()
+    }
+
+    fn storage_kind(&self) -> StorageAdapterKind {
+        StorageAdapterKind::Jsonl
+    }
+
+    fn storage_path(&self) -> Option<&Path> {
+        Some(self.file_path.as_path())
     }
 }
 
@@ -260,6 +286,245 @@ impl StorageAdapter for BinaryStorageAdapter {
     fn storage_location(&self) -> String {
         self.file_path.display().to_string()
     }
+
+    fn storage_kind(&self) -> StorageAdapterKind {
+        StorageAdapterKind::Binary
+    }
+
+    fn storage_path(&self) -> Option<&Path> {
+        Some(self.file_path.as_path())
+    }
+}
+
+/// Supported public-key algorithms for agent identity records.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum PublicKeyAlgorithm {
+    /// Ed25519 signing keys.
+    Ed25519,
+}
+
+/// Public verification key associated with an agent identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentPublicKey {
+    /// Stable identifier for the key.
+    pub key_id: String,
+    /// Cryptographic algorithm used by the key.
+    pub algorithm: PublicKeyAlgorithm,
+    /// Raw public-key bytes.
+    pub public_key_bytes: Vec<u8>,
+    /// UTC timestamp when the key was registered.
+    pub added_at: DateTime<Utc>,
+    /// UTC timestamp when the key was revoked, if any.
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+/// Current status of an agent record in the registry.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum AgentStatus {
+    /// The agent is active.
+    Active,
+    /// The agent has been revoked or retired.
+    Revoked,
+}
+
+/// Registry entry describing one durable agent identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentRecord {
+    /// Stable producer identifier used in thoughts.
+    pub agent_id: String,
+    /// Friendly display label for the agent.
+    pub display_name: String,
+    /// Optional owner, tenant, or grouping label.
+    pub owner: Option<String>,
+    /// Optional summary of what the agent does.
+    pub description: Option<String>,
+    /// Historical display-name aliases.
+    pub aliases: Vec<String>,
+    /// Public verification keys associated with the agent.
+    pub public_keys: Vec<AgentPublicKey>,
+    /// Lifecycle status of the agent identity.
+    pub status: AgentStatus,
+    /// First thought index observed for this agent in the chain.
+    pub first_seen_index: Option<u64>,
+    /// Most recent thought index observed for this agent in the chain.
+    pub last_seen_index: Option<u64>,
+    /// First observed timestamp for this agent in the chain.
+    pub first_seen_at: Option<DateTime<Utc>>,
+    /// Most recent observed timestamp for this agent in the chain.
+    pub last_seen_at: Option<DateTime<Utc>>,
+    /// Number of thoughts attributed to this agent in the chain.
+    pub thought_count: u64,
+}
+
+impl AgentRecord {
+    fn new(
+        agent_id: &str,
+        display_name: &str,
+        owner: Option<&str>,
+        index: u64,
+        timestamp: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            agent_id: agent_id.to_string(),
+            display_name: if display_name.trim().is_empty() {
+                agent_id.to_string()
+            } else {
+                display_name.trim().to_string()
+            },
+            owner: owner
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned),
+            description: None,
+            aliases: Vec::new(),
+            public_keys: Vec::new(),
+            status: AgentStatus::Active,
+            first_seen_index: Some(index),
+            last_seen_index: Some(index),
+            first_seen_at: Some(timestamp),
+            last_seen_at: Some(timestamp),
+            thought_count: 1,
+        }
+    }
+
+    fn observe(
+        &mut self,
+        display_name: Option<&str>,
+        owner: Option<&str>,
+        index: u64,
+        timestamp: DateTime<Utc>,
+    ) {
+        if let Some(display_name) = display_name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if !equals_case_insensitive(display_name, &self.display_name)
+                && !self
+                    .aliases
+                    .iter()
+                    .any(|alias| equals_case_insensitive(alias, display_name))
+            {
+                self.aliases.push(self.display_name.clone());
+                self.display_name = display_name.to_string();
+            }
+        }
+
+        if self.owner.is_none() {
+            self.owner = owner
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+
+        self.last_seen_index = Some(index);
+        self.last_seen_at = Some(timestamp);
+        self.thought_count += 1;
+    }
+}
+
+/// Per-chain registry of the agents that have written thoughts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentRegistry {
+    /// Registry entries keyed by stable `agent_id`.
+    pub agents: BTreeMap<String, AgentRecord>,
+}
+
+impl AgentRegistry {
+    fn observe(
+        &mut self,
+        agent_id: &str,
+        display_name: Option<&str>,
+        owner: Option<&str>,
+        index: u64,
+        timestamp: DateTime<Utc>,
+    ) {
+        match self.agents.get_mut(agent_id) {
+            Some(record) => record.observe(display_name, owner, index, timestamp),
+            None => {
+                let display_name = display_name.unwrap_or(agent_id);
+                let record = AgentRecord::new(agent_id, display_name, owner, index, timestamp);
+                self.agents.insert(agent_id.to_string(), record);
+            }
+        }
+    }
+}
+
+/// Metadata describing one registered thought chain.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThoughtChainRegistration {
+    /// Stable chain identifier.
+    pub chain_key: String,
+    /// Storage schema version for the active chain file.
+    pub version: u32,
+    /// Storage adapter used by the active chain file.
+    pub storage_adapter: StorageAdapterKind,
+    /// Human-readable location of the active chain file.
+    pub storage_location: String,
+    /// Number of persisted thoughts in the chain.
+    pub thought_count: u64,
+    /// Number of agents in the per-chain registry.
+    pub agent_count: usize,
+    /// UTC timestamp when the registration was created.
+    pub created_at: DateTime<Utc>,
+    /// UTC timestamp when the registration was last updated.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Registry of all known thought chains in one storage directory.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ThoughtChainRegistry {
+    /// Version of the registry file itself.
+    pub version: u32,
+    /// Registered chains keyed by stable `chain_key`.
+    pub chains: BTreeMap<String, ThoughtChainRegistration>,
+}
+
+/// Summary of a successful chain migration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThoughtChainMigrationReport {
+    /// Stable chain identifier.
+    pub chain_key: String,
+    /// Previous storage schema version.
+    pub from_version: u32,
+    /// New storage schema version.
+    pub to_version: u32,
+    /// Storage adapter used by the migrated chain.
+    pub storage_adapter: StorageAdapterKind,
+    /// Number of migrated thoughts.
+    pub thought_count: u64,
+    /// Path where the legacy chain file was archived.
+    pub archived_legacy_path: Option<PathBuf>,
+}
+
+/// Progress notifications emitted during migration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThoughtChainMigrationEvent {
+    /// A migration run is starting for a chain.
+    Started {
+        /// Stable chain identifier.
+        chain_key: String,
+        /// Previous storage schema version.
+        from_version: u32,
+        /// Target storage schema version.
+        to_version: u32,
+        /// One-based chain counter within this migration run.
+        current: usize,
+        /// Total number of chains in this migration run.
+        total: usize,
+    },
+    /// A chain finished migrating successfully.
+    Completed {
+        /// Stable chain identifier.
+        chain_key: String,
+        /// Previous storage schema version.
+        from_version: u32,
+        /// Target storage schema version.
+        to_version: u32,
+        /// One-based chain counter within this migration run.
+        current: usize,
+        /// Total number of chains in this migration run.
+        total: usize,
+    },
 }
 
 /// Semantic category describing what changed in the agent's internal model.
@@ -483,13 +748,17 @@ pub struct ThoughtInput {
     pub session_id: Option<Uuid>,
     /// Optional human-readable name of the producing agent.
     ///
-    /// This is display metadata. The stable producer identity is `agent_id`,
-    /// which is supplied separately when appending.
+    /// This populates the per-chain [`AgentRegistry`] entry for `agent_id`.
     pub agent_name: Option<String>,
     /// Optional owner or grouping label for the producing agent.
     ///
-    /// Useful for shared chains, tenants, or human ownership models.
+    /// Useful for shared chains, tenants, or human ownership models. This is
+    /// stored in the agent registry rather than inline on every thought.
     pub agent_owner: Option<String>,
+    /// Optional identifier of the key used to sign this thought payload.
+    pub signing_key_id: Option<String>,
+    /// Optional detached signature over the thought's signable payload.
+    pub thought_signature: Option<Vec<u8>>,
     /// Semantic meaning of the thought.
     ///
     /// This answers "what kind of memory is this?"
@@ -554,6 +823,8 @@ impl ThoughtInput {
             session_id: None,
             agent_name: None,
             agent_owner: None,
+            signing_key_id: None,
+            thought_signature: None,
             thought_type,
             role: ThoughtRole::Memory,
             content: content.into(),
@@ -581,6 +852,18 @@ impl ThoughtInput {
     /// Attach an owner or grouping label to the thought.
     pub fn with_agent_owner(mut self, agent_owner: impl Into<String>) -> Self {
         self.agent_owner = Some(agent_owner.into());
+        self
+    }
+
+    /// Attach the key identifier used to sign this thought payload.
+    pub fn with_signing_key_id(mut self, signing_key_id: impl Into<String>) -> Self {
+        self.signing_key_id = Some(signing_key_id.into());
+        self
+    }
+
+    /// Attach a detached signature over the signable thought payload.
+    pub fn with_thought_signature(mut self, thought_signature: Vec<u8>) -> Self {
+        self.thought_signature = Some(thought_signature);
         self
     }
 
@@ -635,6 +918,47 @@ impl ThoughtInput {
     }
 }
 
+/// Render the deterministic signable payload for a proposed thought append.
+///
+/// This payload is intended to be signed by the producing agent before the
+/// server commits the final thought record. It deliberately excludes
+/// system-assigned fields such as `id`, `index`, `timestamp`, `prev_hash`, and
+/// `hash`.
+pub fn signable_thought_payload(agent_id: &str, input: &ThoughtInput) -> Vec<u8> {
+    #[derive(Serialize)]
+    struct SignableThoughtPayload<'a> {
+        schema_version: u32,
+        agent_id: &'a str,
+        session_id: Option<Uuid>,
+        thought_type: ThoughtType,
+        role: ThoughtRole,
+        content: &'a str,
+        confidence: Option<f32>,
+        importance: f32,
+        tags: Vec<String>,
+        concepts: Vec<String>,
+        refs: &'a [u64],
+        relations: &'a [ThoughtRelation],
+    }
+
+    let payload = SignableThoughtPayload {
+        schema_version: THOUGHTCHAIN_CURRENT_VERSION,
+        agent_id,
+        session_id: input.session_id,
+        thought_type: input.thought_type,
+        role: input.role,
+        content: &input.content,
+        confidence: input.confidence.map(|value| value.clamp(0.0, 1.0)),
+        importance: input.importance.clamp(0.0, 1.0),
+        tags: normalize_strings(input.tags.clone()),
+        concepts: normalize_strings(input.concepts.clone()),
+        refs: &input.refs,
+        relations: &input.relations,
+    };
+
+    serde_json::to_vec(&payload).unwrap_or_default()
+}
+
 /// A single durable thought record.
 ///
 /// `Thought` is the committed record that ThoughtChain stores and returns. It
@@ -663,6 +987,9 @@ impl ThoughtInput {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thought {
+    /// Thought schema version used by this record.
+    #[serde(default = "current_schema_version")]
+    pub schema_version: u32,
     /// Stable unique identifier for this thought.
     ///
     /// This is the canonical target for future semantic relations.
@@ -681,14 +1008,12 @@ pub struct Thought {
     ///
     /// This answers who wrote the record in a shared chain.
     pub agent_id: String,
-    /// Human-readable name of the producing agent.
-    ///
-    /// Friendly display label associated with `agent_id`.
+    /// Optional identifier of the public key used to sign the thought payload.
     #[serde(default)]
-    pub agent_name: String,
-    /// Optional owner or grouping label for the producing agent.
+    pub signing_key_id: Option<String>,
+    /// Optional detached signature over the signable thought payload.
     #[serde(default)]
-    pub agent_owner: Option<String>,
+    pub thought_signature: Option<Vec<u8>>,
     /// Semantic meaning of the thought.
     pub thought_type: ThoughtType,
     /// Operational role played by this thought.
@@ -900,27 +1225,6 @@ impl ThoughtQuery {
             }
         }
 
-        if let Some(agent_names) = &self.agent_names {
-            if !agent_names
-                .iter()
-                .any(|agent_name| equals_case_insensitive(&thought.agent_name, agent_name))
-            {
-                return false;
-            }
-        }
-
-        if let Some(agent_owners) = &self.agent_owners {
-            let Some(owner) = &thought.agent_owner else {
-                return false;
-            };
-            if !agent_owners
-                .iter()
-                .any(|agent_owner| equals_case_insensitive(owner, agent_owner))
-            {
-                return false;
-            }
-        }
-
         if let Some(min_importance) = self.min_importance {
             if thought.importance < min_importance {
                 return false;
@@ -964,29 +1268,6 @@ impl ThoughtQuery {
             return false;
         }
 
-        if let Some(text) = &self.text_contains {
-            let needle = text.to_lowercase();
-            if !thought.content.to_lowercase().contains(&needle)
-                && !thought.agent_id.to_lowercase().contains(&needle)
-                && !thought.agent_name.to_lowercase().contains(&needle)
-                && !thought
-                    .agent_owner
-                    .as_ref()
-                    .map(|owner| owner.to_lowercase().contains(&needle))
-                    .unwrap_or(false)
-                && !thought
-                    .tags
-                    .iter()
-                    .any(|tag| tag.to_lowercase().contains(&needle))
-                && !thought
-                    .concepts
-                    .iter()
-                    .any(|concept| concept.to_lowercase().contains(&needle))
-            {
-                return false;
-            }
-        }
-
         true
     }
 }
@@ -997,7 +1278,7 @@ impl ThoughtQuery {
 /// [`StorageAdapter`]. Every record includes a SHA-256 hash of its canonical
 /// contents plus the previous record hash, making offline tampering
 /// detectable. The default backend is newline-delimited JSON via
-/// [`JsonlStorageAdapter`].
+/// [`BinaryStorageAdapter`].
 ///
 /// # Example
 ///
@@ -1013,11 +1294,45 @@ impl ThoughtQuery {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Debug, Clone)]
+struct ChainPersistenceMetadata {
+    chain_key: String,
+    chain_dir: PathBuf,
+    storage_kind: StorageAdapterKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LegacyThoughtV0 {
+    id: Uuid,
+    index: u64,
+    timestamp: DateTime<Utc>,
+    session_id: Option<Uuid>,
+    agent_id: String,
+    #[serde(default)]
+    agent_name: String,
+    #[serde(default)]
+    agent_owner: Option<String>,
+    thought_type: ThoughtType,
+    role: ThoughtRole,
+    content: String,
+    confidence: Option<f32>,
+    importance: f32,
+    tags: Vec<String>,
+    concepts: Vec<String>,
+    refs: Vec<u64>,
+    relations: Vec<ThoughtRelation>,
+    prev_hash: String,
+    hash: String,
+}
+
+/// Append-only, hash-chained semantic memory store.
 pub struct ThoughtChain {
     thoughts: Vec<Thought>,
     id_to_index: HashMap<Uuid, usize>,
+    agent_registry: AgentRegistry,
     storage: Box<dyn StorageAdapter>,
     auto_flush: bool,
+    persistence: Option<ChainPersistenceMetadata>,
 }
 
 impl ThoughtChain {
@@ -1066,6 +1381,16 @@ impl ThoughtChain {
     /// ```
     pub fn open_with_storage(storage: Box<dyn StorageAdapter>) -> io::Result<Self> {
         let thoughts = storage.load_thoughts()?;
+        let persistence = derive_persistence_metadata(storage.as_ref());
+        let mut agent_registry = if let Some(metadata) = &persistence {
+            load_agent_registry(
+                &metadata.chain_dir,
+                &metadata.chain_key,
+                metadata.storage_kind,
+            )?
+        } else {
+            AgentRegistry::default()
+        };
 
         let mut id_to_index = HashMap::new();
         for (position, thought) in thoughts.iter().enumerate() {
@@ -1079,13 +1404,16 @@ impl ThoughtChain {
                 ));
             }
             id_to_index.insert(thought.id, position);
+            agent_registry.observe(&thought.agent_id, None, None, thought.index, thought.timestamp);
         }
 
         let chain = Self {
             thoughts,
             id_to_index,
+            agent_registry,
             storage,
             auto_flush: true,
+            persistence,
         };
 
         if !chain.verify_integrity() {
@@ -1113,10 +1441,24 @@ impl ThoughtChain {
     /// # }
     /// ```
     pub fn open_with_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> io::Result<Self> {
+        Self::open_with_key_and_storage_kind(chain_dir, chain_key, StorageAdapterKind::default())
+    }
+
+    /// Open or create a chain using an explicit stable chain key and default adapter preference.
+    pub fn open_with_key_and_storage_kind<P: AsRef<Path>>(
+        chain_dir: P,
+        chain_key: &str,
+        default_storage_kind: StorageAdapterKind,
+    ) -> io::Result<Self> {
         fs::create_dir_all(chain_dir.as_ref())?;
-        Self::open_with_storage(Box::new(JsonlStorageAdapter::for_chain_key(
-            chain_dir, chain_key,
-        )))
+        let storage_kind = resolve_storage_kind_for_chain(
+            chain_dir.as_ref(),
+            chain_key,
+            default_storage_kind,
+        )?;
+        let chain = Self::open_with_storage(storage_kind.for_chain_key(&chain_dir, chain_key))?;
+        chain.persist_chain_registration()?;
+        Ok(chain)
     }
 
     /// Append a simple thought with default metadata and no references.
@@ -1219,24 +1561,33 @@ impl ThoughtChain {
             .map(|thought| thought.hash.clone())
             .unwrap_or_default();
         let timestamp = Utc::now();
+        let display_name = input
+            .agent_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(agent_id)
+            .to_string();
+        let owner = input
+            .agent_owner
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
         input.importance = input.importance.clamp(0.0, 1.0);
         let thought = Thought {
+            schema_version: THOUGHTCHAIN_CURRENT_VERSION,
             id: Uuid::new_v4(),
             index,
             timestamp,
             session_id: input.session_id,
             agent_id: agent_id.to_string(),
-            agent_name: input
-                .agent_name
+            signing_key_id: input
+                .signing_key_id
                 .take()
-                .map(|name| name.trim().to_string())
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| agent_id.to_string()),
-            agent_owner: input
-                .agent_owner
-                .take()
-                .map(|owner| owner.trim().to_string())
-                .filter(|owner| !owner.is_empty()),
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            thought_signature: input.thought_signature.take(),
             thought_type: input.thought_type,
             role: input.role,
             content: input.content,
@@ -1257,6 +1608,9 @@ impl ThoughtChain {
             self.storage.append_thought(&thought)?;
         }
 
+        self.agent_registry
+            .observe(agent_id, Some(&display_name), owner.as_deref(), index, timestamp);
+        self.persist_registries()?;
         self.id_to_index.insert(thought.id, self.thoughts.len());
         self.thoughts.push(thought.clone());
         Ok(self.thoughts.last().unwrap())
@@ -1331,6 +1685,139 @@ impl ThoughtChain {
         resolved
     }
 
+    /// Return the per-chain registry of known agents.
+    pub fn agent_registry(&self) -> &AgentRegistry {
+        &self.agent_registry
+    }
+
+    fn agent_record_for(&self, agent_id: &str) -> Option<&AgentRecord> {
+        self.agent_registry.agents.get(agent_id)
+    }
+
+    fn agent_label_for(&self, thought: &Thought) -> String {
+        let mut label = if let Some(record) = self.agent_record_for(&thought.agent_id) {
+            if record.display_name.trim().is_empty() || record.display_name == thought.agent_id {
+                thought.agent_id.clone()
+            } else {
+                format!("{} [{}]", record.display_name, thought.agent_id)
+            }
+        } else {
+            thought.agent_id.clone()
+        };
+
+        if let Some(owner) = self
+            .agent_record_for(&thought.agent_id)
+            .and_then(|record| record.owner.as_ref())
+            .filter(|owner| !owner.trim().is_empty())
+        {
+            label.push_str(&format!(" owned by {}", owner));
+        }
+
+        label
+    }
+
+    fn query_matches_registry(&self, thought: &Thought, query: &ThoughtQuery) -> bool {
+        if let Some(agent_names) = &query.agent_names {
+            let Some(record) = self.agent_record_for(&thought.agent_id) else {
+                return false;
+            };
+            let matched = agent_names.iter().any(|agent_name| {
+                equals_case_insensitive(&record.display_name, agent_name)
+                    || record
+                        .aliases
+                        .iter()
+                        .any(|alias| equals_case_insensitive(alias, agent_name))
+            });
+            if !matched {
+                return false;
+            }
+        }
+
+        if let Some(agent_owners) = &query.agent_owners {
+            let Some(owner) = self
+                .agent_record_for(&thought.agent_id)
+                .and_then(|record| record.owner.as_ref())
+            else {
+                return false;
+            };
+            if !agent_owners
+                .iter()
+                .any(|agent_owner| equals_case_insensitive(owner, agent_owner))
+            {
+                return false;
+            }
+        }
+
+        if let Some(text) = &query.text_contains {
+            let needle = text.to_lowercase();
+            let registry_text_match = self
+                .agent_record_for(&thought.agent_id)
+                .map(|record| {
+                    record.display_name.to_lowercase().contains(&needle)
+                        || record
+                            .owner
+                            .as_ref()
+                            .map(|owner| owner.to_lowercase().contains(&needle))
+                            .unwrap_or(false)
+                        || record
+                            .aliases
+                            .iter()
+                            .any(|alias| alias.to_lowercase().contains(&needle))
+                        || record
+                            .description
+                            .as_ref()
+                            .map(|description| description.to_lowercase().contains(&needle))
+                            .unwrap_or(false)
+                })
+                .unwrap_or(false);
+
+            if !registry_text_match
+                && !thought.content.to_lowercase().contains(&needle)
+                && !thought.agent_id.to_lowercase().contains(&needle)
+                && !thought
+                    .tags
+                    .iter()
+                    .any(|tag| tag.to_lowercase().contains(&needle))
+                && !thought
+                    .concepts
+                    .iter()
+                    .any(|concept| concept.to_lowercase().contains(&needle))
+            {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Render a JSON representation of a thought with resolved agent metadata.
+    pub fn thought_json(&self, thought: &Thought) -> serde_json::Value {
+        let agent_record = self.agent_record_for(&thought.agent_id);
+        serde_json::json!({
+            "schema_version": thought.schema_version,
+            "id": thought.id,
+            "index": thought.index,
+            "timestamp": thought.timestamp,
+            "session_id": thought.session_id,
+            "agent_id": thought.agent_id,
+            "agent_name": agent_record.map(|record| record.display_name.clone()).unwrap_or_else(|| thought.agent_id.clone()),
+            "agent_owner": agent_record.and_then(|record| record.owner.clone()),
+            "signing_key_id": thought.signing_key_id,
+            "thought_signature": thought.thought_signature,
+            "thought_type": thought.thought_type,
+            "role": thought.role,
+            "content": thought.content,
+            "confidence": thought.confidence,
+            "importance": thought.importance,
+            "tags": thought.tags,
+            "concepts": thought.concepts,
+            "refs": thought.refs,
+            "relations": thought.relations,
+            "prev_hash": thought.prev_hash,
+            "hash": thought.hash,
+        })
+    }
+
     /// Query the chain using semantic filters.
     ///
     /// # Example
@@ -1352,7 +1839,7 @@ impl ThoughtChain {
         let mut results: Vec<&Thought> = self
             .thoughts
             .iter()
-            .filter(|thought| query.matches(thought))
+            .filter(|thought| query.matches(thought) && self.query_matches_registry(thought, query))
             .collect();
 
         if let Some(limit) = query.limit {
@@ -1387,7 +1874,7 @@ impl ThoughtChain {
                 thought.index,
                 thought.thought_type,
                 thought.role,
-                agent_label(thought),
+                self.agent_label_for(thought),
                 thought.content
             ));
             if let Some(confidence) = thought.confidence {
@@ -1423,7 +1910,7 @@ impl ThoughtChain {
                 thought.index,
                 thought.thought_type,
                 thought.role,
-                agent_label(thought),
+                self.agent_label_for(thought),
                 thought.content
             ));
         }
@@ -1465,6 +1952,7 @@ impl ThoughtChain {
 
         append_memory_section(
             &mut markdown,
+            self,
             "Identity",
             &thoughts,
             &[
@@ -1475,6 +1963,7 @@ impl ThoughtChain {
         );
         append_memory_section(
             &mut markdown,
+            self,
             "Knowledge",
             &thoughts,
             &[
@@ -1488,6 +1977,7 @@ impl ThoughtChain {
         );
         append_memory_section(
             &mut markdown,
+            self,
             "Constraints And Decisions",
             &thoughts,
             &[
@@ -1500,6 +1990,7 @@ impl ThoughtChain {
         );
         append_memory_section(
             &mut markdown,
+            self,
             "Corrections",
             &thoughts,
             &[
@@ -1511,6 +2002,7 @@ impl ThoughtChain {
         );
         append_memory_section(
             &mut markdown,
+            self,
             "Open Threads",
             &thoughts,
             &[
@@ -1522,6 +2014,7 @@ impl ThoughtChain {
         );
         append_memory_section(
             &mut markdown,
+            self,
             "Execution State",
             &thoughts,
             &[
@@ -1556,6 +2049,46 @@ impl ThoughtChain {
     pub fn set_auto_flush(&mut self, auto_flush: bool) {
         self.auto_flush = auto_flush;
     }
+
+    fn persist_registries(&self) -> io::Result<()> {
+        if let Some(metadata) = &self.persistence {
+            save_agent_registry(
+                &metadata.chain_dir,
+                &metadata.chain_key,
+                metadata.storage_kind,
+                &self.agent_registry,
+            )?;
+        }
+        self.persist_chain_registration()
+    }
+
+    fn persist_chain_registration(&self) -> io::Result<()> {
+        let Some(metadata) = &self.persistence else {
+            return Ok(());
+        };
+
+        let mut registry = load_thoughtchain_registry(&metadata.chain_dir)?;
+        let now = Utc::now();
+        let created_at = registry
+            .chains
+            .get(&metadata.chain_key)
+            .map(|entry| entry.created_at)
+            .unwrap_or(now);
+        registry.chains.insert(
+            metadata.chain_key.clone(),
+            ThoughtChainRegistration {
+                chain_key: metadata.chain_key.clone(),
+                version: THOUGHTCHAIN_CURRENT_VERSION,
+                storage_adapter: metadata.storage_kind,
+                storage_location: self.storage.storage_location(),
+                thought_count: self.thoughts.len() as u64,
+                agent_count: self.agent_registry.agents.len(),
+                created_at,
+                updated_at: now,
+            },
+        );
+        save_thoughtchain_registry(&metadata.chain_dir, &registry)
+    }
 }
 
 /// Stable filename derived from a chain key rather than mutable agent profile data.
@@ -1578,7 +2111,7 @@ pub fn chain_filename(
     _expertise: Option<&str>,
     _personality: Option<&str>,
 ) -> String {
-    chain_storage_filename(chain_key, StorageAdapterKind::Jsonl)
+    chain_storage_filename(chain_key, StorageAdapterKind::default())
 }
 
 /// Stable filename derived from a chain key and storage adapter kind.
@@ -1652,8 +2185,418 @@ pub fn chain_key_from_storage_filename(filename: &str) -> Option<String> {
     Some(chain_key.to_string())
 }
 
+fn derive_persistence_metadata(storage: &dyn StorageAdapter) -> Option<ChainPersistenceMetadata> {
+    let storage_path = storage.storage_path()?;
+    let file_name = storage_path.file_name()?.to_str()?;
+    let chain_key = chain_key_from_storage_filename(file_name)?;
+    Some(ChainPersistenceMetadata {
+        chain_key,
+        chain_dir: storage_path.parent()?.to_path_buf(),
+        storage_kind: storage.storage_kind(),
+    })
+}
+
+fn thoughtchain_registry_path(chain_dir: &Path) -> PathBuf {
+    chain_dir.join("thoughtchain-registry.json")
+}
+
+fn chain_agent_registry_path(
+    chain_dir: &Path,
+    chain_key: &str,
+    storage_kind: StorageAdapterKind,
+) -> PathBuf {
+    let storage_file = chain_storage_filename(chain_key, storage_kind);
+    let stem = storage_file
+        .strip_suffix(&format!(".{}", storage_kind.file_extension()))
+        .unwrap_or(&storage_file);
+    chain_dir.join(format!("{stem}.agents.json"))
+}
+
+fn load_agent_registry(
+    chain_dir: &Path,
+    chain_key: &str,
+    storage_kind: StorageAdapterKind,
+) -> io::Result<AgentRegistry> {
+    let path = chain_agent_registry_path(chain_dir, chain_key, storage_kind);
+    if !path.exists() {
+        return Ok(AgentRegistry::default());
+    }
+
+    let file = fs::File::open(path)?;
+    serde_json::from_reader(file).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to deserialize agent registry: {error}"),
+        )
+    })
+}
+
+fn save_agent_registry(
+    chain_dir: &Path,
+    chain_key: &str,
+    storage_kind: StorageAdapterKind,
+    registry: &AgentRegistry,
+) -> io::Result<()> {
+    let path = chain_agent_registry_path(chain_dir, chain_key, storage_kind);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file = fs::File::create(path)?;
+    serde_json::to_writer_pretty(file, registry)
+        .map_err(|error| io::Error::other(format!("Failed to serialize agent registry: {error}")))
+}
+
+fn load_thoughtchain_registry(chain_dir: &Path) -> io::Result<ThoughtChainRegistry> {
+    let path = thoughtchain_registry_path(chain_dir);
+    if !path.exists() {
+        return Ok(ThoughtChainRegistry {
+            version: THOUGHTCHAIN_CURRENT_VERSION,
+            chains: BTreeMap::new(),
+        });
+    }
+
+    let file = fs::File::open(path)?;
+    serde_json::from_reader(file).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to deserialize thoughtchain registry: {error}"),
+        )
+    })
+}
+
+fn save_thoughtchain_registry(chain_dir: &Path, registry: &ThoughtChainRegistry) -> io::Result<()> {
+    let path = thoughtchain_registry_path(chain_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file = fs::File::create(path)?;
+    serde_json::to_writer_pretty(file, registry).map_err(|error| {
+        io::Error::other(format!(
+            "Failed to serialize thoughtchain registry: {error}"
+        ))
+    })
+}
+
+fn resolve_storage_kind_for_chain(
+    chain_dir: &Path,
+    chain_key: &str,
+    default_kind: StorageAdapterKind,
+) -> io::Result<StorageAdapterKind> {
+    let registry = load_thoughtchain_registry(chain_dir)?;
+    if let Some(entry) = registry.chains.get(chain_key) {
+        return Ok(entry.storage_adapter);
+    }
+
+    let jsonl_exists = chain_dir
+        .join(chain_storage_filename(chain_key, StorageAdapterKind::Jsonl))
+        .exists();
+    let binary_exists = chain_dir
+        .join(chain_storage_filename(chain_key, StorageAdapterKind::Binary))
+        .exists();
+
+    match (jsonl_exists, binary_exists) {
+        (true, false) => Ok(StorageAdapterKind::Jsonl),
+        (false, true) => Ok(StorageAdapterKind::Binary),
+        (false, false) => Ok(default_kind),
+        (true, true) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "Conflicting storage files exist for chain '{chain_key}' without a registry entry"
+            ),
+        )),
+    }
+}
+
+/// Load the registry of all known thought chains for a storage directory.
+pub fn load_registered_chains<P: AsRef<Path>>(chain_dir: P) -> io::Result<ThoughtChainRegistry> {
+    load_thoughtchain_registry(chain_dir.as_ref())
+}
+
+/// Migrate all legacy v0 chain files in a storage directory to the current format.
+pub fn migrate_registered_chains<P, F>(
+    chain_dir: P,
+    mut progress: F,
+) -> io::Result<Vec<ThoughtChainMigrationReport>>
+where
+    P: AsRef<Path>,
+    F: FnMut(ThoughtChainMigrationEvent),
+{
+    let chain_dir = chain_dir.as_ref();
+    fs::create_dir_all(chain_dir)?;
+    let mut registry = load_thoughtchain_registry(chain_dir)?;
+    let mut discovered = discover_chain_files(chain_dir)?;
+    discovered.sort_by(|left, right| left.chain_key.cmp(&right.chain_key));
+    let pending: Vec<DiscoveredChainFile> = discovered
+        .into_iter()
+        .filter(|candidate| {
+            registry
+                .chains
+                .get(&candidate.chain_key)
+                .map(|entry| entry.version < THOUGHTCHAIN_CURRENT_VERSION)
+                .unwrap_or(true)
+        })
+        .collect();
+
+    let total = pending.len();
+    let mut reports = Vec::new();
+
+    for (position, candidate) in pending.into_iter().enumerate() {
+        let current = position + 1;
+        progress(ThoughtChainMigrationEvent::Started {
+            chain_key: candidate.chain_key.clone(),
+            from_version: THOUGHTCHAIN_SCHEMA_V0,
+            to_version: THOUGHTCHAIN_CURRENT_VERSION,
+            current,
+            total,
+        });
+
+        let report = migrate_legacy_chain_v0(chain_dir, &candidate)?;
+        registry.chains.insert(
+            report.chain_key.clone(),
+            ThoughtChainRegistration {
+                chain_key: report.chain_key.clone(),
+                version: report.to_version,
+                storage_adapter: report.storage_adapter,
+                storage_location: chain_dir
+                    .join(chain_storage_filename(&report.chain_key, report.storage_adapter))
+                    .display()
+                    .to_string(),
+                thought_count: report.thought_count,
+                agent_count: load_agent_registry(
+                    chain_dir,
+                    &report.chain_key,
+                    report.storage_adapter,
+                )?
+                .agents
+                .len(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            },
+        );
+        save_thoughtchain_registry(chain_dir, &registry)?;
+        progress(ThoughtChainMigrationEvent::Completed {
+            chain_key: report.chain_key.clone(),
+            from_version: report.from_version,
+            to_version: report.to_version,
+            current,
+            total,
+        });
+        reports.push(report);
+    }
+
+    Ok(reports)
+}
+
+#[derive(Debug, Clone)]
+struct DiscoveredChainFile {
+    chain_key: String,
+    storage_kind: StorageAdapterKind,
+    path: PathBuf,
+}
+
+fn discover_chain_files(chain_dir: &Path) -> io::Result<Vec<DiscoveredChainFile>> {
+    let mut discovered = Vec::new();
+    for entry in fs::read_dir(chain_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        let Some(chain_key) = chain_key_from_storage_filename(file_name) else {
+            continue;
+        };
+        let storage_kind = if file_name.ends_with(StorageAdapterKind::Jsonl.file_extension()) {
+            StorageAdapterKind::Jsonl
+        } else if file_name.ends_with(StorageAdapterKind::Binary.file_extension()) {
+            StorageAdapterKind::Binary
+        } else {
+            continue;
+        };
+        discovered.push(DiscoveredChainFile {
+            chain_key,
+            storage_kind,
+            path: entry.path(),
+        });
+    }
+    Ok(discovered)
+}
+
+fn migrate_legacy_chain_v0(
+    chain_dir: &Path,
+    discovered: &DiscoveredChainFile,
+) -> io::Result<ThoughtChainMigrationReport> {
+    let legacy_thoughts = load_legacy_v0_thoughts(&discovered.path, discovered.storage_kind)?;
+    let (thoughts, agent_registry) = migrate_legacy_thoughts(legacy_thoughts);
+    let active_path = chain_dir.join(chain_storage_filename(
+        &discovered.chain_key,
+        discovered.storage_kind,
+    ));
+    let temp_path = active_path.with_extension(format!(
+        "{}.tmp",
+        discovered.storage_kind.file_extension()
+    ));
+    if temp_path.exists() {
+        fs::remove_file(&temp_path)?;
+    }
+
+    for thought in &thoughts {
+        match discovered.storage_kind {
+            StorageAdapterKind::Jsonl => persist_jsonl_thought(&temp_path, thought)?,
+            StorageAdapterKind::Binary => persist_binary_thought(&temp_path, thought)?,
+        }
+    }
+
+    save_agent_registry(
+        chain_dir,
+        &discovered.chain_key,
+        discovered.storage_kind,
+        &agent_registry,
+    )?;
+
+    let archive_dir = chain_dir.join("migrations").join(format!(
+        "v{}_to_v{}",
+        THOUGHTCHAIN_SCHEMA_V0, THOUGHTCHAIN_CURRENT_VERSION
+    ));
+    fs::create_dir_all(&archive_dir)?;
+    let archived_legacy_path = archive_dir.join(
+        discovered
+            .path
+            .file_name()
+            .map(|value| value.to_owned())
+            .unwrap_or_default(),
+    );
+    if archived_legacy_path.exists() {
+        fs::remove_file(&archived_legacy_path)?;
+    }
+    fs::rename(&discovered.path, &archived_legacy_path)?;
+    fs::rename(&temp_path, &active_path)?;
+
+    Ok(ThoughtChainMigrationReport {
+        chain_key: discovered.chain_key.clone(),
+        from_version: THOUGHTCHAIN_SCHEMA_V0,
+        to_version: THOUGHTCHAIN_CURRENT_VERSION,
+        storage_adapter: discovered.storage_kind,
+        thought_count: thoughts.len() as u64,
+        archived_legacy_path: Some(archived_legacy_path),
+    })
+}
+
+fn load_legacy_v0_thoughts(
+    file_path: &Path,
+    storage_kind: StorageAdapterKind,
+) -> io::Result<Vec<LegacyThoughtV0>> {
+    match storage_kind {
+        StorageAdapterKind::Jsonl => load_legacy_v0_jsonl_thoughts(file_path),
+        StorageAdapterKind::Binary => load_legacy_v0_binary_thoughts(file_path),
+    }
+}
+
+fn load_legacy_v0_jsonl_thoughts(file_path: &Path) -> io::Result<Vec<LegacyThoughtV0>> {
+    if !file_path.exists() {
+        return Ok(Vec::new());
+    }
+    let file = fs::File::open(file_path)?;
+    let reader = BufReader::new(file);
+    let mut entries = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let thought: LegacyThoughtV0 = serde_json::from_str(&line).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to parse legacy v0 thought: {error}"),
+            )
+        })?;
+        entries.push(thought);
+    }
+    Ok(entries)
+}
+
+fn load_legacy_v0_binary_thoughts(file_path: &Path) -> io::Result<Vec<LegacyThoughtV0>> {
+    if !file_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut file = fs::File::open(file_path)?;
+    let mut thoughts = Vec::new();
+
+    loop {
+        let mut length_bytes = [0_u8; 8];
+        match file.read_exact(&mut length_bytes) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => break,
+            Err(error) => return Err(error),
+        }
+
+        let length = u64::from_le_bytes(length_bytes) as usize;
+        let mut payload = vec![0_u8; length];
+        file.read_exact(&mut payload)?;
+        let (thought, _): (LegacyThoughtV0, usize) =
+            bincode::serde::decode_from_slice(&payload, bincode::config::standard()).map_err(
+                |error| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Failed to deserialize legacy v0 binary thought: {error}"),
+                    )
+                },
+            )?;
+        thoughts.push(thought);
+    }
+
+    Ok(thoughts)
+}
+
+fn migrate_legacy_thoughts(legacy_thoughts: Vec<LegacyThoughtV0>) -> (Vec<Thought>, AgentRegistry) {
+    let mut migrated = Vec::with_capacity(legacy_thoughts.len());
+    let mut agent_registry = AgentRegistry::default();
+    let mut prev_hash = String::new();
+
+    for legacy in legacy_thoughts {
+        let thought = Thought {
+            schema_version: THOUGHTCHAIN_CURRENT_VERSION,
+            id: legacy.id,
+            index: legacy.index,
+            timestamp: legacy.timestamp,
+            session_id: legacy.session_id,
+            agent_id: legacy.agent_id.clone(),
+            signing_key_id: None,
+            thought_signature: None,
+            thought_type: legacy.thought_type,
+            role: legacy.role,
+            content: legacy.content,
+            confidence: legacy.confidence,
+            importance: legacy.importance,
+            tags: legacy.tags,
+            concepts: legacy.concepts,
+            refs: legacy.refs,
+            relations: legacy.relations,
+            prev_hash: prev_hash.clone(),
+            hash: String::new(),
+        };
+        let hash = compute_thought_hash(&thought);
+        let thought = Thought { hash, ..thought };
+        prev_hash = thought.hash.clone();
+        agent_registry.observe(
+            &legacy.agent_id,
+            Some(&legacy.agent_name),
+            legacy.agent_owner.as_deref(),
+            legacy.index,
+            legacy.timestamp,
+        );
+        migrated.push(thought);
+    }
+
+    (migrated, agent_registry)
+}
+
 fn append_memory_section(
     markdown: &mut String,
+    chain: &ThoughtChain,
     title: &str,
     thoughts: &[&Thought],
     types: &[ThoughtType],
@@ -1674,7 +2617,7 @@ fn append_memory_section(
             thought.index, thought.thought_type, thought.content
         ));
         let mut metadata = Vec::new();
-        metadata.push(format!("agent {}", agent_label(thought)));
+        metadata.push(format!("agent {}", chain.agent_label_for(thought)));
         if thought.role != ThoughtRole::Memory {
             metadata.push(format!("role {:?}", thought.role));
         }
@@ -1702,23 +2645,6 @@ fn contains_case_insensitive(values: &[String], needle: &str) -> bool {
 
 fn equals_case_insensitive(value: &str, needle: &str) -> bool {
     value.eq_ignore_ascii_case(needle)
-}
-
-fn agent_label(thought: &Thought) -> String {
-    let mut label =
-        if thought.agent_name.trim().is_empty() || thought.agent_name == thought.agent_id {
-            thought.agent_id.clone()
-        } else {
-            format!("{} [{}]", thought.agent_name, thought.agent_id)
-        };
-
-    if let Some(owner) = &thought.agent_owner {
-        if !owner.trim().is_empty() {
-            label.push_str(&format!(" owned by {}", owner));
-        }
-    }
-
-    label
 }
 
 fn normalize_strings(values: Vec<String>) -> Vec<String> {
@@ -1820,13 +2746,14 @@ fn persist_binary_thought(file_path: &Path, thought: &Thought) -> io::Result<()>
 fn compute_thought_hash(thought: &Thought) -> String {
     #[derive(Serialize)]
     struct CanonicalThought<'a> {
+        schema_version: u32,
         id: Uuid,
         index: u64,
         timestamp: &'a DateTime<Utc>,
         session_id: Option<Uuid>,
         agent_id: &'a str,
-        agent_name: &'a str,
-        agent_owner: Option<&'a str>,
+        signing_key_id: Option<&'a str>,
+        thought_signature: Option<&'a [u8]>,
         thought_type: ThoughtType,
         role: ThoughtRole,
         content: &'a str,
@@ -1840,13 +2767,14 @@ fn compute_thought_hash(thought: &Thought) -> String {
     }
 
     let canonical = CanonicalThought {
+        schema_version: thought.schema_version,
         id: thought.id,
         index: thought.index,
         timestamp: &thought.timestamp,
         session_id: thought.session_id,
         agent_id: &thought.agent_id,
-        agent_name: &thought.agent_name,
-        agent_owner: thought.agent_owner.as_deref(),
+        signing_key_id: thought.signing_key_id.as_deref(),
+        thought_signature: thought.thought_signature.as_deref(),
         thought_type: thought.thought_type,
         role: thought.role,
         content: &thought.content,
