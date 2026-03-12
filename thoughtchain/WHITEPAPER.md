@@ -1,12 +1,15 @@
-# DRAFT: ThoughtChain White Paper
+# DRAFT: MentisDB White Paper
+
+Note: the product is now named MentisDB. Some code artifacts in this repo may
+still carry the legacy `thoughtchain` name during the transition.
 
 **Author:** Angel Leon
 
 ## Abstract
 
-Modern agent frameworks are still weak at long-term memory. In practice, memory is often reduced to ad hoc prompt stuffing, fragile `MEMORY.md` files, or proprietary session state that is hard to inspect, hard to transfer, and easy to lose or tamper with. `thoughtchain` is a simple, durable alternative: an append-only, semantically typed memory ledger for agents and teams of agents.
+Modern agent frameworks are still weak at long-term memory. In practice, memory is often reduced to ad hoc prompt stuffing, fragile `MEMORY.md` files, or proprietary session state that is hard to inspect, hard to transfer, and easy to lose or tamper with. MentisDB is a simple, durable alternative: an append-only, semantically typed memory ledger for agents and teams of agents.
 
-ThoughtChain stores important thoughts, decisions, corrections, constraints, checkpoints, and handoffs as structured records in a hash-chained log. The chain model is storage-agnostic through a storage adapter layer, with binary storage as the current default backend and JSONL still supported. This makes memory replayable, queryable, portable, and auditable. It improves agent continuity across sessions, supports collaboration across specialized agents, and creates a clear foundation for future transparency, accountability, and regulatory compliance.
+MentisDB stores important thoughts, decisions, corrections, constraints, checkpoints, and handoffs as structured records in a hash-chained log. The chain model is storage-agnostic through a storage adapter layer, with binary storage as the current default backend and JSONL still supported. This makes memory replayable, queryable, portable, and auditable. It improves agent continuity across sessions, supports collaboration across specialized agents, and creates a clear foundation for future transparency, accountability, and regulatory compliance.
 
 ## Problem Statement
 
@@ -26,9 +29,9 @@ This creates operational and governance problems.
 - A malicious or faulty agent can rewrite or erase context.
 - Future regulation will likely require stronger traceability than current frameworks provide.
 
-## ThoughtChain
+## MentisDB
 
-ThoughtChain is a lightweight memory primitive for agents.
+MentisDB is a lightweight memory primitive for agents.
 
 Each memory record, or thought, is:
 
@@ -39,11 +42,11 @@ Each memory record, or thought, is:
 - linkable to previous thoughts
 - hashed into a chain for tamper detection
 
-Rather than storing raw chain-of-thought, ThoughtChain stores durable cognitive checkpoints: facts learned, plans, insights, corrections, constraints, summaries, handoffs, and execution state.
+Rather than storing raw chain-of-thought, MentisDB stores durable cognitive checkpoints: facts learned, plans, insights, corrections, constraints, summaries, handoffs, and execution state.
 
 ## Core Design
 
-ThoughtChain combines five ideas.
+MentisDB combines five ideas.
 
 ### 1. Semantic Memory
 
@@ -77,7 +80,7 @@ This is not presented as a public cryptocurrency system. It is a practical block
 
 ### 3. Shared Multi-Agent Memory
 
-ThoughtChain supports multiple agents writing to the same chain. Each thought carries a stable:
+MentisDB supports multiple agents writing to the same chain. Each thought carries a stable:
 
 - `agent_id`
 
@@ -100,7 +103,7 @@ The chain can be:
 - served over MCP
 - served over REST
 
-This makes ThoughtChain usable by agents, services, dashboards, CLIs, and orchestration systems.
+This makes MentisDB usable by agents, services, dashboards, CLIs, and orchestration systems.
 
 In practice, that also means a daemon can tell a caller:
 
@@ -115,7 +118,7 @@ agents.
 
 ### 5. Swappable Storage
 
-ThoughtChain now separates the chain model from the storage backend.
+MentisDB now separates the chain model from the storage backend.
 
 - A `StorageAdapter` interface handles persistence.
 - A `BinaryStorageAdapter` provides the current default implementation.
@@ -126,7 +129,7 @@ This keeps the system simple today while allowing more efficient storage engines
 
 ### 6. Versioned Schemas And Migration
 
-ThoughtChain schemas are versioned.
+MentisDB schemas are versioned.
 
 - schema version `0` was the original format
 - schema version `1` adds explicit versioning and optional signing metadata
@@ -136,7 +139,7 @@ ThoughtChain schemas are versioned.
 
 This matters because append-only memory still evolves. A durable memory system needs a way to add fields, change attribution strategy, and improve integrity without abandoning existing chains.
 
-The daemon also maintains a ThoughtChain registry so callers and operators can quickly inspect:
+The daemon also maintains a MentisDB registry so callers and operators can quickly inspect:
 
 - what chains exist
 - which schema version each chain uses
@@ -146,7 +149,7 @@ The daemon also maintains a ThoughtChain registry so callers and operators can q
 
 ## Data Model
 
-ThoughtChain deliberately separates memory creation, memory storage, and memory retrieval.
+MentisDB deliberately separates memory creation, memory storage, and memory retrieval.
 
 ### ThoughtInput
 
@@ -172,7 +175,7 @@ This is important because an agent should be able to say what memory it wants to
 
 `Thought` is the committed durable record written into the chain.
 
-ThoughtChain derives it from a `ThoughtInput` and adds the system-managed fields:
+MentisDB derives it from a `ThoughtInput` and adds the system-managed fields:
 
 - `schema_version`
 - `id`
@@ -229,11 +232,11 @@ A persistent agent can return days or weeks later and recover the important fact
 
 One agent can shut down and hand work to another. A planning agent can hand off to an implementation agent. A coding agent can hand off to a debugging agent. A generalist can hand off to a specialist with different tools or cognitive strengths.
 
-The receiving agent does not need the full conversation transcript. It can reconstruct the relevant state from the ThoughtChain.
+The receiving agent does not need the full conversation transcript. It can reconstruct the relevant state from the MentisDB.
 
 ### Team Coordination
 
-When multiple agents collaborate, ThoughtChain provides a shared memory surface for:
+When multiple agents collaborate, MentisDB provides a shared memory surface for:
 
 - discoveries
 - decisions
@@ -260,7 +263,7 @@ As agent systems become more powerful, regulation is likely to require stronger 
 - What was learned after a failure?
 - Who or what changed the memory state?
 
-ThoughtChain is a strong primitive for answering those questions. It does not solve every governance problem, but it gives systems a durable and inspectable memory record instead of an opaque prompt history.
+MentisDB is a strong primitive for answering those questions. It does not solve every governance problem, but it gives systems a durable and inspectable memory record instead of an opaque prompt history.
 
 This is useful for:
 
@@ -294,9 +297,9 @@ That authority could:
 
 This is an important future direction for environments where agents may attempt to cover their tracks.
 
-## Why ThoughtChain Matters
+## Why MentisDB Matters
 
-ThoughtChain turns agent memory from an informal prompt trick into durable infrastructure.
+MentisDB turns agent memory from an informal prompt trick into durable infrastructure.
 
 It helps solve:
 
@@ -308,11 +311,11 @@ It helps solve:
 - traceability
 - tamper detection
 
-In short, ThoughtChain is designed to be a practical memory ledger for real agent systems.
+In short, MentisDB is designed to be a practical memory ledger for real agent systems.
 
 ## Conclusion
 
-Agent systems need a better memory foundation than mutable text files, prompt stuffing, and framework-specific hidden state. ThoughtChain provides a simple and durable alternative: semantic memory records stored in an append-only blockchain-style chain, queryable across time and across agents, with a storage layer that can evolve without rewriting the memory model.
+Agent systems need a better memory foundation than mutable text files, prompt stuffing, and framework-specific hidden state. MentisDB provides a simple and durable alternative: semantic memory records stored in an append-only blockchain-style chain, queryable across time and across agents, with a storage layer that can evolve without rewriting the memory model.
 
 It is useful today for persistent agents and multi-agent teams, and it points toward a future where agent systems can be both more capable and more accountable.
 

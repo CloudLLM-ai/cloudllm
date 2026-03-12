@@ -57,7 +57,7 @@
 
 use crate::client_wrapper::TokenUsage;
 use async_trait::async_trait;
-use thoughtchain::ThoughtType;
+use mentisdb::ThoughtType;
 
 /// Events emitted by an [`Agent`](crate::Agent) during its lifecycle.
 ///
@@ -208,7 +208,7 @@ pub enum AgentEvent {
     },
 
     // ── ThoughtChain ─────────────────────────────────────────────────────
-    /// A thought was appended to the agent's [`ThoughtChain`](thoughtchain::ThoughtChain).
+    /// A thought was appended to the agent's [`ThoughtChain`](mentisdb::ThoughtChain).
     ///
     /// Emitted after a successful [`Agent::commit`](crate::Agent::commit) call.
     ThoughtCommitted {

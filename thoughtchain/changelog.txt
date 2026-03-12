@@ -1,4 +1,8 @@
 0.3.0 MAR/12/2026
+Note: historical entries below use the original ThoughtChain / thoughtchaind
+names because they describe earlier releases. The project is now being
+rebranded to MentisDB / mentisdbd.
+
  - feat: Introduce ThoughtChain schema version `1`
    - Added explicit `schema_version` to durable thought records
    - Added optional `signing_key_id` and `thought_signature` fields for future signed-agent provenance

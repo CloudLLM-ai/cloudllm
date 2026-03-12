@@ -13,15 +13,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub async fn build_persistent_agent_registry(
-    thoughtchain_endpoint: &str,
+    mentisdb_endpoint: &str,
     filesystem_root: PathBuf,
 ) -> Result<(ToolRegistry, Arc<McpClientProtocol>), Box<dyn Error + Send + Sync>> {
-    let thoughtchain_protocol =
-        Arc::new(McpClientProtocol::new(thoughtchain_endpoint.to_string()).with_cache_ttl(30));
+    let mentisdb_protocol =
+        Arc::new(McpClientProtocol::new(mentisdb_endpoint.to_string()).with_cache_ttl(30));
 
     let mut registry = ToolRegistry::empty();
     registry
-        .add_protocol("thoughtchain", thoughtchain_protocol.clone())
+        .add_protocol("mentisdb", mentisdb_protocol.clone())
         .await?;
 
     let memory = Arc::new(Memory::new());
@@ -44,7 +44,7 @@ pub async fn build_persistent_agent_registry(
     register_filesystem_tools(custom.clone(), filesystem_root).await;
     registry.add_protocol("custom", custom).await?;
 
-    Ok((registry, thoughtchain_protocol))
+    Ok((registry, mentisdb_protocol))
 }
 
 async fn register_calculator_tool(protocol: Arc<CustomToolProtocol>) {

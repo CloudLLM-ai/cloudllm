@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use thoughtchain::{
+use mentisdb::{
     AgentStatus, PublicKeyAlgorithm,
     chain_filename, chain_key_from_storage_filename, chain_storage_filename,
     load_registered_chains, migrate_registered_chains, migrate_registered_chains_with_adapter,
@@ -277,7 +277,7 @@ fn custom_storage_adapter_can_back_a_chain() {
 fn binary_storage_adapter_persists_and_reloads() {
     let dir = unique_chain_dir();
     let adapter = BinaryStorageAdapter::for_chain_key(&dir, "binary-demo");
-    let expected_path = dir.join(thoughtchain::chain_storage_filename(
+    let expected_path = dir.join(mentisdb::chain_storage_filename(
         "binary-demo",
         StorageAdapterKind::Binary,
     ));
@@ -686,6 +686,21 @@ fn current_version_jsonl_chain_is_reconciled_to_default_binary_storage() {
     let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
     assert_eq!(record.display_name, "Legacy Agent");
     assert_eq!(record.owner.as_deref(), Some("legacy-team"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn legacy_registry_filename_is_upgraded_to_mentisdb_registry_name() {
+    let dir = unique_chain_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let legacy_registry_path = dir.join("thoughtchain-registry.json");
+    std::fs::write(&legacy_registry_path, r#"{"version":1,"chains":{}}"#).unwrap();
+
+    let registry = load_registered_chains(&dir).unwrap();
+    assert_eq!(registry.version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert!(!legacy_registry_path.exists());
+    assert!(dir.join("mentisdb-registry.json").exists());
 
     let _ = std::fs::remove_dir_all(&dir);
 }

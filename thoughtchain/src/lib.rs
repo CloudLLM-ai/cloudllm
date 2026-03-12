@@ -31,7 +31,7 @@ use uuid::Uuid;
 ///
 /// ```
 /// use std::path::PathBuf;
-/// use thoughtchain::{JsonlStorageAdapter, StorageAdapter};
+/// use mentisdb::{JsonlStorageAdapter, StorageAdapter};
 ///
 /// let adapter = JsonlStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_store"), "demo");
 /// let location = adapter.storage_location();
@@ -61,6 +61,8 @@ pub const THOUGHTCHAIN_SCHEMA_V0: u32 = 0;
 pub const THOUGHTCHAIN_SCHEMA_V1: u32 = 1;
 /// Alias for the latest supported ThoughtChain storage schema version.
 pub const THOUGHTCHAIN_CURRENT_VERSION: u32 = THOUGHTCHAIN_SCHEMA_V1;
+const MENTISDB_REGISTRY_FILENAME: &str = "mentisdb-registry.json";
+const LEGACY_THOUGHTCHAIN_REGISTRY_FILENAME: &str = "thoughtchain-registry.json";
 
 fn current_schema_version() -> u32 {
     THOUGHTCHAIN_CURRENT_VERSION
@@ -77,7 +79,7 @@ fn current_schema_version() -> u32 {
 ///
 /// ```
 /// use std::str::FromStr;
-/// use thoughtchain::StorageAdapterKind;
+/// use mentisdb::StorageAdapterKind;
 ///
 /// let kind = StorageAdapterKind::from_str("binary").unwrap();
 /// assert_eq!(kind.as_str(), "binary");
@@ -114,7 +116,7 @@ impl StorageAdapterKind {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::{StorageAdapter, StorageAdapterKind};
+    /// use mentisdb::{StorageAdapter, StorageAdapterKind};
     ///
     /// let adapter = StorageAdapterKind::Binary
     ///     .for_chain_key(PathBuf::from("/tmp/tc_kind"), "demo");
@@ -161,7 +163,7 @@ impl FromStr for StorageAdapterKind {
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
-/// use thoughtchain::{JsonlStorageAdapter, StorageAdapter};
+/// use mentisdb::{JsonlStorageAdapter, StorageAdapter};
 ///
 /// let adapter = JsonlStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_jsonl"), "agent-memory");
 /// assert!(adapter.storage_location().ends_with(".jsonl"));
@@ -242,7 +244,7 @@ impl StorageAdapter for JsonlStorageAdapter {
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
-/// use thoughtchain::{BinaryStorageAdapter, StorageAdapter};
+/// use mentisdb::{BinaryStorageAdapter, StorageAdapter};
 ///
 /// let adapter = BinaryStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_bin"), "agent-memory");
 /// assert!(adapter.storage_location().ends_with(".tcbin"));
@@ -703,7 +705,7 @@ pub enum ThoughtChainMigrationEvent {
 /// # Example
 ///
 /// ```
-/// use thoughtchain::ThoughtType;
+/// use mentisdb::ThoughtType;
 ///
 /// let thought_type = ThoughtType::Constraint;
 /// let json = serde_json::to_string(&thought_type).unwrap();
@@ -778,7 +780,7 @@ pub enum ThoughtType {
 /// # Example
 ///
 /// ```
-/// use thoughtchain::ThoughtRole;
+/// use mentisdb::ThoughtRole;
 ///
 /// assert_eq!(ThoughtRole::default(), ThoughtRole::Memory);
 /// ```
@@ -808,7 +810,7 @@ pub enum ThoughtRole {
 /// # Example
 ///
 /// ```
-/// use thoughtchain::ThoughtRelationKind;
+/// use mentisdb::ThoughtRelationKind;
 ///
 /// assert_eq!(ThoughtRelationKind::Corrects as u8, ThoughtRelationKind::Corrects as u8);
 /// ```
@@ -850,7 +852,7 @@ pub enum ThoughtRelationKind {
 /// # Example
 ///
 /// ```
-/// use thoughtchain::{ThoughtRelation, ThoughtRelationKind};
+/// use mentisdb::{ThoughtRelation, ThoughtRelationKind};
 /// use uuid::Uuid;
 ///
 /// let relation = ThoughtRelation {
@@ -896,7 +898,7 @@ pub struct ThoughtRelation {
 /// # Example
 ///
 /// ```
-/// use thoughtchain::{ThoughtInput, ThoughtRole, ThoughtType};
+/// use mentisdb::{ThoughtInput, ThoughtRole, ThoughtType};
 ///
 /// let input = ThoughtInput::new(ThoughtType::Insight, "Rate limiting is the real bottleneck.")
 ///     .with_role(ThoughtRole::Summary)
@@ -978,7 +980,7 @@ impl ThoughtInput {
     /// # Example
     ///
     /// ```
-    /// use thoughtchain::{ThoughtInput, ThoughtRole, ThoughtType};
+    /// use mentisdb::{ThoughtInput, ThoughtRole, ThoughtType};
     ///
     /// let input = ThoughtInput::new(ThoughtType::Plan, "Build a query index first.");
     ///
@@ -1142,7 +1144,7 @@ pub fn signable_thought_payload(agent_id: &str, input: &ThoughtInput) -> Vec<u8>
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
-/// use thoughtchain::{ThoughtChain, ThoughtType};
+/// use mentisdb::{ThoughtChain, ThoughtType};
 ///
 /// # fn main() -> std::io::Result<()> {
 /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_doc"), "agent1", "Agent", None, None)?;
@@ -1228,7 +1230,7 @@ pub struct Thought {
 /// # Example
 ///
 /// ```
-/// use thoughtchain::{ThoughtQuery, ThoughtType};
+/// use mentisdb::{ThoughtQuery, ThoughtType};
 ///
 /// let query = ThoughtQuery::new()
 ///     .with_types(vec![ThoughtType::Decision, ThoughtType::Constraint])
@@ -1451,7 +1453,7 @@ impl ThoughtQuery {
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
-/// use thoughtchain::{ThoughtChain, ThoughtType};
+/// use mentisdb::{ThoughtChain, ThoughtType};
 ///
 /// # fn main() -> std::io::Result<()> {
 /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_chain"), "researcher", "Researcher", None, None)?;
@@ -1513,7 +1515,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::ThoughtChain;
+    /// use mentisdb::ThoughtChain;
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_open"), "agent1", "Agent", None, None)?;
@@ -1537,7 +1539,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::{JsonlStorageAdapter, ThoughtChain};
+    /// use mentisdb::{JsonlStorageAdapter, ThoughtChain};
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let adapter = JsonlStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_custom"), "project-memory");
@@ -1605,7 +1607,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::ThoughtChain;
+    /// use mentisdb::ThoughtChain;
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let chain = ThoughtChain::open_with_key(PathBuf::from("/tmp/tc_key"), "project-memory")?;
@@ -1637,7 +1639,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{ThoughtChain, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_append"), "agent1", "Agent", None, None)?;
@@ -1662,7 +1664,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{ThoughtChain, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_refs"), "agent1", "Agent", None, None)?;
@@ -1692,7 +1694,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::{ThoughtChain, ThoughtInput, ThoughtRole, ThoughtType};
+    /// use mentisdb::{ThoughtChain, ThoughtInput, ThoughtRole, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_rich"), "agent1", "Agent", None, None)?;
@@ -2134,7 +2136,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::{ThoughtChain, ThoughtQuery, ThoughtType};
+    /// use mentisdb::{ThoughtChain, ThoughtQuery, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_query"), "agent1", "Agent", None, None)?;
@@ -2237,7 +2239,7 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use thoughtchain::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{ThoughtChain, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_md"), "agent1", "Agent", None, None)?;
@@ -2406,7 +2408,7 @@ impl ThoughtChain {
 /// # Example
 ///
 /// ```
-/// use thoughtchain::chain_filename;
+/// use mentisdb::chain_filename;
 ///
 /// let a = chain_filename("agent1", "Researcher", Some("rust"), Some("careful"));
 /// let b = chain_filename("agent1", "Different", Some("go"), Some("direct"));
@@ -2429,7 +2431,7 @@ pub fn chain_filename(
 /// # Example
 ///
 /// ```
-/// use thoughtchain::{chain_storage_filename, StorageAdapterKind};
+/// use mentisdb::{chain_storage_filename, StorageAdapterKind};
 ///
 /// let jsonl = chain_storage_filename("agent1", StorageAdapterKind::Jsonl);
 /// let binary = chain_storage_filename("agent1", StorageAdapterKind::Binary);
@@ -2468,7 +2470,7 @@ pub fn chain_storage_filename(chain_key: &str, kind: StorageAdapterKind) -> Stri
 /// # Example
 ///
 /// ```
-/// use thoughtchain::{chain_key_from_storage_filename, chain_storage_filename, StorageAdapterKind};
+/// use mentisdb::{chain_key_from_storage_filename, chain_storage_filename, StorageAdapterKind};
 ///
 /// let filename = chain_storage_filename("borganism-brain", StorageAdapterKind::Jsonl);
 /// let chain_key = chain_key_from_storage_filename(&filename).unwrap();
@@ -2506,8 +2508,27 @@ fn derive_persistence_metadata(storage: &dyn StorageAdapter) -> Option<ChainPers
     })
 }
 
-fn thoughtchain_registry_path(chain_dir: &Path) -> PathBuf {
-    chain_dir.join("thoughtchain-registry.json")
+fn mentisdb_registry_path(chain_dir: &Path) -> PathBuf {
+    chain_dir.join(MENTISDB_REGISTRY_FILENAME)
+}
+
+fn legacy_thoughtchain_registry_path(chain_dir: &Path) -> PathBuf {
+    chain_dir.join(LEGACY_THOUGHTCHAIN_REGISTRY_FILENAME)
+}
+
+fn resolve_registry_path(chain_dir: &Path) -> io::Result<PathBuf> {
+    let mentisdb_path = mentisdb_registry_path(chain_dir);
+    if mentisdb_path.exists() {
+        return Ok(mentisdb_path);
+    }
+
+    let legacy_path = legacy_thoughtchain_registry_path(chain_dir);
+    if legacy_path.exists() {
+        fs::rename(&legacy_path, &mentisdb_path)?;
+        return Ok(mentisdb_path);
+    }
+
+    Ok(mentisdb_path)
 }
 
 fn chain_agent_registry_path(
@@ -2557,7 +2578,7 @@ fn save_agent_registry(
 }
 
 fn load_thoughtchain_registry(chain_dir: &Path) -> io::Result<ThoughtChainRegistry> {
-    let path = thoughtchain_registry_path(chain_dir);
+    let path = resolve_registry_path(chain_dir)?;
     if !path.exists() {
         return Ok(ThoughtChainRegistry {
             version: THOUGHTCHAIN_CURRENT_VERSION,
@@ -2575,7 +2596,7 @@ fn load_thoughtchain_registry(chain_dir: &Path) -> io::Result<ThoughtChainRegist
 }
 
 fn save_thoughtchain_registry(chain_dir: &Path, registry: &ThoughtChainRegistry) -> io::Result<()> {
-    let path = thoughtchain_registry_path(chain_dir);
+    let path = mentisdb_registry_path(chain_dir);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -2584,7 +2605,14 @@ fn save_thoughtchain_registry(chain_dir: &Path, registry: &ThoughtChainRegistry)
         io::Error::other(format!(
             "Failed to serialize thoughtchain registry: {error}"
         ))
-    })
+    })?;
+
+    let legacy_path = legacy_thoughtchain_registry_path(chain_dir);
+    if legacy_path.exists() {
+        fs::remove_file(legacy_path)?;
+    }
+
+    Ok(())
 }
 
 fn resolve_storage_kind_for_chain(

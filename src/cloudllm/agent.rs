@@ -58,7 +58,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::sync::Arc;
-use thoughtchain::{Thought, ThoughtChain, ThoughtType};
+use mentisdb::{Thought, ThoughtChain, ThoughtType};
 use tokio::sync::RwLock;
 
 /// Internal representation of a resolved tool call.
@@ -324,7 +324,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use thoughtchain::ThoughtChain;
+    /// use mentisdb::ThoughtChain;
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -539,7 +539,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use thoughtchain::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{ThoughtChain, ThoughtType};
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -607,7 +607,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use thoughtchain::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{ThoughtChain, ThoughtType};
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -676,7 +676,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use thoughtchain::ThoughtChain;
+    /// use mentisdb::ThoughtChain;
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;

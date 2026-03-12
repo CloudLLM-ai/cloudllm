@@ -311,8 +311,8 @@ pub use cloudllm::context_strategy::{
 };
 pub use cloudllm::llm_session::LLMSession;
 pub use mcp;
-pub use thoughtchain;
-pub use thoughtchain::{
+pub use mentisdb;
+pub use mentisdb::{
     JsonlStorageAdapter, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
     ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
 };

@@ -1,26 +1,29 @@
-# ThoughtChain MCP
+# MentisDB MCP
 
-`ThoughtChain` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
+`MentisDB` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
 
-At the moment, the ThoughtChain MCP server exposes 17 tools:
+Primary tool names now use the `mentisdb_*` prefix. Legacy `thoughtchain_*`
+aliases are still accepted for compatibility during the rename.
 
-- `thoughtchain_bootstrap`
-- `thoughtchain_append`
-- `thoughtchain_append_retrospective`
-- `thoughtchain_search`
-- `thoughtchain_list_chains`
-- `thoughtchain_list_agents`
-- `thoughtchain_get_agent`
-- `thoughtchain_list_agent_registry`
-- `thoughtchain_upsert_agent`
-- `thoughtchain_set_agent_description`
-- `thoughtchain_add_agent_alias`
-- `thoughtchain_add_agent_key`
-- `thoughtchain_revoke_agent_key`
-- `thoughtchain_disable_agent`
-- `thoughtchain_recent_context`
-- `thoughtchain_memory_markdown`
-- `thoughtchain_head`
+At the moment, the MentisDB MCP server exposes 17 tools:
+
+- `mentisdb_bootstrap`
+- `mentisdb_append`
+- `mentisdb_append_retrospective`
+- `mentisdb_search`
+- `mentisdb_list_chains`
+- `mentisdb_list_agents`
+- `mentisdb_get_agent`
+- `mentisdb_list_agent_registry`
+- `mentisdb_upsert_agent`
+- `mentisdb_set_agent_description`
+- `mentisdb_add_agent_alias`
+- `mentisdb_add_agent_key`
+- `mentisdb_revoke_agent_key`
+- `mentisdb_disable_agent`
+- `mentisdb_recent_context`
+- `mentisdb_memory_markdown`
+- `mentisdb_head`
 
 This document describes the current remote interface implemented in `thoughtchain/src/server.rs`.
 
@@ -50,7 +53,7 @@ Every memory belongs to a `chain_key`.
 - If `chain_key` is omitted, the server uses its configured default chain.
 - A chain is stored through a pluggable storage adapter.
 - The current daemon uses the binary storage adapter by default.
-- `thoughtchaind` migrates legacy schema-version `0` chains to the current schema on startup before serving traffic.
+- `mentisdbd` migrates legacy schema-version `0` chains to the current schema on startup before serving traffic.
 - The server verifies integrity when opening the chain.
 
 For a remote agent, `chain_key` is the durable identity of the memory stream.
@@ -64,7 +67,7 @@ Examples:
 
 ## Available Tools
 
-### `thoughtchain_bootstrap`
+### `mentisdb_bootstrap`
 
 Creates the chain if needed and writes a bootstrap memory only when the chain is empty.
 
@@ -106,7 +109,7 @@ Example:
 
 ```json
 {
-  "tool": "thoughtchain_bootstrap",
+  "tool": "mentisdb_bootstrap",
   "arguments": {
     "chain_key": "borganism-brain",
     "agent_id": "bootstrap",
@@ -120,7 +123,7 @@ Example:
 }
 ```
 
-### `thoughtchain_append`
+### `mentisdb_append`
 
 Appends a durable thought.
 
@@ -213,7 +216,7 @@ Example:
 
 ```json
 {
-  "tool": "thoughtchain_append",
+  "tool": "mentisdb_append",
   "arguments": {
     "chain_key": "borganism-brain",
     "agent_id": "agent-42",
@@ -230,7 +233,7 @@ Example:
 }
 ```
 
-### `thoughtchain_append_retrospective`
+### `mentisdb_append_retrospective`
 
 Appends a guided retrospective memory after a hard failure, repeated snag, or
 non-obvious fix.
@@ -241,8 +244,8 @@ This is the tool agents should prefer when they want to store:
 - a durable rule that prevents future rework
 - a correction distilled after several failed attempts
 
-Use `thoughtchain_append` for ordinary durable facts and decisions.
-Use `thoughtchain_append_retrospective` when the memory exists specifically to
+Use `mentisdb_append` for ordinary durable facts and decisions.
+Use `mentisdb_append_retrospective` when the memory exists specifically to
 help future agents avoid repeating the same struggle.
 
 Parameters:
@@ -272,7 +275,7 @@ Example:
 
 ```json
 {
-  "tool": "thoughtchain_append_retrospective",
+  "tool": "mentisdb_append_retrospective",
   "arguments": {
     "chain_key": "borganism-brain",
     "agent_id": "astro",
@@ -285,7 +288,7 @@ Example:
 }
 ```
 
-### `thoughtchain_search`
+### `mentisdb_search`
 
 Queries the chain for relevant memories.
 
@@ -322,7 +325,7 @@ Example:
 
 ```json
 {
-  "tool": "thoughtchain_search",
+  "tool": "mentisdb_search",
   "arguments": {
     "chain_key": "borganism-brain",
     "text": "rate limit",
@@ -334,9 +337,9 @@ Example:
 }
 ```
 
-### `thoughtchain_list_chains`
+### `mentisdb_list_chains`
 
-Lists the durable chain keys currently available in ThoughtChain storage.
+Lists the durable chain keys currently available in MentisDB storage.
 
 Parameters:
 
@@ -367,12 +370,12 @@ Example:
 
 ```json
 {
-  "tool": "thoughtchain_list_chains",
+  "tool": "mentisdb_list_chains",
   "arguments": {}
 }
 ```
 
-### `thoughtchain_list_agents`
+### `mentisdb_list_agents`
 
 Lists the distinct agent identities that have written to a specific chain.
 
@@ -395,20 +398,20 @@ Typical use:
 
 - discover which agents participate in a shared brain
 - choose `agent_names` or `agent_ids` filters before calling
-  `thoughtchain_search`
+  `mentisdb_search`
 
 Example:
 
 ```json
 {
-  "tool": "thoughtchain_list_agents",
+  "tool": "mentisdb_list_agents",
   "arguments": {
     "chain_key": "borganism-brain"
   }
 }
 ```
 
-### `thoughtchain_get_agent`
+### `mentisdb_get_agent`
 
 Returns one full agent registry record for a chain.
 
@@ -443,7 +446,7 @@ Typical use:
 - verify an alias, status, or key record
 - display agent details in a UI such as a future ThoughtExplorer
 
-### `thoughtchain_list_agent_registry`
+### `mentisdb_list_agent_registry`
 
 Returns the full per-chain agent registry.
 
@@ -462,7 +465,7 @@ Typical use:
 - inspect descriptions, aliases, keys, and activity counts in one call
 - reconcile identity drift such as historical aliases or display-name changes
 
-### `thoughtchain_upsert_agent`
+### `mentisdb_upsert_agent`
 
 Creates or updates one agent registry record.
 
@@ -486,7 +489,7 @@ Typical use:
 - add human-readable descriptions to a shared chain
 - normalize display names and ownership labels
 
-### `thoughtchain_set_agent_description`
+### `mentisdb_set_agent_description`
 
 Sets or clears the free-form description for one registered agent.
 
@@ -506,7 +509,7 @@ Typical use:
 - annotate agents with responsibilities
 - clear stale descriptions without rewriting thought history
 
-### `thoughtchain_add_agent_alias`
+### `mentisdb_add_agent_alias`
 
 Adds one alias to a registered agent.
 
@@ -526,7 +529,7 @@ Typical use:
 - preserve historical names after a rename
 - collapse duplicate identities during cleanup
 
-### `thoughtchain_add_agent_key`
+### `mentisdb_add_agent_key`
 
 Adds or replaces one public verification key on a registered agent.
 
@@ -548,7 +551,7 @@ Typical use:
 - prepare for signed-thought verification workflows
 - rotate public keys while keeping durable agent identity stable
 
-### `thoughtchain_revoke_agent_key`
+### `mentisdb_revoke_agent_key`
 
 Revokes one previously registered public key.
 
@@ -568,7 +571,7 @@ Typical use:
 - retire a compromised or superseded key
 - preserve key history without deleting the registry record
 
-### `thoughtchain_disable_agent`
+### `mentisdb_disable_agent`
 
 Marks one agent as revoked in the registry.
 
@@ -587,7 +590,7 @@ Typical use:
 - disable deprecated agents
 - keep historical thoughts visible while preventing silent reuse in tooling
 
-### `thoughtchain_recent_context`
+### `mentisdb_recent_context`
 
 Renders the latest thoughts as a prompt snippet suitable for resuming work.
 
@@ -606,7 +609,7 @@ Typical use:
 - preloading a remote worker before it continues a task
 - quick catch-up without full memory export
 
-### `thoughtchain_memory_markdown`
+### `mentisdb_memory_markdown`
 
 Exports the chain, or a filtered subset of it, as `MEMORY.md`-style Markdown.
 
@@ -637,7 +640,7 @@ Typical use:
 - inspect memory manually
 - export a human-readable project memory
 
-### `thoughtchain_head`
+### `mentisdb_head`
 
 Returns chain metadata.
 
@@ -664,14 +667,14 @@ Typical use:
 
 For a remote agent, the normal flow should look like this:
 
-1. If you are connecting to a shared daemon, call `thoughtchain_list_chains` first.
+1. If you are connecting to a shared daemon, call `mentisdb_list_chains` first.
 2. Bootstrap the chain once if it does not already exist.
-3. For shared chains, call `thoughtchain_list_agents` or `thoughtchain_list_agent_registry` to discover which agents are already writing there.
-4. If you need better metadata, call `thoughtchain_upsert_agent`, `thoughtchain_set_agent_description`, or `thoughtchain_add_agent_alias` before active use.
-5. At the start of a session, call `thoughtchain_recent_context` or `thoughtchain_memory_markdown`.
-6. Before important work, call `thoughtchain_search` for relevant prior constraints, plans, mistakes, and insights.
+3. For shared chains, call `mentisdb_list_agents` or `mentisdb_list_agent_registry` to discover which agents are already writing there.
+4. If you need better metadata, call `mentisdb_upsert_agent`, `mentisdb_set_agent_description`, or `mentisdb_add_agent_alias` before active use.
+5. At the start of a session, call `mentisdb_recent_context` or `mentisdb_memory_markdown`.
+6. Before important work, call `mentisdb_search` for relevant prior constraints, plans, mistakes, and insights.
 7. During work, append durable thoughts whenever the agent learns something worth keeping.
-8. After a hard failure or a long debugging snag, prefer `thoughtchain_append_retrospective`.
+8. After a hard failure or a long debugging snag, prefer `mentisdb_append_retrospective`.
 9. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
 
 ## Example Sequence
@@ -684,7 +687,7 @@ Bootstrap the chain:
 
 ```json
 {
-  "tool": "thoughtchain_bootstrap",
+  "tool": "mentisdb_bootstrap",
   "arguments": {
     "chain_key": "project-alpha",
     "content": "Memory for Project Alpha. Preserve architecture decisions, user preferences, constraints, mistakes, and deployment lessons.",
@@ -701,7 +704,7 @@ Load recent context:
 
 ```json
 {
-  "tool": "thoughtchain_recent_context",
+  "tool": "mentisdb_recent_context",
   "arguments": {
     "chain_key": "project-alpha",
     "last_n": 12
@@ -715,7 +718,7 @@ Search for relevant memories:
 
 ```json
 {
-  "tool": "thoughtchain_search",
+  "tool": "mentisdb_search",
   "arguments": {
     "chain_key": "project-alpha",
     "thought_types": ["Constraint", "Decision", "Mistake", "Correction"],
@@ -731,7 +734,7 @@ Store a new plan:
 
 ```json
 {
-  "tool": "thoughtchain_append",
+  "tool": "mentisdb_append",
   "arguments": {
     "chain_key": "project-alpha",
     "thought_type": "Plan",
@@ -748,7 +751,7 @@ Store a mistake:
 
 ```json
 {
-  "tool": "thoughtchain_append",
+  "tool": "mentisdb_append",
   "arguments": {
     "chain_key": "project-alpha",
     "thought_type": "Mistake",
@@ -766,7 +769,7 @@ Search for the mistake, get its `index`, then append the lesson:
 
 ```json
 {
-  "tool": "thoughtchain_append_retrospective",
+  "tool": "mentisdb_append_retrospective",
   "arguments": {
     "chain_key": "project-alpha",
     "thought_type": "LessonLearned",
@@ -786,7 +789,7 @@ Store a checkpoint:
 
 ```json
 {
-  "tool": "thoughtchain_append",
+  "tool": "mentisdb_append",
   "arguments": {
     "chain_key": "project-alpha",
     "thought_type": "Summary",
@@ -847,7 +850,7 @@ Past thought:
 
 ```json
 {
-  "tool": "thoughtchain_append",
+  "tool": "mentisdb_append",
   "arguments": {
     "chain_key": "project-alpha",
     "thought_type": "Mistake",
@@ -862,7 +865,7 @@ Future thought referring back to it:
 
 ```json
 {
-  "tool": "thoughtchain_append_retrospective",
+  "tool": "mentisdb_append_retrospective",
   "arguments": {
     "chain_key": "project-alpha",
     "thought_type": "LessonLearned",

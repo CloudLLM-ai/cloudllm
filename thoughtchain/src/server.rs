@@ -44,12 +44,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
+use std::fs;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, RwLock};
+
+const MENTISDB_DIRNAME: &str = "mentisdb";
+const LEGACY_THOUGHTCHAIN_DIRNAME: &str = "thoughtchain";
+const MENTISDB_REGISTRY_FILENAME: &str = "mentisdb-registry.json";
+const LEGACY_THOUGHTCHAIN_REGISTRY_FILENAME: &str = "thoughtchain-registry.json";
+const MENTISDB_PROTOCOL_NAME: &str = "mentisdb";
 
 /// Configuration shared by ThoughtChain server variants.
 ///
@@ -57,8 +64,8 @@ use tokio::sync::{oneshot, RwLock};
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
-/// use thoughtchain::StorageAdapterKind;
-/// use thoughtchain::server::ThoughtChainServiceConfig;
+/// use mentisdb::StorageAdapterKind;
+/// use mentisdb::server::ThoughtChainServiceConfig;
 ///
 /// let config = ThoughtChainServiceConfig::new(
 ///     PathBuf::from("/tmp/thoughtchain"),
@@ -117,7 +124,7 @@ impl ThoughtChainServiceConfig {
 /// # Example
 ///
 /// ```rust,no_run
-/// use thoughtchain::server::ThoughtChainServerConfig;
+/// use mentisdb::server::ThoughtChainServerConfig;
 ///
 /// let config = ThoughtChainServerConfig::from_env();
 /// assert!(config.mcp_addr.port() > 0);
@@ -135,25 +142,31 @@ pub struct ThoughtChainServerConfig {
 impl ThoughtChainServerConfig {
     /// Build a server configuration from environment variables.
     pub fn from_env() -> Self {
-        let bind_host = std::env::var("THOUGHTCHAIN_BIND_HOST")
+        let bind_host = env_var(&["MENTISDB_BIND_HOST", "THOUGHTCHAIN_BIND_HOST"])
             .ok()
             .and_then(|value| value.parse::<IpAddr>().ok())
             .unwrap_or(IpAddr::from([127, 0, 0, 1]));
-        let storage_adapter = std::env::var("THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER")
-            .or_else(|_| std::env::var("THOUGHTCHAIN_STORAGE_ADAPTER"))
+        let storage_adapter = env_var(&[
+            "MENTISDB_DEFAULT_STORAGE_ADAPTER",
+            "MENTISDB_STORAGE_ADAPTER",
+            "THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER",
+            "THOUGHTCHAIN_STORAGE_ADAPTER",
+        ])
             .ok()
             .map(|value| value.parse().unwrap_or(StorageAdapterKind::Binary))
             .unwrap_or(StorageAdapterKind::Binary);
-        let verbose = env_bool("THOUGHTCHAIN_VERBOSE").unwrap_or(false);
-        let mcp_port = env_u16("THOUGHTCHAIN_MCP_PORT").unwrap_or(9471);
-        let rest_port = env_u16("THOUGHTCHAIN_REST_PORT").unwrap_or(9472);
+        let verbose = env_bool(&["MENTISDB_VERBOSE", "THOUGHTCHAIN_VERBOSE"]).unwrap_or(false);
+        let mcp_port =
+            env_u16(&["MENTISDB_MCP_PORT", "THOUGHTCHAIN_MCP_PORT"]).unwrap_or(9471);
+        let rest_port =
+            env_u16(&["MENTISDB_REST_PORT", "THOUGHTCHAIN_REST_PORT"]).unwrap_or(9472);
 
         Self {
             service: ThoughtChainServiceConfig::new(
-                std::env::var("THOUGHTCHAIN_DIR")
+                env_var(&["MENTISDB_DIR", "THOUGHTCHAIN_DIR"])
                     .map(PathBuf::from)
-                    .unwrap_or_else(|_| default_thoughtchain_dir()),
-                std::env::var("THOUGHTCHAIN_DEFAULT_KEY")
+                    .unwrap_or_else(|_| default_mentisdb_dir()),
+                env_var(&["MENTISDB_DEFAULT_KEY", "THOUGHTCHAIN_DEFAULT_KEY"])
                     .unwrap_or_else(|_| "borganism-brain".to_string()),
                 storage_adapter,
             )
@@ -170,7 +183,7 @@ impl ThoughtChainServerConfig {
 ///
 /// ```rust,no_run
 /// use std::net::SocketAddr;
-/// use thoughtchain::server::ServerHandle;
+/// use mentisdb::server::ServerHandle;
 ///
 /// let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
 /// let (tx, _rx) = tokio::sync::oneshot::channel();
@@ -213,7 +226,7 @@ impl ServerHandle {
 /// # Example
 ///
 /// ```rust,no_run
-/// use thoughtchain::server::{start_servers, ThoughtChainServerConfig};
+/// use mentisdb::server::{start_servers, ThoughtChainServerConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -234,26 +247,154 @@ pub struct ThoughtChainServerHandles {
 
 /// Return the default on-disk ThoughtChain directory.
 ///
-/// The default is `$HOME/.cloudllm/thoughtchain` when `HOME` is available,
-/// otherwise `./.cloudllm/thoughtchain`.
+/// The default is `$HOME/.cloudllm/mentisdb` when `HOME` is available,
+/// otherwise `./.cloudllm/mentisdb`.
 ///
 /// # Example
 ///
 /// ```
-/// use thoughtchain::server::default_thoughtchain_dir;
+/// use mentisdb::server::default_mentisdb_dir;
 ///
-/// let dir = default_thoughtchain_dir();
-/// assert!(dir.ends_with("thoughtchain"));
+/// let dir = default_mentisdb_dir();
+/// assert!(dir.ends_with("mentisdb"));
 /// ```
-pub fn default_thoughtchain_dir() -> PathBuf {
+pub fn default_mentisdb_dir() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home).join(".cloudllm").join("thoughtchain")
+        PathBuf::from(home).join(".cloudllm").join(MENTISDB_DIRNAME)
     } else {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(".cloudllm")
-            .join("thoughtchain")
+            .join(MENTISDB_DIRNAME)
     }
+}
+
+/// Backward-compatible alias for callers still using the old ThoughtChain API
+/// name while the MentisDB rebrand rolls out.
+pub fn default_thoughtchain_dir() -> PathBuf {
+    default_mentisdb_dir()
+}
+
+/// Report returned when legacy default ThoughtChain storage is adopted into the
+/// MentisDB default location.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyDefaultStorageMigration {
+    /// Legacy storage root that was discovered.
+    pub source_dir: PathBuf,
+    /// MentisDB storage root that should be used going forward.
+    pub target_dir: PathBuf,
+    /// Whether the whole legacy root could be renamed directly.
+    pub renamed_root_dir: bool,
+    /// Number of entries merged into an already-existing target directory.
+    pub merged_entries: usize,
+    /// Whether the legacy `thoughtchain-registry.json` file was renamed.
+    pub renamed_registry_file: bool,
+}
+
+/// Adopt the legacy default ThoughtChain storage root into the MentisDB
+/// default location before chain-level migrations run.
+pub fn adopt_legacy_default_mentisdb_dir(
+) -> io::Result<Option<LegacyDefaultStorageMigration>> {
+    let mentisdb_dir = default_mentisdb_dir();
+    let Some(cloudllm_dir) = mentisdb_dir.parent() else {
+        return Ok(None);
+    };
+    let legacy_dir = cloudllm_dir.join(LEGACY_THOUGHTCHAIN_DIRNAME);
+    if !legacy_dir.exists() {
+        return Ok(None);
+    }
+
+    fs::create_dir_all(cloudllm_dir)?;
+
+    if !mentisdb_dir.exists() {
+        fs::rename(&legacy_dir, &mentisdb_dir)?;
+        let renamed_registry_file = rename_legacy_registry_file_if_needed(&mentisdb_dir)?;
+        return Ok(Some(LegacyDefaultStorageMigration {
+            source_dir: legacy_dir,
+            target_dir: mentisdb_dir.to_path_buf(),
+            renamed_root_dir: true,
+            merged_entries: 0,
+            renamed_registry_file,
+        }));
+    }
+
+    let merged_entries = move_legacy_storage_entries(&legacy_dir, &mentisdb_dir)?;
+    let renamed_registry_file = rename_legacy_registry_file_if_needed(&mentisdb_dir)?;
+    if directory_is_empty(&legacy_dir)? {
+        fs::remove_dir(&legacy_dir)?;
+    }
+
+    Ok(Some(LegacyDefaultStorageMigration {
+        source_dir: legacy_dir,
+        target_dir: mentisdb_dir.to_path_buf(),
+        renamed_root_dir: false,
+        merged_entries,
+        renamed_registry_file,
+    }))
+}
+
+/// Backward-compatible alias for the old ThoughtChain helper name.
+pub fn adopt_legacy_default_thoughtchain_dir(
+) -> io::Result<Option<LegacyDefaultStorageMigration>> {
+    adopt_legacy_default_mentisdb_dir()
+}
+
+fn move_legacy_storage_entries(source_dir: &Path, target_dir: &Path) -> io::Result<usize> {
+    fs::create_dir_all(target_dir)?;
+    let mut moved_entries = 0;
+
+    for entry in fs::read_dir(source_dir)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let file_type = entry.file_type()?;
+        let target_name = remap_legacy_storage_entry_name(&entry.file_name());
+        let target_path = target_dir.join(target_name);
+
+        if file_type.is_dir() {
+            if target_path.exists() {
+                if target_path.is_dir() {
+                    moved_entries += move_legacy_storage_entries(&source_path, &target_path)?;
+                    if directory_is_empty(&source_path)? {
+                        fs::remove_dir(&source_path)?;
+                    }
+                }
+                continue;
+            }
+            fs::rename(&source_path, &target_path)?;
+            moved_entries += 1;
+            continue;
+        }
+
+        if !target_path.exists() {
+            fs::rename(&source_path, &target_path)?;
+            moved_entries += 1;
+        }
+    }
+
+    Ok(moved_entries)
+}
+
+fn remap_legacy_storage_entry_name(file_name: &std::ffi::OsStr) -> std::ffi::OsString {
+    if file_name == LEGACY_THOUGHTCHAIN_REGISTRY_FILENAME {
+        MENTISDB_REGISTRY_FILENAME.into()
+    } else {
+        file_name.to_os_string()
+    }
+}
+
+fn directory_is_empty(path: &Path) -> io::Result<bool> {
+    Ok(fs::read_dir(path)?.next().is_none())
+}
+
+fn rename_legacy_registry_file_if_needed(chain_dir: &Path) -> io::Result<bool> {
+    let legacy_path = chain_dir.join(LEGACY_THOUGHTCHAIN_REGISTRY_FILENAME);
+    let mentisdb_path = chain_dir.join(MENTISDB_REGISTRY_FILENAME);
+    if !legacy_path.exists() || mentisdb_path.exists() {
+        return Ok(false);
+    }
+
+    fs::rename(legacy_path, mentisdb_path)?;
+    Ok(true)
 }
 
 /// Start a standalone ThoughtChain MCP server.
@@ -266,8 +407,8 @@ pub fn default_thoughtchain_dir() -> PathBuf {
 /// ```rust,no_run
 /// use std::net::SocketAddr;
 /// use std::path::PathBuf;
-/// use thoughtchain::StorageAdapterKind;
-/// use thoughtchain::server::{start_mcp_server, ThoughtChainServiceConfig};
+/// use mentisdb::StorageAdapterKind;
+/// use mentisdb::server::{start_mcp_server, ThoughtChainServiceConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -296,8 +437,8 @@ pub async fn start_mcp_server(
 /// ```rust,no_run
 /// use std::net::SocketAddr;
 /// use std::path::PathBuf;
-/// use thoughtchain::StorageAdapterKind;
-/// use thoughtchain::server::{start_rest_server, ThoughtChainServiceConfig};
+/// use mentisdb::StorageAdapterKind;
+/// use mentisdb::server::{start_rest_server, ThoughtChainServiceConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -425,10 +566,10 @@ fn standard_mcp_only_router(service: Arc<ThoughtChainService>, addr: SocketAddr)
                 ip_filter: IpFilter::new(),
                 event_handler: None,
             },
-            &StreamableHttpConfig::new("thoughtchain", env!("CARGO_PKG_VERSION"))
-                .with_server_title("ThoughtChain")
+            &StreamableHttpConfig::new(MENTISDB_PROTOCOL_NAME, env!("CARGO_PKG_VERSION"))
+                .with_server_title("MentisDB")
                 .with_instructions(
-                    "ThoughtChain provides semantic, append-only memory tools for durable agent context, memory search, handoff, and auditability.",
+                    "MentisDB provides semantic, append-only memory tools for durable agent context, memory search, handoff, and auditability.",
                 ),
             Arc::new(ThoughtChainMcpProtocol::new(service)),
         ))
@@ -441,60 +582,60 @@ impl ToolProtocol for ThoughtChainMcpProtocol {
         tool_name: &str,
         parameters: Value,
     ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
-        let output = match tool_name {
-            "thoughtchain_bootstrap" => {
+        let output = match canonical_tool_name(tool_name) {
+            "mentisdb_bootstrap" => {
                 parse_and_call(parameters, |request| self.service.bootstrap(request)).await
             }
-            "thoughtchain_append" => {
+            "mentisdb_append" => {
                 parse_and_call(parameters, |request| self.service.append(request)).await
             }
-            "thoughtchain_append_retrospective" => {
+            "mentisdb_append_retrospective" => {
                 parse_and_call(parameters, |request| {
                     self.service.append_retrospective(request)
                 })
                 .await
             }
-            "thoughtchain_search" => {
+            "mentisdb_search" => {
                 parse_and_call(parameters, |request| self.service.search(request)).await
             }
-            "thoughtchain_list_chains" => self.service.list_chains_json().await,
-            "thoughtchain_list_agents" => {
+            "mentisdb_list_chains" => self.service.list_chains_json().await,
+            "mentisdb_list_agents" => {
                 parse_and_call(parameters, |request| self.service.list_agents(request)).await
             }
-            "thoughtchain_get_agent" => {
+            "mentisdb_get_agent" => {
                 parse_and_call(parameters, |request| self.service.get_agent(request)).await
             }
-            "thoughtchain_list_agent_registry" => {
+            "mentisdb_list_agent_registry" => {
                 parse_and_call(parameters, |request| self.service.list_agent_registry(request)).await
             }
-            "thoughtchain_upsert_agent" => {
+            "mentisdb_upsert_agent" => {
                 parse_and_call(parameters, |request| self.service.upsert_agent(request)).await
             }
-            "thoughtchain_set_agent_description" => {
+            "mentisdb_set_agent_description" => {
                 parse_and_call(parameters, |request| {
                     self.service.set_agent_description(request)
                 })
                 .await
             }
-            "thoughtchain_add_agent_alias" => {
+            "mentisdb_add_agent_alias" => {
                 parse_and_call(parameters, |request| self.service.add_agent_alias(request)).await
             }
-            "thoughtchain_add_agent_key" => {
+            "mentisdb_add_agent_key" => {
                 parse_and_call(parameters, |request| self.service.add_agent_key(request)).await
             }
-            "thoughtchain_revoke_agent_key" => {
+            "mentisdb_revoke_agent_key" => {
                 parse_and_call(parameters, |request| self.service.revoke_agent_key(request)).await
             }
-            "thoughtchain_disable_agent" => {
+            "mentisdb_disable_agent" => {
                 parse_and_call(parameters, |request| self.service.disable_agent(request)).await
             }
-            "thoughtchain_recent_context" => {
+            "mentisdb_recent_context" => {
                 parse_and_call(parameters, |request| self.service.recent_context(request)).await
             }
-            "thoughtchain_memory_markdown" => {
+            "mentisdb_memory_markdown" => {
                 parse_and_call(parameters, |request| self.service.memory_markdown(request)).await
             }
-            "thoughtchain_head" => {
+            "mentisdb_head" => {
                 parse_and_call(parameters, |request| self.service.head(request)).await
             }
             _ => {
@@ -513,6 +654,7 @@ impl ToolProtocol for ThoughtChainMcpProtocol {
         &self,
         tool_name: &str,
     ) -> Result<ToolMetadata, Box<dyn Error + Send + Sync>> {
+        let tool_name = canonical_tool_name(tool_name);
         mcp_tool_metadata()
             .into_iter()
             .find(|tool| tool.name == tool_name)
@@ -520,7 +662,7 @@ impl ToolProtocol for ThoughtChainMcpProtocol {
     }
 
     fn protocol_name(&self) -> &str {
-        "thoughtchain"
+        MENTISDB_PROTOCOL_NAME
     }
 }
 
@@ -575,7 +717,7 @@ impl ThoughtChainService {
                 request.agent_name.as_deref(),
                 request.agent_owner.as_deref(),
                 "system",
-                "ThoughtChain",
+                "MentisDB",
             );
             let input = ThoughtInput::new(ThoughtType::Summary, request.content)
                 .with_agent_name(agent_name)
@@ -1178,7 +1320,7 @@ impl ThoughtChainService {
             return;
         }
 
-        log::info!(target: "thoughtchain::interaction", "{}", format_interaction_log_entry(&entry));
+        log::info!(target: "mentisdb::interaction", "{}", format_interaction_log_entry(&entry));
     }
 }
 
@@ -1515,7 +1657,7 @@ async fn start_router(
 async fn health_handler() -> Json<Value> {
     Json(json!({
         "status": "ok",
-        "service": "thoughtchain"
+        "service": "mentisdb"
     }))
 }
 
@@ -1684,7 +1826,7 @@ fn service_call<T: Serialize>(
 fn mcp_tool_metadata() -> Vec<ToolMetadata> {
     vec![
         ToolMetadata::new(
-            "thoughtchain_bootstrap",
+            "mentisdb_bootstrap",
             "Ensure a thought chain exists and initialize it the first time with a bootstrap memory.",
         )
         .with_parameter(
@@ -1723,7 +1865,7 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
                 .with_items(ToolParameterType::String),
         ),
         ToolMetadata::new(
-            "thoughtchain_append",
+            "mentisdb_append",
             "Append a durable semantic memory to ThoughtChain. Use exact ThoughtType names like PreferenceUpdate, Constraint, Decision, Insight, Wonder, Question, Summary, Mistake, or Correction.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
@@ -1741,8 +1883,8 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("signing_key_id", ToolParameterType::String).with_description("Optional key id used to verify the detached thought signature."))
         .with_parameter(ToolParameter::new("thought_signature", ToolParameterType::Array).with_description("Optional detached signature bytes for the signable thought payload.").with_items(ToolParameterType::Integer)),
         ToolMetadata::new(
-            "thoughtchain_append_retrospective",
-            "Append a guided retrospective memory after a hard failure, repeated snag, or non-obvious fix. Prefer this over thoughtchain_append when you want future agents to avoid repeating the same struggle. This tool defaults to ThoughtType LessonLearned and always records the thought with role Retrospective.",
+            "mentisdb_append_retrospective",
+            "Append a guided retrospective memory after a hard failure, repeated snag, or non-obvious fix. Prefer this over mentisdb_append when you want future agents to avoid repeating the same struggle. This tool defaults to ThoughtType LessonLearned and always records the thought with role Retrospective.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Optional producing agent id. Defaults to the chain key when omitted."))
@@ -1758,7 +1900,7 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("signing_key_id", ToolParameterType::String).with_description("Optional key id used to verify the detached thought signature."))
         .with_parameter(ToolParameter::new("thought_signature", ToolParameterType::Array).with_description("Optional detached signature bytes for the signable thought payload.").with_items(ToolParameterType::Integer)),
         ToolMetadata::new(
-            "thoughtchain_search",
+            "mentisdb_search",
             "Search durable memories by text, type, role, tags, concepts, and importance.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
@@ -1776,27 +1918,27 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("until", ToolParameterType::String).with_description("Optional RFC 3339 upper timestamp bound."))
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of results.")),
         ToolMetadata::new(
-            "thoughtchain_list_chains",
+            "mentisdb_list_chains",
             "List the durable chain keys currently available in ThoughtChain storage, together with the server default chain key.",
         ),
         ToolMetadata::new(
-            "thoughtchain_list_agents",
+            "mentisdb_list_agents",
             "List the distinct agent identities that have written to a particular chain key. Use this to discover participating agents on a shared brain before filtering searches by agent.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain.")),
         ToolMetadata::new(
-            "thoughtchain_get_agent",
+            "mentisdb_get_agent",
             "Return the full registry record for one agent in a chain, including description, aliases, public keys, status, and per-chain activity metadata.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to retrieve.").required()),
         ToolMetadata::new(
-            "thoughtchain_list_agent_registry",
+            "mentisdb_list_agent_registry",
             "Return the full per-chain agent registry, including descriptions, aliases, public keys, status, and per-chain activity metadata for every registered agent.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain.")),
         ToolMetadata::new(
-            "thoughtchain_upsert_agent",
+            "mentisdb_upsert_agent",
             "Create or update one agent registry record so a chain can track agent metadata even before the agent writes thoughts.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
@@ -1806,21 +1948,21 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("description", ToolParameterType::String).with_description("Optional free-form description of what the agent does."))
         .with_parameter(ToolParameter::new("status", ToolParameterType::String).with_description("Optional lifecycle status. Supported values: active, revoked.")),
         ToolMetadata::new(
-            "thoughtchain_set_agent_description",
+            "mentisdb_set_agent_description",
             "Set or clear the free-form description for one registered agent.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to update.").required())
         .with_parameter(ToolParameter::new("description", ToolParameterType::String).with_description("Description to store. Omit or use an empty string to clear.")),
         ToolMetadata::new(
-            "thoughtchain_add_agent_alias",
+            "mentisdb_add_agent_alias",
             "Add one historical or alternate alias to a registered agent.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to update.").required())
         .with_parameter(ToolParameter::new("alias", ToolParameterType::String).with_description("Alias to add to the agent record.").required()),
         ToolMetadata::new(
-            "thoughtchain_add_agent_key",
+            "mentisdb_add_agent_key",
             "Add or replace one public verification key on a registered agent. This is the intended path for future signed-thought workflows.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
@@ -1829,26 +1971,26 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("algorithm", ToolParameterType::String).with_description("Public-key algorithm. Currently supported: ed25519.").required())
         .with_parameter(ToolParameter::new("public_key_bytes", ToolParameterType::Array).with_description("Raw public-key bytes.").with_items(ToolParameterType::Integer).required()),
         ToolMetadata::new(
-            "thoughtchain_revoke_agent_key",
+            "mentisdb_revoke_agent_key",
             "Mark one previously registered public key as revoked for a given agent.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to update.").required())
         .with_parameter(ToolParameter::new("key_id", ToolParameterType::String).with_description("Stable identifier for the public key to revoke.").required()),
         ToolMetadata::new(
-            "thoughtchain_disable_agent",
+            "mentisdb_disable_agent",
             "Disable one agent by marking its registry status as revoked.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to disable.").required()),
         ToolMetadata::new(
-            "thoughtchain_recent_context",
+            "mentisdb_recent_context",
             "Render recent ThoughtChain context as a prompt snippet suitable for resuming work.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
         .with_parameter(ToolParameter::new("last_n", ToolParameterType::Integer).with_description("How many recent thoughts to include.")),
         ToolMetadata::new(
-            "thoughtchain_memory_markdown",
+            "mentisdb_memory_markdown",
             "Export a MEMORY.md style Markdown summary from ThoughtChain.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
@@ -1866,7 +2008,7 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("until", ToolParameterType::String).with_description("Optional RFC 3339 upper timestamp bound."))
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of thoughts.")),
         ToolMetadata::new(
-            "thoughtchain_head",
+            "mentisdb_head",
             "Return head metadata for a ThoughtChain including length, latest thought, and head hash.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key.")),
@@ -2064,7 +2206,7 @@ fn normalize_label(input: &str) -> String {
 fn format_interaction_log_entry(entry: &InteractionLogEntry) -> String {
     let metadata = &entry.metadata;
     let mut log_line = format!(
-        "[thoughtchaind] access={} op={} chain={} result_count={} agent_ids={} agent_names={} thought_types={} roles={} tags={} concepts={}",
+        "[mentisdbd] access={} op={} chain={} result_count={} agent_ids={} agent_names={} thought_types={} roles={} tags={} concepts={}",
         entry.access,
         entry.operation,
         entry.chain_key,
@@ -2106,16 +2248,24 @@ fn summarize_values(values: &[String]) -> String {
     )
 }
 
-fn env_u16(key: &str) -> Option<u16> {
-    std::env::var(key)
+fn env_var(keys: &[&str]) -> Result<String, std::env::VarError> {
+    for key in keys {
+        if let Ok(value) = std::env::var(key) {
+            return Ok(value);
+        }
+    }
+
+    Err(std::env::VarError::NotPresent)
+}
+
+fn env_u16(keys: &[&str]) -> Option<u16> {
+    env_var(keys)
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
 }
 
-fn env_bool(key: &str) -> Option<bool> {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| parse_bool_flag(&value))
+fn env_bool(keys: &[&str]) -> Option<bool> {
+    env_var(keys).ok().and_then(|value| parse_bool_flag(&value))
 }
 
 fn parse_bool_flag(value: &str) -> Option<bool> {
@@ -2123,5 +2273,28 @@ fn parse_bool_flag(value: &str) -> Option<bool> {
         "1" | "true" => Some(true),
         "0" | "false" => Some(false),
         _ => None,
+    }
+}
+
+fn canonical_tool_name(tool_name: &str) -> &str {
+    match tool_name {
+        "thoughtchain_bootstrap" => "mentisdb_bootstrap",
+        "thoughtchain_append" => "mentisdb_append",
+        "thoughtchain_append_retrospective" => "mentisdb_append_retrospective",
+        "thoughtchain_search" => "mentisdb_search",
+        "thoughtchain_list_chains" => "mentisdb_list_chains",
+        "thoughtchain_list_agents" => "mentisdb_list_agents",
+        "thoughtchain_get_agent" => "mentisdb_get_agent",
+        "thoughtchain_list_agent_registry" => "mentisdb_list_agent_registry",
+        "thoughtchain_upsert_agent" => "mentisdb_upsert_agent",
+        "thoughtchain_set_agent_description" => "mentisdb_set_agent_description",
+        "thoughtchain_add_agent_alias" => "mentisdb_add_agent_alias",
+        "thoughtchain_add_agent_key" => "mentisdb_add_agent_key",
+        "thoughtchain_revoke_agent_key" => "mentisdb_revoke_agent_key",
+        "thoughtchain_disable_agent" => "mentisdb_disable_agent",
+        "thoughtchain_recent_context" => "mentisdb_recent_context",
+        "thoughtchain_memory_markdown" => "mentisdb_memory_markdown",
+        "thoughtchain_head" => "mentisdb_head",
+        _ => tool_name,
     }
 }

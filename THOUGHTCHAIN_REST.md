@@ -1,6 +1,6 @@
-# ThoughtChain REST
+# MentisDB REST
 
-`thoughtchain` can also be exposed as a plain REST service for agents, services, CLIs, and orchestration systems that do not want to speak MCP.
+`MentisDB` can also be exposed as a plain REST service for agents, services, CLIs, and orchestration systems that do not want to speak MCP.
 
 This document describes the current REST interface implemented in `thoughtchain/src/server.rs`.
 
@@ -27,30 +27,33 @@ The basic usage pattern is:
 
 ## Running The Server
 
-The standalone daemon is `thoughtchaind`.
+The standalone daemon is `mentisdbd`.
+
+Primary environment variables now use the `MENTISDB_*` prefix. Legacy
+`THOUGHTCHAIN_*` aliases remain accepted for compatibility during the rename.
 
 Example:
 
 ```bash
-cargo run -p thoughtchain --bin thoughtchaind
+cargo run -p mentisdb --bin mentisdbd
 ```
 
 Environment variables:
 
-- `THOUGHTCHAIN_DIR`
-  Directory where ThoughtChain storage adapters store chain files.
-- `THOUGHTCHAIN_DEFAULT_KEY`
+- `MENTISDB_DIR`
+  Directory where MentisDB storage adapters store chain files.
+- `MENTISDB_DEFAULT_KEY`
   Default `chain_key` used when a request omits one.
-- `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
+- `MENTISDB_DEFAULT_STORAGE_ADAPTER`
   Default storage backend for newly created chains. Supported values: `binary`, `jsonl`.
   Default: `binary`
 - `THOUGHTCHAIN_STORAGE_ADAPTER`
-  Legacy alias for `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
-- `THOUGHTCHAIN_BIND_HOST`
+  Legacy alias for `MENTISDB_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
+- `MENTISDB_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
-- `THOUGHTCHAIN_MCP_PORT`
+- `MENTISDB_MCP_PORT`
   MCP server port. Default: `9471`
-- `THOUGHTCHAIN_REST_PORT`
+- `MENTISDB_REST_PORT`
   REST server port. Default: `9472`
 
 By default, the REST base URL is:
@@ -66,7 +69,7 @@ Every memory belongs to a `chain_key`.
 - If `chain_key` is omitted, the server uses its configured default chain.
 - Each chain is stored through a pluggable storage adapter.
 - The current daemon uses the binary storage adapter by default.
-- `thoughtchaind` migrates legacy schema-version `0` chains to the current schema on startup before serving traffic.
+- `mentisdbd` migrates legacy schema-version `0` chains to the current schema on startup before serving traffic.
 - Startup also reconciles older active storage files into the configured default adapter when needed.
 - The server verifies chain integrity when it opens a chain and attempts local repair during startup reconciliation when possible.
 
@@ -90,13 +93,13 @@ Response:
 ```json
 {
   "status": "ok",
-  "service": "thoughtchain"
+  "service": "mentisdb"
 }
 ```
 
 ### `GET /v1/chains`
 
-Lists the durable chain keys currently available in ThoughtChain storage.
+Lists the durable chain keys currently available in MentisDB storage.
 
 Response body:
 
@@ -766,7 +769,7 @@ That means:
 
 ## Relationship Between REST And MCP
 
-The REST and MCP services expose the same core ThoughtChain operations.
+The REST and MCP services expose the same core MentisDB operations.
 
 - REST is better for services, scripts, dashboards, and generic HTTP clients.
 - MCP is better when an agent framework wants memory to appear as callable tools.

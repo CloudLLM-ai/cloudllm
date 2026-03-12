@@ -8,11 +8,11 @@ use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use serde_json::json;
-use thoughtchain::server::{
-    mcp_router, rest_router, standard_mcp_router, ThoughtChainServerConfig,
-    ThoughtChainServiceConfig,
+use mentisdb::server::{
+    adopt_legacy_default_mentisdb_dir, mcp_router, rest_router, standard_mcp_router,
+    ThoughtChainServerConfig, ThoughtChainServiceConfig,
 };
-use thoughtchain::StorageAdapterKind;
+use mentisdb::StorageAdapterKind;
 use tower::util::ServiceExt;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -21,7 +21,7 @@ static ENV_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 fn unique_chain_dir() -> PathBuf {
     let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!(
-        "thoughtchain_server_test_{}_{}",
+        "mentisdb_server_test_{}_{}",
         std::process::id(),
         n
     ));
@@ -34,7 +34,7 @@ fn env_mutex() -> &'static Mutex<()> {
 }
 
 #[test]
-fn server_config_parses_thoughtchain_verbose_env_values() {
+fn server_config_parses_mentisdb_verbose_env_values() {
     let _guard = env_mutex().lock().unwrap();
     let original = std::env::var("THOUGHTCHAIN_VERBOSE").ok();
 
@@ -65,8 +65,50 @@ fn server_config_parses_thoughtchain_verbose_env_values() {
     }
 }
 
+#[test]
+fn legacy_default_storage_root_is_adopted_before_server_config_uses_default_dir() {
+    let _guard = env_mutex().lock().unwrap();
+    let original_home = std::env::var("HOME").ok();
+    let original_dir = std::env::var("THOUGHTCHAIN_DIR").ok();
+
+    let home_dir = unique_chain_dir();
+    let legacy_dir = home_dir.join(".cloudllm").join("thoughtchain");
+    let mentisdb_dir = home_dir.join(".cloudllm").join("mentisdb");
+    std::fs::create_dir_all(&legacy_dir).unwrap();
+    std::fs::write(legacy_dir.join("thoughtchain-registry.json"), "{}").unwrap();
+    std::fs::write(legacy_dir.join("chain-note.txt"), "legacy").unwrap();
+
+    std::env::set_var("HOME", &home_dir);
+    std::env::remove_var("THOUGHTCHAIN_DIR");
+
+    let report = adopt_legacy_default_mentisdb_dir()
+        .unwrap()
+        .expect("legacy default storage should be adopted");
+    assert_eq!(report.source_dir, legacy_dir);
+    assert_eq!(report.target_dir, mentisdb_dir);
+
+    let config = ThoughtChainServerConfig::from_env();
+    assert_eq!(config.service.chain_dir, mentisdb_dir);
+    assert!(config.service.chain_dir.join("mentisdb-registry.json").exists());
+    assert!(config.service.chain_dir.join("chain-note.txt").exists());
+    assert!(!legacy_dir.exists());
+
+    if let Some(original_home) = original_home {
+        std::env::set_var("HOME", original_home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+    if let Some(original_dir) = original_dir {
+        std::env::set_var("THOUGHTCHAIN_DIR", original_dir);
+    } else {
+        std::env::remove_var("THOUGHTCHAIN_DIR");
+    }
+
+    let _ = std::fs::remove_dir_all(&home_dir);
+}
+
 #[tokio::test]
-async fn mcp_router_lists_thoughtchain_tools() {
+async fn mcp_router_lists_mentisdb_tools() {
     let dir = unique_chain_dir();
     let router = mcp_router(ThoughtChainServiceConfig::new(
         dir.clone(),
@@ -94,41 +136,41 @@ async fn mcp_router_lists_thoughtchain_tools() {
     let tools = json["tools"].as_array().unwrap();
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_append"));
+        .any(|tool| tool["name"] == "mentisdb_append"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_append_retrospective"));
+        .any(|tool| tool["name"] == "mentisdb_append_retrospective"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_list_chains"));
+        .any(|tool| tool["name"] == "mentisdb_list_chains"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_list_agents"));
+        .any(|tool| tool["name"] == "mentisdb_list_agents"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_get_agent"));
+        .any(|tool| tool["name"] == "mentisdb_get_agent"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_list_agent_registry"));
+        .any(|tool| tool["name"] == "mentisdb_list_agent_registry"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_upsert_agent"));
+        .any(|tool| tool["name"] == "mentisdb_upsert_agent"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_set_agent_description"));
+        .any(|tool| tool["name"] == "mentisdb_set_agent_description"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_add_agent_alias"));
+        .any(|tool| tool["name"] == "mentisdb_add_agent_alias"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_add_agent_key"));
+        .any(|tool| tool["name"] == "mentisdb_add_agent_key"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_revoke_agent_key"));
+        .any(|tool| tool["name"] == "mentisdb_revoke_agent_key"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_disable_agent"));
-    assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
+        .any(|tool| tool["name"] == "mentisdb_disable_agent"));
+    assert!(tools.iter().any(|tool| tool["name"] == "mentisdb_head"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -669,7 +711,7 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
                     "protocolVersion": "2025-06-18",
                     "capabilities": {},
                     "clientInfo": {
-                        "name": "thoughtchain-test",
+                        "name": "mentisdb-test",
                         "version": "0.1.0"
                     }
                 }
@@ -698,7 +740,7 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     assert_eq!(initialize_json["result"]["protocolVersion"], "2025-06-18");
     assert_eq!(
         initialize_json["result"]["serverInfo"]["name"],
-        "thoughtchain"
+        "mentisdb"
     );
 
     let mut initialized_request = Request::builder()
@@ -748,23 +790,23 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     let tools = tools_json["result"]["tools"].as_array().unwrap();
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_append"));
+        .any(|tool| tool["name"] == "mentisdb_append"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_append_retrospective"));
+        .any(|tool| tool["name"] == "mentisdb_append_retrospective"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_list_chains"));
+        .any(|tool| tool["name"] == "mentisdb_list_chains"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_list_agents"));
+        .any(|tool| tool["name"] == "mentisdb_list_agents"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_get_agent"));
+        .any(|tool| tool["name"] == "mentisdb_get_agent"));
     assert!(tools
         .iter()
-        .any(|tool| tool["name"] == "thoughtchain_upsert_agent"));
-    assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
+        .any(|tool| tool["name"] == "mentisdb_upsert_agent"));
+    assert!(tools.iter().any(|tool| tool["name"] == "mentisdb_head"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

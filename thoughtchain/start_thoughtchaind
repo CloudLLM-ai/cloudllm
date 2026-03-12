@@ -4,11 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Optional configuration overrides:
-# export THOUGHTCHAIN_DIR="$HOME/.cloudllm/thoughtchain"
-# export THOUGHTCHAIN_DEFAULT_KEY="borganism-brain"
-# export THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER="binary"   # binary | jsonl
-# export THOUGHTCHAIN_BIND_HOST="127.0.0.1"
-# export THOUGHTCHAIN_MCP_PORT="9471"
-# export THOUGHTCHAIN_REST_PORT="9472"
+# export MENTISDB_DIR="$HOME/.cloudllm/mentisdb"
+# export MENTISDB_DEFAULT_KEY="borganism-brain"
+# export MENTISDB_DEFAULT_STORAGE_ADAPTER="binary"   # binary | jsonl
+# export MENTISDB_BIND_HOST="127.0.0.1"
+# export MENTISDB_MCP_PORT="9471"
+# export MENTISDB_REST_PORT="9472"
+# Legacy THOUGHTCHAIN_* aliases are still accepted during the rename.
 
-cargo run --bin thoughtchaind
+cargo run --bin mentisdbd

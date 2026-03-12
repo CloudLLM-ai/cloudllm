@@ -17,8 +17,11 @@
 //! - `RUST_LOG`
 
 use env_logger::Env;
-use thoughtchain::server::{start_servers, ThoughtChainServerConfig, ThoughtChainServerHandles};
-use thoughtchain::{
+use mentisdb::server::{
+    adopt_legacy_default_mentisdb_dir, start_servers, ThoughtChainServerConfig,
+    ThoughtChainServerHandles,
+};
+use mentisdb::{
     load_registered_chains, migrate_registered_chains_with_adapter, ThoughtChain,
     ThoughtChainMigrationEvent,
 };
@@ -39,41 +42,71 @@ const GREEN: &str = "\x1b[38;5;82m";
 const PINK: &str = "\x1b[38;5;213m";
 const RESET: &str = "\x1b[0m";
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     init_logger();
+    let storage_root_migration = if std::env::var_os("MENTISDB_DIR")
+        .or_else(|| std::env::var_os("THOUGHTCHAIN_DIR"))
+        .is_none()
+    {
+        adopt_legacy_default_mentisdb_dir()?
+    } else {
+        None
+    };
     let config = ThoughtChainServerConfig::from_env();
 
     print_banner();
-    println!("thoughtchain v{}", env!("CARGO_PKG_VERSION"));
-    println!("thoughtchaind starting");
+    println!("mentisdb v{}", env!("CARGO_PKG_VERSION"));
+    println!("mentisdbd starting");
+    if let Some(report) = &storage_root_migration {
+        println!("Legacy storage adoption:");
+        if report.renamed_root_dir {
+            println!(
+                "  Renamed {} -> {}",
+                report.source_dir.display(),
+                report.target_dir.display()
+            );
+        } else {
+            println!(
+                "  Merged {} legacy entries from {} into {}",
+                report.merged_entries,
+                report.source_dir.display(),
+                report.target_dir.display()
+            );
+        }
+        if report.renamed_registry_file {
+            println!("  Renamed thoughtchain-registry.json -> mentisdb-registry.json");
+        }
+    }
     println!("Configuration:");
     print_env_var(
-        "THOUGHTCHAIN_DIR",
+        &["MENTISDB_DIR", "THOUGHTCHAIN_DIR"],
         Some(config.service.chain_dir.display().to_string()),
     );
     print_env_var(
-        "THOUGHTCHAIN_DEFAULT_KEY",
+        &["MENTISDB_DEFAULT_KEY", "THOUGHTCHAIN_DEFAULT_KEY"],
         Some(config.service.default_chain_key.clone()),
     );
     print_env_var(
-        "THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER",
+        &[
+            "MENTISDB_DEFAULT_STORAGE_ADAPTER",
+            "THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER",
+        ],
         Some(config.service.default_storage_adapter.to_string()),
     );
     print_env_var(
-        "THOUGHTCHAIN_VERBOSE",
+        &["MENTISDB_VERBOSE", "THOUGHTCHAIN_VERBOSE"],
         Some(config.service.verbose.to_string()),
     );
     print_env_var(
-        "THOUGHTCHAIN_BIND_HOST",
+        &["MENTISDB_BIND_HOST", "THOUGHTCHAIN_BIND_HOST"],
         Some(config.mcp_addr.ip().to_string()),
     );
     print_env_var(
-        "THOUGHTCHAIN_MCP_PORT",
+        &["MENTISDB_MCP_PORT", "THOUGHTCHAIN_MCP_PORT"],
         Some(config.mcp_addr.port().to_string()),
     );
     print_env_var(
-        "THOUGHTCHAIN_REST_PORT",
+        &["MENTISDB_REST_PORT", "THOUGHTCHAIN_REST_PORT"],
         Some(config.rest_addr.port().to_string()),
     );
 
@@ -141,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let handles = start_servers(config.clone()).await?;
 
-    println!("thoughtchaind running");
+    println!("mentisdbd running");
     println!("Resolved endpoints:");
     println!("MCP server:  http://{}", handles.mcp.local_addr());
     println!("REST server: http://{}", handles.rest.local_addr());
@@ -153,17 +186,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn print_env_var(name: &str, effective_value: Option<String>) {
-    match std::env::var(name) {
-        Ok(raw_value) => println!(
-            "  {name}={raw_value} (effective: {})",
-            display_value(effective_value)
-        ),
-        Err(_) => println!(
-            "  {name}=<unset> (effective default: {})",
-            display_value(effective_value)
-        ),
+#[allow(dead_code)]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    run().await
+}
+
+fn print_env_var(names: &[&str], effective_value: Option<String>) {
+    let primary = names.first().copied().unwrap_or("<unknown>");
+    for name in names {
+        if let Ok(raw_value) = std::env::var(name) {
+            let label = if *name == primary {
+                (*name).to_string()
+            } else {
+                format!("{primary} (legacy {name})")
+            };
+            println!(
+                "  {label}={raw_value} (effective: {})",
+                display_value(effective_value)
+            );
+            return;
+        }
     }
+
+    println!(
+        "  {primary}=<unset> (effective default: {})",
+        display_value(effective_value)
+    );
 }
 
 fn display_value(value: Option<String>) -> String {

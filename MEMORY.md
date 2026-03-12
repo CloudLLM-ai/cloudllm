@@ -2,6 +2,10 @@
 
 This file is a human-readable export and snapshot.
 
+Note: this file is a historical memory export. Existing thoughts below retain
+the original ThoughtChain naming because they were recorded before the MentisDB
+rebrand.
+
 ThoughtChain is the authoritative durable memory source for this workspace and for Astro going forward.
 Use ThoughtChain first for memory retrieval, search, and persistence.
 Update this file from ThoughtChain exports when a human-readable snapshot is useful.

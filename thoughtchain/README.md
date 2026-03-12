@@ -1,6 +1,7 @@
-# thoughtchain
+# MentisDB
 
-`thoughtchain` is a standalone Rust crate for durable agent memory.
+MentisDB is the new product name for the standalone durable-memory crate that
+still lives under `thoughtchain/` in this repo during the rename.
 
 It stores semantically typed thoughts in an append-only, hash-chained memory
 log through a swappable storage adapter layer. The current default backend is
@@ -21,23 +22,23 @@ other agent systems without creating circular dependencies.
 If you just want the daemon:
 
 ```bash
-cargo install thoughtchain
-thoughtchaind
+cargo install mentisdb
+mentisdbd
 ```
 
 If you want to leave it running after closing your SSH session:
 
 ```bash
-nohup thoughtchaind &
+nohup mentisdbd &
 ```
 
 ## What Is In This Folder
 
 `thoughtchain/` contains:
 
-- the standalone `thoughtchain` library crate
+- the standalone `mentisdb` library crate
 - server support for HTTP MCP and REST, enabled by default
-- the `thoughtchaind` daemon binary
+- the `mentisdbd` daemon binary
 - dedicated tests under `thoughtchain/tests`
 
 ## Build
@@ -90,12 +91,12 @@ cargo doc --no-deps --no-default-features
 
 ## Run The Daemon
 
-The standalone daemon binary is `thoughtchaind`.
+The standalone daemon binary is `mentisdbd`.
 
 Run it from source:
 
 ```bash
-cargo run --bin thoughtchaind
+cargo run --bin mentisdbd
 ```
 
 Install it from the crate directory while working in this repo:
@@ -122,34 +123,36 @@ Once startup completes, it prints:
 
 ## Daemon Configuration
 
-`thoughtchaind` is configured with environment variables:
+`mentisdbd` is configured with environment variables:
 
-- `THOUGHTCHAIN_DIR`
-  Directory where ThoughtChain storage adapters store chain files.
-- `THOUGHTCHAIN_DEFAULT_KEY`
+- `MENTISDB_DIR`
+  Directory where MentisDB storage adapters store chain files.
+- `MENTISDB_DEFAULT_KEY`
   Default `chain_key` used when requests omit one. Default: `borganism-brain`
-- `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
+- `MENTISDB_DEFAULT_STORAGE_ADAPTER`
   Default storage backend for newly created chains. Supported values: `binary`, `jsonl`.
   Default: `binary`
 - `THOUGHTCHAIN_STORAGE_ADAPTER`
-  Legacy alias for `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
-- `THOUGHTCHAIN_BIND_HOST`
+  Legacy alias for `MENTISDB_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
+- `MENTISDB_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
-- `THOUGHTCHAIN_MCP_PORT`
+- `MENTISDB_MCP_PORT`
   MCP server port. Default: `9471`
-- `THOUGHTCHAIN_REST_PORT`
+- `MENTISDB_REST_PORT`
   REST server port. Default: `9472`
+
+Legacy `THOUGHTCHAIN_*` names remain accepted during the transition.
 
 Example:
 
 ```bash
-THOUGHTCHAIN_DIR=/tmp/thoughtchain \
-THOUGHTCHAIN_DEFAULT_KEY=borganism-brain \
-THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER=binary \
-THOUGHTCHAIN_BIND_HOST=127.0.0.1 \
-THOUGHTCHAIN_MCP_PORT=9471 \
-THOUGHTCHAIN_REST_PORT=9472 \
-cargo run --bin thoughtchaind
+MENTISDB_DIR=/tmp/mentisdb \
+MENTISDB_DEFAULT_KEY=borganism-brain \
+MENTISDB_DEFAULT_STORAGE_ADAPTER=binary \
+MENTISDB_BIND_HOST=127.0.0.1 \
+MENTISDB_MCP_PORT=9471 \
+MENTISDB_REST_PORT=9472 \
+cargo run --bin mentisdbd
 ```
 
 ## Server Surfaces
@@ -186,40 +189,42 @@ REST endpoints:
 
 The daemon currently exposes 17 MCP tools:
 
-- `thoughtchain_bootstrap`
+- `mentisdb_bootstrap`
   Create a chain if needed and write one bootstrap checkpoint when it is empty.
-- `thoughtchain_append`
+- `mentisdb_append`
   Append a durable semantic thought with optional tags, concepts, refs, and signature metadata.
-- `thoughtchain_append_retrospective`
+- `mentisdb_append_retrospective`
   Append a retrospective memory intended to prevent future agents from repeating a hard failure.
-- `thoughtchain_search`
+- `mentisdb_search`
   Search thoughts by semantic filters, identity filters, time bounds, and scoring thresholds.
-- `thoughtchain_list_chains`
+- `mentisdb_list_chains`
   List known chains with version, storage adapter, counts, and storage location.
-- `thoughtchain_list_agents`
+- `mentisdb_list_agents`
   List the distinct agent identities participating in one chain.
-- `thoughtchain_get_agent`
+- `mentisdb_get_agent`
   Return one full agent registry record, including status, aliases, description, keys, and per-chain activity metadata.
-- `thoughtchain_list_agent_registry`
+- `mentisdb_list_agent_registry`
   Return the full per-chain agent registry.
-- `thoughtchain_upsert_agent`
+- `mentisdb_upsert_agent`
   Create or update a registry record before or after an agent writes thoughts.
-- `thoughtchain_set_agent_description`
+- `mentisdb_set_agent_description`
   Set or clear the description stored for one registered agent.
-- `thoughtchain_add_agent_alias`
+- `mentisdb_add_agent_alias`
   Add a historical or alternate alias to a registered agent.
-- `thoughtchain_add_agent_key`
+- `mentisdb_add_agent_key`
   Add or replace one public verification key on a registered agent.
-- `thoughtchain_revoke_agent_key`
+- `mentisdb_revoke_agent_key`
   Revoke one previously registered public key.
-- `thoughtchain_disable_agent`
+- `mentisdb_disable_agent`
   Disable one agent by marking its registry status as revoked.
-- `thoughtchain_recent_context`
+- `mentisdb_recent_context`
   Render recent thoughts into a prompt snippet for session resumption.
-- `thoughtchain_memory_markdown`
+- `mentisdb_memory_markdown`
   Export a `MEMORY.md`-style Markdown view of the full chain or a filtered subset.
-- `thoughtchain_head`
+- `mentisdb_head`
   Return head metadata, latest thought summary, and integrity state.
+
+Legacy `thoughtchain_*` MCP tool names remain accepted for compatibility.
 
 The detailed request and response shapes for the MCP surface live in
 [`THOUGHTCHAIN_MCP.md`](../THOUGHTCHAIN_MCP.md). The REST equivalents live in
@@ -227,7 +232,7 @@ The detailed request and response shapes for the MCP surface live in
 
 ## Using With MCP Clients
 
-`thoughtchaind` exposes both:
+`mentisdbd` exposes both:
 
 - a standard streamable HTTP MCP endpoint at `POST /`
 - the legacy CloudLLM-compatible MCP endpoints at `POST /tools/list` and
@@ -243,14 +248,14 @@ That means you can:
 Codex CLI expects a streamable HTTP MCP server when you use `--url`:
 
 ```bash
-codex mcp add thoughtchain --url http://127.0.0.1:9471
+codex mcp add mentisdb --url http://127.0.0.1:9471
 ```
 
 Useful follow-up commands:
 
 ```bash
 codex mcp list
-codex mcp get thoughtchain
+codex mcp get mentisdb
 ```
 
 This connects Codex to the daemon's standard MCP root endpoint.
@@ -260,7 +265,7 @@ This connects Codex to the daemon's standard MCP root endpoint.
 Qwen Code uses the same HTTP MCP transport model:
 
 ```bash
-qwen mcp add --transport http thoughtchain http://127.0.0.1:9471
+qwen mcp add --transport http mentisdb http://127.0.0.1:9471
 ```
 
 Useful follow-up commands:
@@ -272,7 +277,7 @@ qwen mcp list
 For user-scoped configuration:
 
 ```bash
-qwen mcp add --scope user --transport http thoughtchain http://127.0.0.1:9471
+qwen mcp add --scope user --transport http mentisdb http://127.0.0.1:9471
 ```
 
 ### Claude Code
@@ -282,23 +287,23 @@ project/user MCP config. For a remote HTTP MCP server, the configuration shape
 is transport-based:
 
 ```bash
-claude mcp add --transport http thoughtchain http://127.0.0.1:9471
+claude mcp add --transport http mentisdb http://127.0.0.1:9471
 ```
 
 Useful follow-up commands:
 
 ```bash
 claude mcp list
-claude mcp get thoughtchain
+claude mcp get mentisdb
 ```
 
-Claude Code also supports JSON config files such as `.mcp.json`. A ThoughtChain
+Claude Code also supports JSON config files such as `.mcp.json`. A MentisDB
 HTTP MCP config looks like this:
 
 ```json
 {
   "mcpServers": {
-    "thoughtchain": {
+    "mentisdb": {
       "type": "http",
       "url": "http://127.0.0.1:9471"
     }
@@ -314,13 +319,13 @@ Important:
 
 ### GitHub Copilot CLI
 
-GitHub Copilot CLI can also connect to `thoughtchaind` as a remote HTTP MCP
+GitHub Copilot CLI can also connect to `mentisdbd` as a remote HTTP MCP
 server.
 
 From interactive mode:
 
 1. Run `/mcp add`
-2. Set `Server Name` to `thoughtchain`
+2. Set `Server Name` to `mentisdb`
 3. Set `Server Type` to `HTTP`
 4. Set `URL` to `http://127.0.0.1:9471`
 5. Leave headers empty unless you add auth later
@@ -331,7 +336,7 @@ You can also configure it manually in `~/.copilot/mcp-config.json`:
 ```json
 {
   "mcpServers": {
-    "thoughtchain": {
+    "mentisdb": {
       "type": "http",
       "url": "http://127.0.0.1:9471",
       "headers": {},
@@ -343,11 +348,11 @@ You can also configure it manually in `~/.copilot/mcp-config.json`:
 
 ## Retrospective Memory
 
-ThoughtChain supports a dedicated retrospective workflow for lessons learned.
+MentisDB supports a dedicated retrospective workflow for lessons learned.
 
-- Use `thoughtchain_append` for ordinary durable facts, constraints, decisions,
+- Use `mentisdb_append` for ordinary durable facts, constraints, decisions,
   plans, and summaries.
-- Use `thoughtchain_append_retrospective` after a repeated failure, a long snag,
+- Use `mentisdb_append_retrospective` after a repeated failure, a long snag,
   or a non-obvious fix when future agents should avoid repeating the same
   struggle.
 

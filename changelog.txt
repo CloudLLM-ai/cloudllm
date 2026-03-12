@@ -1,4 +1,8 @@
 0.13.0 MAR/11/2026
+Note: historical entries below use the original ThoughtChain / thoughtchaind
+names because they describe the repo as it shipped at the time. The project is
+now being rebranded to MentisDB / mentisdbd.
+
  - feat: Deepen ThoughtChain versioning, migration, and registry support
    - ThoughtChain thoughts now carry a schema version and optional signing metadata for future signed-agent workflows
    - Added per-chain agent registries and a global chain registry backing richer `list_chains` and `list_agents` responses

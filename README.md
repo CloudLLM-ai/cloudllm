@@ -11,7 +11,7 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
   multi-protocol tool system (local, remote MCP, Memory, custom protocols) with runtime hot-swapping,
 * **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/orchestration/index.html) engine
   supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, AnthropicAgentTeams, and Ralph collaboration patterns,
-* **ThoughtChain**: An effectively unbounded semantic memory primitive for agents, with SHA-256
+* **MentisDB**: An effectively unbounded semantic memory primitive for agents, with SHA-256
   hash-chained persistence, graph-based context resolution, and tamper-evident integrity verification,
 * **Context Strategies**: Pluggable strategies for handling context window exhaustion — Trim,
   SelfCompression (LLM writes its own save file), and NoveltyAware (entropy-based trigger),
@@ -47,7 +47,7 @@ crate-level manual.
 - [Provider Wrappers](#provider-wrappers)
 - [LLMSession: Stateful Conversations](#llmsession-stateful-conversations-the-foundation)
 - [Agents: Building Intelligent Workers with Tools](#agents-building-intelligent-workers-with-tools)
-- [ThoughtChain: Persistent Agent Memory](#thoughtchain-persistent-agent-memory)
+- [MentisDB: Persistent Agent Memory](#mentisdb-persistent-agent-memory)
 - [Context Strategies: Managing Context Window Exhaustion](#context-strategies-managing-context-window-exhaustion)
 - [Agent::fork() — Lightweight Copies for Parallel Execution](#agentfork--lightweight-copies-for-parallel-execution)
 - [Runtime Tool Hot-Swapping](#runtime-tool-hot-swapping)
@@ -92,7 +92,7 @@ CloudLLM has two core abstractions for talking to LLMs:
 | Abstraction | What it is | When to use it |
 |-------------|-----------|----------------|
 | **LLMSession** | Stateful conversation wrapper around any `ClientWrapper`. Maintains rolling history with automatic context trimming and token accounting. | Simple chat bots, Q&A, any 1-on-1 conversation with an LLM. |
-| **Agent** | Wraps LLMSession with an identity (name, expertise, personality), optional tools, persistent ThoughtChain memory, and pluggable context strategies. Can execute actions, not just converse. | Tool-using assistants, orchestrated multi-agent teams, autonomous workflows. |
+| **Agent** | Wraps LLMSession with an identity (name, expertise, personality), optional tools, persistent MentisDB memory, and pluggable context strategies. Can execute actions, not just converse. | Tool-using assistants, orchestrated multi-agent teams, autonomous workflows. |
 
 Think of it this way: **LLMSession is the foundation; Agent builds on top of it.**
 
@@ -616,15 +616,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-## ThoughtChain: Persistent Agent Memory
+## MentisDB: Persistent Agent Memory
 
-[`ThoughtChain`](https://docs.rs/thoughtchain/latest/thoughtchain/struct.ThoughtChain.html) is an
-append-only, SHA-256 hash-chained, adapter-backed memory log of agent thoughts. Each thought can carry
+MentisDB is the new product name for the durable memory system currently
+implemented in the standalone `thoughtchain` crate. Its core API is still
+exposed in code as [`thoughtchain::ThoughtChain`](https://docs.rs/thoughtchain/latest/thoughtchain/struct.ThoughtChain.html)
+while the repo completes the rename.
+
+It is an append-only, SHA-256 hash-chained, adapter-backed memory log of agent thoughts. Each thought can carry
 back-references and typed relations to earlier thoughts, forming a graph that enables efficient context
 resolution, replay, summarization, and memory export.
 
 ```text
-ThoughtChain (adapter-backed; binary by default)
+MentisDB (adapter-backed; binary by default)
   ├─ Thought #0  Insight   role=Memory      hash=abc1...   refs=[]
   ├─ Thought #1  Decision  role=Memory      hash=def2...   refs=[]      prev_hash=abc1...
   ├─ Thought #2  Mistake   role=Memory      hash=789a...   refs=[]      prev_hash=def2...
@@ -655,7 +659,7 @@ fn main() -> std::io::Result<()> {
         "astro",
         ThoughtInput::new(
             ThoughtType::Summary,
-            "ThoughtChain should be the durable memory source; MEMORY.md is a human-readable export.",
+            "MentisDB should be the durable memory source; MEMORY.md is a human-readable export.",
         )
         .with_agent_name("Astro")
         .with_role(ThoughtRole::Checkpoint)
@@ -669,7 +673,7 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-In CloudLLM, agents can still use ThoughtChain directly through
+In CloudLLM, agents can still use MentisDB directly through
 [`Agent::with_thought_chain`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/agent/struct.Agent.html#method.with_thought_chain),
 but the storage and query model now lives in the standalone `thoughtchain` crate. Persistence is
 adapter-backed through a `StorageAdapter` interface. The built-in backends today are:
@@ -680,7 +684,7 @@ adapter-backed through a `StorageAdapter` interface. The built-in backends today
 Use `ThoughtChain::verify_integrity()` to detect tampering, `ThoughtChain::search(...)` to query
 semantic memory, `ThoughtChain::resolve_context(index)` to reconstruct the minimal dependency graph
 for a thought, and `ThoughtChain::to_memory_markdown(...)` to export a `MEMORY.md`-style snapshot.
-For hard debugging snags or repeated failures, ThoughtChain now also supports dedicated
+For hard debugging snags or repeated failures, MentisDB now also supports dedicated
 retrospective memory via `ThoughtType::LessonLearned` and `ThoughtRole::Retrospective`.
 
 Resume a previously running agent from its chain:
@@ -711,30 +715,33 @@ let agent = Agent::resume_from_latest(
 # }
 ```
 
-### `thoughtchaind`: MCP + REST daemon for shared memory
+### `mentisdbd`: MCP + REST daemon for shared memory
 
-If you want ThoughtChain available to multiple agents, sessions, or external tools, run the
+If you want MentisDB available to multiple agents, sessions, or external tools, run the
 standalone daemon from the `thoughtchain/` crate:
 
 ```bash
-cargo install thoughtchain
-thoughtchaind
+cargo install mentisdb
+mentisdbd
 ```
+
+During the transition, legacy `thoughtchain` / `thoughtchaind` package and
+binary names may still appear in older automation.
 
 If you want it to keep running after you close your SSH session:
 
 ```bash
-nohup thoughtchaind &
+nohup mentisdbd &
 ```
 
 If you are developing inside this repo and want to run it from source:
 
 ```bash
 cd thoughtchain
-cargo run --bin thoughtchaind
+cargo run --bin mentisdbd
 ```
 
-`thoughtchaind` exposes:
+`mentisdbd` exposes:
 
 - standard MCP at `POST /`
 - legacy CloudLLM-compatible MCP endpoints at `POST /tools/list` and `POST /tools/execute`
@@ -744,12 +751,15 @@ cargo run --bin thoughtchaind
 
 The daemon is configured with environment variables:
 
-- `THOUGHTCHAIN_DIR`
-- `THOUGHTCHAIN_DEFAULT_KEY`
-- `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER=binary|jsonl`
-- `THOUGHTCHAIN_BIND_HOST`
-- `THOUGHTCHAIN_MCP_PORT`
-- `THOUGHTCHAIN_REST_PORT`
+- `MENTISDB_DIR`
+- `MENTISDB_DEFAULT_KEY`
+- `MENTISDB_DEFAULT_STORAGE_ADAPTER=binary|jsonl`
+- `MENTISDB_BIND_HOST`
+- `MENTISDB_MCP_PORT`
+- `MENTISDB_REST_PORT`
+
+Legacy `THOUGHTCHAIN_*` names remain accepted for compatibility during the
+rename.
 
 For full daemon usage, remote MCP examples, and the REST contract, see:
 
@@ -768,7 +778,7 @@ approaches its token budget.
 | Strategy | Trigger | Action |
 |----------|---------|--------|
 | **TrimStrategy** (default) | Token ratio > 0.85 | No-op — LLMSession's built-in trimming handles it |
-| **SelfCompressionStrategy** | Token ratio > 0.80 | LLM writes a structured save file; persisted to ThoughtChain |
+| **SelfCompressionStrategy** | Token ratio > 0.80 | LLM writes a structured save file; persisted to MentisDB |
 | **NoveltyAwareStrategy** | High pressure always; moderate pressure + low novelty | Delegates to inner strategy (typically SelfCompression) |
 
 ```rust,no_run
@@ -935,7 +945,7 @@ during its lifecycle. Every variant carries `agent_id` and `agent_name` for iden
 | **`ToolCallDetected`** | `tool_name`, `parameters`, `iteration` | When a tool call is parsed from the LLM response |
 | **`ToolExecutionCompleted`** | `tool_name`, `parameters`, `success`, `error`, `result`, `iteration` | After a tool finishes executing |
 | **`ToolMaxIterationsReached`** | _(none extra)_ | When the tool loop hits its iteration cap |
-| **`ThoughtCommitted`** | `thought_type` | After a thought is appended to the ThoughtChain |
+| **`ThoughtCommitted`** | `thought_type` | After a thought is appended to the MentisDB |
 | **`ProtocolAdded`** | `protocol_name` | When a new tool protocol is added to the agent |
 | **`ProtocolRemoved`** | `protocol_name` | When a tool protocol is removed |
 | **`SystemPromptSet`** | _(none extra)_ | When the agent's system prompt is set or replaced |

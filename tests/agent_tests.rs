@@ -7,7 +7,7 @@ use cloudllm::tool_protocols::CustomToolProtocol;
 use cloudllm::Agent;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
-use thoughtchain::{ThoughtChain, ThoughtType};
+use mentisdb::{ThoughtChain, ThoughtType};
 use tokio::sync::RwLock;
 
 struct MockClient {
