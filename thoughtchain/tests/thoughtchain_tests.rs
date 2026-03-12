@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use thoughtchain::{
+    AgentStatus, PublicKeyAlgorithm,
     chain_filename, chain_key_from_storage_filename, chain_storage_filename,
     load_registered_chains, migrate_registered_chains, migrate_registered_chains_with_adapter,
     signable_thought_payload,
@@ -496,6 +497,66 @@ fn signable_payload_is_stable_for_normalized_input() {
     );
 
     assert_eq!(first, second);
+}
+
+#[test]
+fn agent_registry_admin_methods_manage_metadata_and_keys() {
+    let dir = unique_chain_dir();
+    let mut chain = ThoughtChain::open_with_key(&dir, "registry-admin").unwrap();
+
+    let created = chain
+        .upsert_agent(
+            "agent-admin",
+            Some("Registry Admin"),
+            Some("@gubatron"),
+            Some("Admin test agent"),
+            Some(AgentStatus::Active),
+        )
+        .unwrap();
+    assert_eq!(created.display_name, "Registry Admin");
+    assert_eq!(created.owner.as_deref(), Some("@gubatron"));
+    assert_eq!(created.description.as_deref(), Some("Admin test agent"));
+
+    let described = chain
+        .set_agent_description("agent-admin", Some("Updated admin agent"))
+        .unwrap();
+    assert_eq!(described.description.as_deref(), Some("Updated admin agent"));
+
+    let aliased = chain.add_agent_alias("agent-admin", "astro-admin").unwrap();
+    assert!(aliased.aliases.iter().any(|alias| alias == "astro-admin"));
+
+    let keyed = chain
+        .add_agent_key(
+            "agent-admin",
+            "main-ed25519",
+            PublicKeyAlgorithm::Ed25519,
+            vec![1, 2, 3, 4],
+        )
+        .unwrap();
+    assert_eq!(keyed.public_keys.len(), 1);
+    assert_eq!(keyed.public_keys[0].algorithm, PublicKeyAlgorithm::Ed25519);
+
+    let revoked = chain.revoke_agent_key("agent-admin", "main-ed25519").unwrap();
+    assert!(revoked.public_keys[0].revoked_at.is_some());
+
+    let disabled = chain.disable_agent("agent-admin").unwrap();
+    assert_eq!(disabled.status, AgentStatus::Revoked);
+
+    let listed = chain.list_agent_registry();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].agent_id, "agent-admin");
+
+    drop(chain);
+
+    let reloaded = ThoughtChain::open_with_key(&dir, "registry-admin").unwrap();
+    let record = reloaded.get_agent("agent-admin").unwrap();
+    assert_eq!(record.description.as_deref(), Some("Updated admin agent"));
+    assert!(record.aliases.iter().any(|alias| alias == "astro-admin"));
+    assert_eq!(record.status, AgentStatus::Revoked);
+    assert_eq!(record.public_keys.len(), 1);
+    assert!(record.public_keys[0].revoked_at.is_some());
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

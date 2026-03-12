@@ -25,8 +25,9 @@
 //! - `POST /v1/agents`
 
 use crate::{
-    load_registered_chains, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
-    ThoughtRole, ThoughtType, THOUGHTCHAIN_CURRENT_VERSION,
+    load_registered_chains, AgentRecord, AgentStatus, PublicKeyAlgorithm, StorageAdapterKind,
+    Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRole, ThoughtType,
+    THOUGHTCHAIN_CURRENT_VERSION,
 };
 use async_trait::async_trait;
 use axum::extract::State;
@@ -43,6 +44,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::error::Error;
+use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -367,6 +369,20 @@ pub fn rest_router(config: ThoughtChainServiceConfig) -> Router {
         .route("/v1/head", post(rest_head_handler))
         .route("/v1/chains", get(rest_list_chains_handler))
         .route("/v1/agents", post(rest_list_agents_handler))
+        .route("/v1/agent", post(rest_get_agent_handler))
+        .route("/v1/agent-registry", post(rest_list_agent_registry_handler))
+        .route("/v1/agents/upsert", post(rest_upsert_agent_handler))
+        .route(
+            "/v1/agents/description",
+            post(rest_set_agent_description_handler),
+        )
+        .route("/v1/agents/aliases", post(rest_add_agent_alias_handler))
+        .route("/v1/agents/keys", post(rest_add_agent_key_handler))
+        .route(
+            "/v1/agents/keys/revoke",
+            post(rest_revoke_agent_key_handler),
+        )
+        .route("/v1/agents/disable", post(rest_disable_agent_handler))
         .with_state(service)
 }
 
@@ -444,6 +460,33 @@ impl ToolProtocol for ThoughtChainMcpProtocol {
             "thoughtchain_list_chains" => self.service.list_chains_json().await,
             "thoughtchain_list_agents" => {
                 parse_and_call(parameters, |request| self.service.list_agents(request)).await
+            }
+            "thoughtchain_get_agent" => {
+                parse_and_call(parameters, |request| self.service.get_agent(request)).await
+            }
+            "thoughtchain_list_agent_registry" => {
+                parse_and_call(parameters, |request| self.service.list_agent_registry(request)).await
+            }
+            "thoughtchain_upsert_agent" => {
+                parse_and_call(parameters, |request| self.service.upsert_agent(request)).await
+            }
+            "thoughtchain_set_agent_description" => {
+                parse_and_call(parameters, |request| {
+                    self.service.set_agent_description(request)
+                })
+                .await
+            }
+            "thoughtchain_add_agent_alias" => {
+                parse_and_call(parameters, |request| self.service.add_agent_alias(request)).await
+            }
+            "thoughtchain_add_agent_key" => {
+                parse_and_call(parameters, |request| self.service.add_agent_key(request)).await
+            }
+            "thoughtchain_revoke_agent_key" => {
+                parse_and_call(parameters, |request| self.service.revoke_agent_key(request)).await
+            }
+            "thoughtchain_disable_agent" => {
+                parse_and_call(parameters, |request| self.service.disable_agent(request)).await
             }
             "thoughtchain_recent_context" => {
                 parse_and_call(parameters, |request| self.service.recent_context(request)).await
@@ -821,6 +864,187 @@ impl ThoughtChainService {
         Ok(ListAgentsResponse { chain_key, agents })
     }
 
+    async fn get_agent(
+        &self,
+        request: GetAgentRequest,
+    ) -> Result<AgentRecordResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let chain = chain.read().await;
+        let agent = chain.get_agent(&request.agent_id).cloned().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "No agent '{}' is registered in chain '{}'",
+                    request.agent_id, chain_key
+                ),
+            )
+        })?;
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "get_agent",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(1),
+            note: Some(format!("agent_id={}", request.agent_id)),
+        });
+        Ok(AgentRecordResponse { chain_key, agent })
+    }
+
+    async fn list_agent_registry(
+        &self,
+        request: ListAgentRegistryRequest,
+    ) -> Result<AgentRegistryResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let chain = chain.read().await;
+        let agents = chain
+            .list_agent_registry()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "list_agent_registry",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(agents.len()),
+            note: None,
+        });
+        Ok(AgentRegistryResponse { chain_key, agents })
+    }
+
+    async fn upsert_agent(
+        &self,
+        request: UpsertAgentRequest,
+    ) -> Result<AgentRecordResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let mut chain = chain.write().await;
+        let status = request
+            .status
+            .as_deref()
+            .map(parse_agent_status)
+            .transpose()?;
+        let agent = chain.upsert_agent(
+            &request.agent_id,
+            request.display_name.as_deref(),
+            request.agent_owner.as_deref(),
+            request.description.as_deref(),
+            status,
+        )?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "upsert_agent",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(1),
+            note: Some(format!("agent_id={}", request.agent_id)),
+        });
+        Ok(AgentRecordResponse { chain_key, agent })
+    }
+
+    async fn set_agent_description(
+        &self,
+        request: SetAgentDescriptionRequest,
+    ) -> Result<AgentRecordResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let mut chain = chain.write().await;
+        let agent = chain.set_agent_description(&request.agent_id, request.description.as_deref())?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "set_agent_description",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(1),
+            note: Some(format!("agent_id={}", request.agent_id)),
+        });
+        Ok(AgentRecordResponse { chain_key, agent })
+    }
+
+    async fn add_agent_alias(
+        &self,
+        request: AddAgentAliasRequest,
+    ) -> Result<AgentRecordResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let mut chain = chain.write().await;
+        let agent = chain.add_agent_alias(&request.agent_id, &request.alias)?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "add_agent_alias",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(1),
+            note: Some(format!("agent_id={}", request.agent_id)),
+        });
+        Ok(AgentRecordResponse { chain_key, agent })
+    }
+
+    async fn add_agent_key(
+        &self,
+        request: AddAgentKeyRequest,
+    ) -> Result<AgentRecordResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let mut chain = chain.write().await;
+        let algorithm = parse_public_key_algorithm(&request.algorithm)?;
+        let agent = chain.add_agent_key(
+            &request.agent_id,
+            &request.key_id,
+            algorithm,
+            request.public_key_bytes,
+        )?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "add_agent_key",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(1),
+            note: Some(format!("agent_id={}", request.agent_id)),
+        });
+        Ok(AgentRecordResponse { chain_key, agent })
+    }
+
+    async fn revoke_agent_key(
+        &self,
+        request: RevokeAgentKeyRequest,
+    ) -> Result<AgentRecordResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let mut chain = chain.write().await;
+        let agent = chain.revoke_agent_key(&request.agent_id, &request.key_id)?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "revoke_agent_key",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(1),
+            note: Some(format!("agent_id={}", request.agent_id)),
+        });
+        Ok(AgentRecordResponse { chain_key, agent })
+    }
+
+    async fn disable_agent(
+        &self,
+        request: DisableAgentRequest,
+    ) -> Result<AgentRecordResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let mut chain = chain.write().await;
+        let agent = chain.disable_agent(&request.agent_id)?;
+        self.log_interaction(InteractionLogEntry {
+            access: "write",
+            operation: "disable_agent",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::default(),
+            result_count: Some(1),
+            note: Some(format!("agent_id={}", request.agent_id)),
+        });
+        Ok(AgentRecordResponse { chain_key, agent })
+    }
+
     async fn recent_context(
         &self,
         request: RecentContextRequest,
@@ -1118,6 +1342,63 @@ struct ListAgentsRequest {
     chain_key: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct GetAgentRequest {
+    chain_key: Option<String>,
+    agent_id: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ListAgentRegistryRequest {
+    chain_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpsertAgentRequest {
+    chain_key: Option<String>,
+    agent_id: String,
+    display_name: Option<String>,
+    agent_owner: Option<String>,
+    description: Option<String>,
+    status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SetAgentDescriptionRequest {
+    chain_key: Option<String>,
+    agent_id: String,
+    description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AddAgentAliasRequest {
+    chain_key: Option<String>,
+    agent_id: String,
+    alias: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AddAgentKeyRequest {
+    chain_key: Option<String>,
+    agent_id: String,
+    key_id: String,
+    algorithm: String,
+    public_key_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RevokeAgentKeyRequest {
+    chain_key: Option<String>,
+    agent_id: String,
+    key_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DisableAgentRequest {
+    chain_key: Option<String>,
+    agent_id: String,
+}
+
 #[derive(Debug, Serialize)]
 struct ListChainsResponse {
     default_chain_key: String,
@@ -1146,6 +1427,18 @@ struct AgentIdentitySummary {
 struct ListAgentsResponse {
     chain_key: String,
     agents: Vec<AgentIdentitySummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct AgentRecordResponse {
+    chain_key: String,
+    agent: AgentRecord,
+}
+
+#[derive(Debug, Serialize)]
+struct AgentRegistryResponse {
+    chain_key: String,
+    agents: Vec<AgentRecord>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1286,6 +1579,62 @@ async fn rest_list_agents_handler(
     service_call(service.list_agents(request).await)
 }
 
+async fn rest_get_agent_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<GetAgentRequest>,
+) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.get_agent(request).await)
+}
+
+async fn rest_list_agent_registry_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<ListAgentRegistryRequest>,
+) -> Result<Json<AgentRegistryResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.list_agent_registry(request).await)
+}
+
+async fn rest_upsert_agent_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<UpsertAgentRequest>,
+) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.upsert_agent(request).await)
+}
+
+async fn rest_set_agent_description_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<SetAgentDescriptionRequest>,
+) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.set_agent_description(request).await)
+}
+
+async fn rest_add_agent_alias_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<AddAgentAliasRequest>,
+) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.add_agent_alias(request).await)
+}
+
+async fn rest_add_agent_key_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<AddAgentKeyRequest>,
+) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.add_agent_key(request).await)
+}
+
+async fn rest_revoke_agent_key_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<RevokeAgentKeyRequest>,
+) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.revoke_agent_key(request).await)
+}
+
+async fn rest_disable_agent_handler(
+    State(service): State<Arc<ThoughtChainService>>,
+    Json(request): Json<DisableAgentRequest>,
+) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.disable_agent(request).await)
+}
+
 async fn rest_recent_context_handler(
     State(service): State<Arc<ThoughtChainService>>,
     Json(request): Json<RecentContextRequest>,
@@ -1388,7 +1737,9 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("confidence", ToolParameterType::Number).with_description("Optional confidence score between 0.0 and 1.0."))
         .with_parameter(ToolParameter::new("tags", ToolParameterType::Array).with_description("Optional tags.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("concepts", ToolParameterType::Array).with_description("Optional semantic concepts.").with_items(ToolParameterType::String))
-        .with_parameter(ToolParameter::new("refs", ToolParameterType::Array).with_description("Optional referenced thought indices.").with_items(ToolParameterType::Integer)),
+        .with_parameter(ToolParameter::new("refs", ToolParameterType::Array).with_description("Optional referenced thought indices.").with_items(ToolParameterType::Integer))
+        .with_parameter(ToolParameter::new("signing_key_id", ToolParameterType::String).with_description("Optional key id used to verify the detached thought signature."))
+        .with_parameter(ToolParameter::new("thought_signature", ToolParameterType::Array).with_description("Optional detached signature bytes for the signable thought payload.").with_items(ToolParameterType::Integer)),
         ToolMetadata::new(
             "thoughtchain_append_retrospective",
             "Append a guided retrospective memory after a hard failure, repeated snag, or non-obvious fix. Prefer this over thoughtchain_append when you want future agents to avoid repeating the same struggle. This tool defaults to ThoughtType LessonLearned and always records the thought with role Retrospective.",
@@ -1403,7 +1754,9 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("confidence", ToolParameterType::Number).with_description("Optional confidence score between 0.0 and 1.0."))
         .with_parameter(ToolParameter::new("tags", ToolParameterType::Array).with_description("Optional tags.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("concepts", ToolParameterType::Array).with_description("Optional semantic concepts.").with_items(ToolParameterType::String))
-        .with_parameter(ToolParameter::new("refs", ToolParameterType::Array).with_description("Optional referenced thought indices, such as the mistake, correction, or earlier checkpoint that motivated the lesson.").with_items(ToolParameterType::Integer)),
+        .with_parameter(ToolParameter::new("refs", ToolParameterType::Array).with_description("Optional referenced thought indices, such as the mistake, correction, or earlier checkpoint that motivated the lesson.").with_items(ToolParameterType::Integer))
+        .with_parameter(ToolParameter::new("signing_key_id", ToolParameterType::String).with_description("Optional key id used to verify the detached thought signature."))
+        .with_parameter(ToolParameter::new("thought_signature", ToolParameterType::Array).with_description("Optional detached signature bytes for the signable thought payload.").with_items(ToolParameterType::Integer)),
         ToolMetadata::new(
             "thoughtchain_search",
             "Search durable memories by text, type, role, tags, concepts, and importance.",
@@ -1418,6 +1771,9 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("agent_names", ToolParameterType::Array).with_description("Optional producing agent names to match.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("agent_owners", ToolParameterType::Array).with_description("Optional producing agent owners to match.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("min_importance", ToolParameterType::Number).with_description("Optional minimum importance threshold."))
+        .with_parameter(ToolParameter::new("min_confidence", ToolParameterType::Number).with_description("Optional minimum confidence threshold."))
+        .with_parameter(ToolParameter::new("since", ToolParameterType::String).with_description("Optional RFC 3339 lower timestamp bound."))
+        .with_parameter(ToolParameter::new("until", ToolParameterType::String).with_description("Optional RFC 3339 upper timestamp bound."))
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of results.")),
         ToolMetadata::new(
             "thoughtchain_list_chains",
@@ -1428,6 +1784,63 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
             "List the distinct agent identities that have written to a particular chain key. Use this to discover participating agents on a shared brain before filtering searches by agent.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain.")),
+        ToolMetadata::new(
+            "thoughtchain_get_agent",
+            "Return the full registry record for one agent in a chain, including description, aliases, public keys, status, and per-chain activity metadata.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to retrieve.").required()),
+        ToolMetadata::new(
+            "thoughtchain_list_agent_registry",
+            "Return the full per-chain agent registry, including descriptions, aliases, public keys, status, and per-chain activity metadata for every registered agent.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain.")),
+        ToolMetadata::new(
+            "thoughtchain_upsert_agent",
+            "Create or update one agent registry record so a chain can track agent metadata even before the agent writes thoughts.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to create or update.").required())
+        .with_parameter(ToolParameter::new("display_name", ToolParameterType::String).with_description("Optional friendly display name for the agent."))
+        .with_parameter(ToolParameter::new("agent_owner", ToolParameterType::String).with_description("Optional owner, tenant, or grouping label for the agent."))
+        .with_parameter(ToolParameter::new("description", ToolParameterType::String).with_description("Optional free-form description of what the agent does."))
+        .with_parameter(ToolParameter::new("status", ToolParameterType::String).with_description("Optional lifecycle status. Supported values: active, revoked.")),
+        ToolMetadata::new(
+            "thoughtchain_set_agent_description",
+            "Set or clear the free-form description for one registered agent.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to update.").required())
+        .with_parameter(ToolParameter::new("description", ToolParameterType::String).with_description("Description to store. Omit or use an empty string to clear.")),
+        ToolMetadata::new(
+            "thoughtchain_add_agent_alias",
+            "Add one historical or alternate alias to a registered agent.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to update.").required())
+        .with_parameter(ToolParameter::new("alias", ToolParameterType::String).with_description("Alias to add to the agent record.").required()),
+        ToolMetadata::new(
+            "thoughtchain_add_agent_key",
+            "Add or replace one public verification key on a registered agent. This is the intended path for future signed-thought workflows.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to update.").required())
+        .with_parameter(ToolParameter::new("key_id", ToolParameterType::String).with_description("Stable identifier for the public key.").required())
+        .with_parameter(ToolParameter::new("algorithm", ToolParameterType::String).with_description("Public-key algorithm. Currently supported: ed25519.").required())
+        .with_parameter(ToolParameter::new("public_key_bytes", ToolParameterType::Array).with_description("Raw public-key bytes.").with_items(ToolParameterType::Integer).required()),
+        ToolMetadata::new(
+            "thoughtchain_revoke_agent_key",
+            "Mark one previously registered public key as revoked for a given agent.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to update.").required())
+        .with_parameter(ToolParameter::new("key_id", ToolParameterType::String).with_description("Stable identifier for the public key to revoke.").required()),
+        ToolMetadata::new(
+            "thoughtchain_disable_agent",
+            "Disable one agent by marking its registry status as revoked.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key. Defaults to the server default chain."))
+        .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to disable.").required()),
         ToolMetadata::new(
             "thoughtchain_recent_context",
             "Render recent ThoughtChain context as a prompt snippet suitable for resuming work.",
@@ -1448,6 +1861,9 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("agent_names", ToolParameterType::Array).with_description("Optional producing agent names to match.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("agent_owners", ToolParameterType::Array).with_description("Optional producing agent owners to match.").with_items(ToolParameterType::String))
         .with_parameter(ToolParameter::new("min_importance", ToolParameterType::Number).with_description("Optional minimum importance threshold."))
+        .with_parameter(ToolParameter::new("min_confidence", ToolParameterType::Number).with_description("Optional minimum confidence threshold."))
+        .with_parameter(ToolParameter::new("since", ToolParameterType::String).with_description("Optional RFC 3339 lower timestamp bound."))
+        .with_parameter(ToolParameter::new("until", ToolParameterType::String).with_description("Optional RFC 3339 upper timestamp bound."))
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of thoughts.")),
         ToolMetadata::new(
             "thoughtchain_head",
@@ -1608,6 +2024,18 @@ fn parse_storage_adapter_kind(
 ) -> Result<StorageAdapterKind, Box<dyn Error + Send + Sync>> {
     input
         .parse::<StorageAdapterKind>()
+        .map_err(|error| error.into())
+}
+
+fn parse_agent_status(input: &str) -> Result<AgentStatus, Box<dyn Error + Send + Sync>> {
+    input.parse::<AgentStatus>().map_err(|error| error.into())
+}
+
+fn parse_public_key_algorithm(
+    input: &str,
+) -> Result<PublicKeyAlgorithm, Box<dyn Error + Send + Sync>> {
+    input
+        .parse::<PublicKeyAlgorithm>()
         .map_err(|error| error.into())
 }
 

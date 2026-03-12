@@ -3,7 +3,7 @@
 //! `thoughtchain` provides an append-only, adapter-backed memory log for
 //! durable, queryable cognitive state. Thoughts are timestamped, hash-chained,
 //! typed, optionally connected to prior thoughts, and exportable as prompts or
-//! Markdown memory snapshots. The current default backend is JSONL, but the
+//! Markdown memory snapshots. The current default backend is binary, but the
 //! chain model is intentionally independent from any single storage format.
 #![warn(missing_docs)]
 
@@ -302,6 +302,34 @@ pub enum PublicKeyAlgorithm {
     Ed25519,
 }
 
+impl PublicKeyAlgorithm {
+    /// Return the stable lowercase name of this key algorithm.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ed25519 => "ed25519",
+        }
+    }
+}
+
+impl fmt::Display for PublicKeyAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for PublicKeyAlgorithm {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "ed25519" => Ok(Self::Ed25519),
+            other => Err(format!(
+                "Unsupported ThoughtChain public-key algorithm '{other}'. Expected 'ed25519'"
+            )),
+        }
+    }
+}
+
 /// Public verification key associated with an agent identity.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentPublicKey {
@@ -324,6 +352,36 @@ pub enum AgentStatus {
     Active,
     /// The agent has been revoked or retired.
     Revoked,
+}
+
+impl AgentStatus {
+    /// Return the stable lowercase name of this agent status.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Revoked => "revoked",
+        }
+    }
+}
+
+impl fmt::Display for AgentStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for AgentStatus {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "active" => Ok(Self::Active),
+            "revoked" | "disabled" => Ok(Self::Revoked),
+            other => Err(format!(
+                "Unsupported ThoughtChain agent status '{other}'. Expected 'active' or 'revoked'"
+            )),
+        }
+    }
 }
 
 /// Registry entry describing one durable agent identity.
@@ -356,6 +414,23 @@ pub struct AgentRecord {
 }
 
 impl AgentRecord {
+    fn stub(agent_id: &str) -> Self {
+        Self {
+            agent_id: agent_id.to_string(),
+            display_name: agent_id.to_string(),
+            owner: None,
+            description: None,
+            aliases: Vec::new(),
+            public_keys: Vec::new(),
+            status: AgentStatus::Active,
+            first_seen_index: None,
+            last_seen_index: None,
+            first_seen_at: None,
+            last_seen_at: None,
+            thought_count: 0,
+        }
+    }
+
     fn new(
         agent_id: &str,
         display_name: &str,
@@ -418,6 +493,70 @@ impl AgentRecord {
         self.last_seen_index = Some(index);
         self.last_seen_at = Some(timestamp);
         self.thought_count += 1;
+    }
+
+    fn set_display_name(&mut self, display_name: &str) {
+        let display_name = display_name.trim();
+        if display_name.is_empty() || equals_case_insensitive(display_name, &self.display_name) {
+            return;
+        }
+        if !self
+            .aliases
+            .iter()
+            .any(|alias| equals_case_insensitive(alias, display_name))
+        {
+            self.aliases.push(self.display_name.clone());
+        }
+        self.display_name = display_name.to_string();
+    }
+
+    fn set_owner(&mut self, owner: Option<&str>) {
+        self.owner = owner
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+    }
+
+    fn set_description(&mut self, description: Option<&str>) {
+        self.description = description
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+    }
+
+    fn add_alias(&mut self, alias: &str) {
+        let alias = alias.trim();
+        if alias.is_empty()
+            || equals_case_insensitive(alias, &self.display_name)
+            || self
+                .aliases
+                .iter()
+                .any(|existing| equals_case_insensitive(existing, alias))
+        {
+            return;
+        }
+        self.aliases.push(alias.to_string());
+    }
+
+    fn add_public_key(&mut self, key: AgentPublicKey) {
+        if let Some(existing) = self
+            .public_keys
+            .iter_mut()
+            .find(|existing| existing.key_id == key.key_id)
+        {
+            *existing = key;
+        } else {
+            self.public_keys.push(key);
+        }
+    }
+
+    fn revoke_key(&mut self, key_id: &str, revoked_at: DateTime<Utc>) -> bool {
+        if let Some(existing) = self.public_keys.iter_mut().find(|key| key.key_id == key_id) {
+            existing.revoked_at = Some(revoked_at);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -1726,8 +1865,143 @@ impl ThoughtChain {
         &self.agent_registry
     }
 
+    /// Return one registered agent record by stable `agent_id`.
+    pub fn get_agent(&self, agent_id: &str) -> Option<&AgentRecord> {
+        self.agent_registry.agents.get(agent_id)
+    }
+
+    /// Return the full per-chain agent registry as an ordered list of records.
+    pub fn list_agent_registry(&self) -> Vec<&AgentRecord> {
+        self.agent_registry.agents.values().collect()
+    }
+
+    /// Create or update a durable agent record in the per-chain registry.
+    ///
+    /// This allows callers to register agents before they write thoughts or to
+    /// enrich existing registry entries with descriptive metadata.
+    pub fn upsert_agent(
+        &mut self,
+        agent_id: &str,
+        display_name: Option<&str>,
+        owner: Option<&str>,
+        description: Option<&str>,
+        status: Option<AgentStatus>,
+    ) -> io::Result<AgentRecord> {
+        let agent_id = normalize_non_empty_label(agent_id, "agent_id")?;
+        let record = self
+            .agent_registry
+            .agents
+            .entry(agent_id.clone())
+            .or_insert_with(|| AgentRecord::stub(&agent_id));
+        if let Some(display_name) = display_name {
+            record.set_display_name(display_name);
+        }
+        if owner.is_some() {
+            record.set_owner(owner);
+        }
+        if description.is_some() {
+            record.set_description(description);
+        }
+        if let Some(status) = status {
+            record.status = status;
+        }
+        let updated = record.clone();
+        self.persist_registries()?;
+        Ok(updated)
+    }
+
+    /// Set or clear the free-form description of one registered agent.
+    pub fn set_agent_description(
+        &mut self,
+        agent_id: &str,
+        description: Option<&str>,
+    ) -> io::Result<AgentRecord> {
+        let record = self.agent_record_mut(agent_id)?;
+        record.set_description(description);
+        let updated = record.clone();
+        self.persist_registries()?;
+        Ok(updated)
+    }
+
+    /// Add one alias to an existing registered agent.
+    pub fn add_agent_alias(&mut self, agent_id: &str, alias: &str) -> io::Result<AgentRecord> {
+        let alias = normalize_non_empty_label(alias, "alias")?;
+        let record = self.agent_record_mut(agent_id)?;
+        record.add_alias(&alias);
+        let updated = record.clone();
+        self.persist_registries()?;
+        Ok(updated)
+    }
+
+    /// Add or replace one public verification key on an existing registered agent.
+    pub fn add_agent_key(
+        &mut self,
+        agent_id: &str,
+        key_id: &str,
+        algorithm: PublicKeyAlgorithm,
+        public_key_bytes: Vec<u8>,
+    ) -> io::Result<AgentRecord> {
+        let key_id = normalize_non_empty_label(key_id, "key_id")?;
+        if public_key_bytes.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "public_key_bytes must not be empty",
+            ));
+        }
+
+        let record = self.agent_record_mut(agent_id)?;
+        record.add_public_key(AgentPublicKey {
+            key_id,
+            algorithm,
+            public_key_bytes,
+            added_at: Utc::now(),
+            revoked_at: None,
+        });
+        let updated = record.clone();
+        self.persist_registries()?;
+        Ok(updated)
+    }
+
+    /// Revoke one public verification key on an existing registered agent.
+    pub fn revoke_agent_key(
+        &mut self,
+        agent_id: &str,
+        key_id: &str,
+    ) -> io::Result<AgentRecord> {
+        let key_id = normalize_non_empty_label(key_id, "key_id")?;
+        let record = self.agent_record_mut(agent_id)?;
+        if !record.revoke_key(&key_id, Utc::now()) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("No key '{key_id}' found for agent '{agent_id}'"),
+            ));
+        }
+        let updated = record.clone();
+        self.persist_registries()?;
+        Ok(updated)
+    }
+
+    /// Mark one registered agent as disabled.
+    pub fn disable_agent(&mut self, agent_id: &str) -> io::Result<AgentRecord> {
+        let record = self.agent_record_mut(agent_id)?;
+        record.status = AgentStatus::Revoked;
+        let updated = record.clone();
+        self.persist_registries()?;
+        Ok(updated)
+    }
+
     fn agent_record_for(&self, agent_id: &str) -> Option<&AgentRecord> {
         self.agent_registry.agents.get(agent_id)
+    }
+
+    fn agent_record_mut(&mut self, agent_id: &str) -> io::Result<&mut AgentRecord> {
+        let agent_id = normalize_non_empty_label(agent_id, "agent_id")?;
+        self.agent_registry.agents.get_mut(&agent_id).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("No agent '{agent_id}' is registered in this chain"),
+            )
+        })
     }
 
     fn agent_label_for(&self, thought: &Thought) -> String {
@@ -2974,6 +3248,17 @@ fn contains_case_insensitive(values: &[String], needle: &str) -> bool {
 
 fn equals_case_insensitive(value: &str, needle: &str) -> bool {
     value.eq_ignore_ascii_case(needle)
+}
+
+fn normalize_non_empty_label(value: &str, field_name: &str) -> io::Result<String> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{field_name} must not be empty"),
+        ));
+    }
+    Ok(normalized.to_string())
 }
 
 fn normalize_strings(values: Vec<String>) -> Vec<String> {

@@ -104,6 +104,30 @@ async fn mcp_router_lists_thoughtchain_tools() {
     assert!(tools
         .iter()
         .any(|tool| tool["name"] == "thoughtchain_list_agents"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_get_agent"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_list_agent_registry"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_upsert_agent"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_set_agent_description"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_add_agent_alias"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_add_agent_key"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_revoke_agent_key"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_disable_agent"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -440,6 +464,189 @@ async fn rest_router_lists_chains_and_agents() {
 }
 
 #[tokio::test]
+async fn rest_router_manages_agent_registry_records() {
+    let dir = unique_chain_dir();
+    let router = rest_router(ThoughtChainServiceConfig::new(
+        dir.clone(),
+        "registry-admin",
+        StorageAdapterKind::Binary,
+    ));
+
+    let upsert = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents/upsert")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "registry-admin",
+                        "agent_id": "agent-admin",
+                        "display_name": "Registry Admin",
+                        "agent_owner": "@gubatron",
+                        "description": "Admin test agent",
+                        "status": "active"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upsert.status(), StatusCode::OK);
+
+    let alias = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents/aliases")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "registry-admin",
+                        "agent_id": "agent-admin",
+                        "alias": "astro-admin"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(alias.status(), StatusCode::OK);
+
+    let add_key = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "registry-admin",
+                        "agent_id": "agent-admin",
+                        "key_id": "main-ed25519",
+                        "algorithm": "ed25519",
+                        "public_key_bytes": [1, 2, 3, 4]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(add_key.status(), StatusCode::OK);
+
+    let revoke_key = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents/keys/revoke")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "registry-admin",
+                        "agent_id": "agent-admin",
+                        "key_id": "main-ed25519"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoke_key.status(), StatusCode::OK);
+
+    let disable = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents/disable")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "registry-admin",
+                        "agent_id": "agent-admin"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(disable.status(), StatusCode::OK);
+
+    let get_agent = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agent")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "registry-admin",
+                        "agent_id": "agent-admin"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get_agent.status(), StatusCode::OK);
+    let agent_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(get_agent.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(agent_json["agent"]["display_name"], "Registry Admin");
+    assert_eq!(agent_json["agent"]["owner"], "@gubatron");
+    assert_eq!(agent_json["agent"]["description"], "Admin test agent");
+    assert_eq!(agent_json["agent"]["status"], "Revoked");
+    assert!(agent_json["agent"]["aliases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|alias| alias == "astro-admin"));
+    assert_eq!(agent_json["agent"]["public_keys"][0]["algorithm"], "Ed25519");
+    assert!(agent_json["agent"]["public_keys"][0]["revoked_at"].is_string());
+
+    let registry = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agent-registry")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "registry-admin"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(registry.status(), StatusCode::OK);
+    let registry_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(registry.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(registry_json["agents"].as_array().unwrap().len(), 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     let dir = unique_chain_dir();
     let router = standard_mcp_router(ThoughtChainServiceConfig::new(
@@ -551,6 +758,12 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     assert!(tools
         .iter()
         .any(|tool| tool["name"] == "thoughtchain_list_agents"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_get_agent"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "thoughtchain_upsert_agent"));
     assert!(tools.iter().any(|tool| tool["name"] == "thoughtchain_head"));
 
     let _ = std::fs::remove_dir_all(&dir);
