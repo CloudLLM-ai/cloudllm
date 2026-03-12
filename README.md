@@ -624,7 +624,7 @@ back-references and typed relations to earlier thoughts, forming a graph that en
 resolution, replay, summarization, and memory export.
 
 ```text
-ThoughtChain (adapter-backed; JSONL by default)
+ThoughtChain (adapter-backed; binary by default)
   ├─ Thought #0  Insight   role=Memory      hash=abc1...   refs=[]
   ├─ Thought #1  Decision  role=Memory      hash=def2...   refs=[]      prev_hash=abc1...
   ├─ Thought #2  Mistake   role=Memory      hash=789a...   refs=[]      prev_hash=def2...
@@ -725,15 +725,15 @@ cargo run --bin thoughtchaind
 
 - standard MCP at `POST /`
 - legacy CloudLLM-compatible MCP endpoints at `POST /tools/list` and `POST /tools/execute`
-- REST endpoints at `/v1/bootstrap`, `/v1/thoughts`, `/v1/retrospectives`, `/v1/search`, `/v1/recent-context`,
-  `/v1/memory-markdown`, and `/v1/head`
+- REST endpoints at `/v1/chains`, `/v1/agents`, `/v1/bootstrap`, `/v1/thoughts`, `/v1/retrospectives`,
+  `/v1/search`, `/v1/recent-context`, `/v1/memory-markdown`, and `/v1/head`
 - `GET /health` on both server surfaces
 
 The daemon is configured with environment variables:
 
 - `THOUGHTCHAIN_DIR`
 - `THOUGHTCHAIN_DEFAULT_KEY`
-- `THOUGHTCHAIN_STORAGE_ADAPTER=jsonl|binary`
+- `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER=binary|jsonl`
 - `THOUGHTCHAIN_BIND_HOST`
 - `THOUGHTCHAIN_MCP_PORT`
 - `THOUGHTCHAIN_REST_PORT`

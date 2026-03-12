@@ -1,4 +1,9 @@
 0.13.0 MAR/11/2026
+ - feat: Deepen ThoughtChain versioning, migration, and registry support
+   - ThoughtChain thoughts now carry a schema version and optional signing metadata for future signed-agent workflows
+   - Added per-chain agent registries and a global chain registry backing richer `list_chains` and `list_agents` responses
+   - `thoughtchaind` now migrates legacy ThoughtChain data on startup before serving traffic
+   - New ThoughtChain chains default to binary storage, configurable through `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
  - feat: Make ThoughtChain's server stack the default crate experience
    - Updated the workspace to consume `thoughtchain 0.2.1` without an explicit `server` feature flag
    - Updated daemon build/run instructions to use `cargo run --bin thoughtchaind`
