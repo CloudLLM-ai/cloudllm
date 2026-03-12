@@ -179,10 +179,9 @@ impl JsonlStorageAdapter {
 
     /// Create a JSONL adapter using the stable ThoughtChain filename for a chain key.
     pub fn for_chain_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> Self {
-        let file_path = chain_dir.as_ref().join(chain_storage_filename(
-            chain_key,
-            StorageAdapterKind::Jsonl,
-        ));
+        let file_path = chain_dir
+            .as_ref()
+            .join(chain_storage_filename(chain_key, StorageAdapterKind::Jsonl));
         Self::new(file_path)
     }
 
@@ -1404,7 +1403,13 @@ impl ThoughtChain {
                 ));
             }
             id_to_index.insert(thought.id, position);
-            agent_registry.observe(&thought.agent_id, None, None, thought.index, thought.timestamp);
+            agent_registry.observe(
+                &thought.agent_id,
+                None,
+                None,
+                thought.index,
+                thought.timestamp,
+            );
         }
 
         let chain = Self {
@@ -1451,11 +1456,8 @@ impl ThoughtChain {
         default_storage_kind: StorageAdapterKind,
     ) -> io::Result<Self> {
         fs::create_dir_all(chain_dir.as_ref())?;
-        let storage_kind = resolve_storage_kind_for_chain(
-            chain_dir.as_ref(),
-            chain_key,
-            default_storage_kind,
-        )?;
+        let storage_kind =
+            resolve_storage_kind_for_chain(chain_dir.as_ref(), chain_key, default_storage_kind)?;
         let chain = Self::open_with_storage(storage_kind.for_chain_key(&chain_dir, chain_key))?;
         chain.persist_chain_registration()?;
         Ok(chain)
@@ -1608,8 +1610,13 @@ impl ThoughtChain {
             self.storage.append_thought(&thought)?;
         }
 
-        self.agent_registry
-            .observe(agent_id, Some(&display_name), owner.as_deref(), index, timestamp);
+        self.agent_registry.observe(
+            agent_id,
+            Some(&display_name),
+            owner.as_deref(),
+            index,
+            timestamp,
+        );
         self.persist_registries()?;
         self.id_to_index.insert(thought.id, self.thoughts.len());
         self.thoughts.push(thought.clone());
@@ -2291,7 +2298,10 @@ fn resolve_storage_kind_for_chain(
         .join(chain_storage_filename(chain_key, StorageAdapterKind::Jsonl))
         .exists();
     let binary_exists = chain_dir
-        .join(chain_storage_filename(chain_key, StorageAdapterKind::Binary))
+        .join(chain_storage_filename(
+            chain_key,
+            StorageAdapterKind::Binary,
+        ))
         .exists();
 
     match (jsonl_exists, binary_exists) {
@@ -2358,7 +2368,10 @@ where
                 version: report.to_version,
                 storage_adapter: report.storage_adapter,
                 storage_location: chain_dir
-                    .join(chain_storage_filename(&report.chain_key, report.storage_adapter))
+                    .join(chain_storage_filename(
+                        &report.chain_key,
+                        report.storage_adapter,
+                    ))
                     .display()
                     .to_string(),
                 thought_count: report.thought_count,
@@ -2434,10 +2447,8 @@ fn migrate_legacy_chain_v0(
         &discovered.chain_key,
         discovered.storage_kind,
     ));
-    let temp_path = active_path.with_extension(format!(
-        "{}.tmp",
-        discovered.storage_kind.file_extension()
-    ));
+    let temp_path =
+        active_path.with_extension(format!("{}.tmp", discovered.storage_kind.file_extension()));
     if temp_path.exists() {
         fs::remove_file(&temp_path)?;
     }

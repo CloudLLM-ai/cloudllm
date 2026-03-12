@@ -4,10 +4,11 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use thoughtchain::{
-    chain_filename, chain_key_from_storage_filename, chain_storage_filename, BinaryStorageAdapter,
-    load_registered_chains, migrate_registered_chains, signable_thought_payload, StorageAdapter,
-    StorageAdapterKind, Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation,
-    ThoughtRelationKind, ThoughtRole, ThoughtType, THOUGHTCHAIN_CURRENT_VERSION,
+    chain_filename, chain_key_from_storage_filename, chain_storage_filename,
+    load_registered_chains, migrate_registered_chains, signable_thought_payload,
+    BinaryStorageAdapter, StorageAdapter, StorageAdapterKind, Thought, ThoughtChain, ThoughtInput,
+    ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
+    THOUGHTCHAIN_CURRENT_VERSION,
 };
 use uuid::Uuid;
 
@@ -331,14 +332,24 @@ fn shared_chain_queries_can_filter_by_agent_identity() {
     let by_owner = chain.query(&ThoughtQuery::new().with_agent_owners(["team-blue"]));
     assert_eq!(by_owner.len(), 1);
     assert_eq!(
-        chain.agent_registry().agents.get("agent-beta").unwrap().display_name,
+        chain
+            .agent_registry()
+            .agents
+            .get("agent-beta")
+            .unwrap()
+            .display_name,
         "Executor"
     );
 
     let by_text = chain.query(&ThoughtQuery::new().with_text("team-red"));
     assert_eq!(by_text.len(), 1);
     assert_eq!(
-        chain.agent_registry().agents.get("agent-alpha").unwrap().display_name,
+        chain
+            .agent_registry()
+            .agents
+            .get("agent-alpha")
+            .unwrap()
+            .display_name,
         "Planner"
     );
 
@@ -449,7 +460,11 @@ fn write_legacy_v0_chain(dir: &PathBuf, chain_key: &str, kind: StorageAdapterKin
 
     match kind {
         StorageAdapterKind::Jsonl => {
-            std::fs::write(&path, format!("{}\n", serde_json::to_string(&legacy).unwrap())).unwrap();
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string(&legacy).unwrap()),
+            )
+            .unwrap();
         }
         StorageAdapterKind::Binary => {
             let payload =
@@ -503,7 +518,10 @@ fn migrate_v0_jsonl_and_binary_chains_to_v1() {
 
         let chain = ThoughtChain::open_with_key(&dir, &chain_key).unwrap();
         assert_eq!(chain.thoughts().len(), 1);
-        assert_eq!(chain.thoughts()[0].schema_version, THOUGHTCHAIN_CURRENT_VERSION);
+        assert_eq!(
+            chain.thoughts()[0].schema_version,
+            THOUGHTCHAIN_CURRENT_VERSION
+        );
         assert!(chain.thoughts()[0].signing_key_id.is_none());
         let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
         assert_eq!(record.display_name, "Legacy Agent");

@@ -1,19 +1,36 @@
-0.2.2 MAR/12/2026
- - feat: Add schema versioning, registries, and startup migration to ThoughtChain
-   - Added Thought schema version `1` with optional `signing_key_id` and `thought_signature` fields for future agent-signed records
-   - Added per-chain agent registry sidecars and a global thoughtchain registry with chain version, storage adapter, counts, and storage location metadata
-   - `thoughtchain_list_agents` now reads from the registry instead of scanning every thought
-   - `thoughtchaind` now migrates legacy schema-version `0` chains on startup and reports progress in stdout
-   - Added migration coverage for legacy JSONL and binary chains
- - feat: Make binary storage the default adapter for new ThoughtChain chains
-   - Added `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
-   - Retained `THOUGHTCHAIN_STORAGE_ADAPTER` as a compatibility alias
-   - Added bootstrap-time storage adapter override support
-   - Updated daemon and protocol documentation to describe binary-default behavior and chain registry metadata
- - feat: Enable the ThoughtChain server stack by default
+0.3.0 MAR/12/2026
+ - feat: Introduce ThoughtChain schema version `1`
+   - Added explicit `schema_version` to durable thought records
+   - Added optional `signing_key_id` and `thought_signature` fields for future signed-agent provenance
+   - Added a stable signable thought payload path so signatures can target canonicalized thought data
+ - feat: Move shared-agent metadata into registries
+   - Added per-chain `AgentRegistry` sidecars for display names, owners, aliases, public keys, and agent activity metadata
+   - New thoughts now store stable `agent_id` attribution while registry metadata resolves `agent_name` and `agent_owner` at read time
+   - Query, memory export, JSON rendering, and `thoughtchain_list_agents` now resolve identity metadata from the registry instead of scanning or duplicating inline agent profile fields
+ - feat: Add a global ThoughtChain registry and richer discovery metadata
+   - Added a durable registry of chains with chain key, schema version, storage adapter, storage location, thought count, and agent count
+   - `thoughtchain_list_chains` and `GET /v1/chains` now return richer chain summaries instead of only chain keys
+   - Server chain discovery overlays live in-process counts on top of persisted registry metadata
+ - feat: Add automatic migration from legacy schema version `0`
+   - `thoughtchaind` now scans discovered chains at startup, migrates legacy JSONL and binary chains to version `1`, archives the old files, and reports progress in stdout
+   - Migration logic lives in the library so it is reusable from tests and future tooling, not only from the daemon
+   - Added migration coverage for both legacy JSONL and binary chains
+ - feat: Make binary storage the default for new chains
+   - `BinaryStorageAdapter` is now the default storage backend for new chains
+   - Added `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER` and retained `THOUGHTCHAIN_STORAGE_ADAPTER` as a compatibility alias
+   - Added bootstrap-time storage adapter override support so callers can explicitly create JSONL or binary chains
+   - Fixed adapter filename resolution so JSONL and binary chains always reopen using the correct file extension
+ - feat: Make the daemon/server stack the default crate experience
    - `thoughtchain` now enables the `server` feature by default so `cargo install thoughtchain` and `cargo run --bin thoughtchaind` work without extra feature flags
    - Updated workspace manifests and launcher scripts to rely on the default server-enabled build
-   - Updated ThoughtChain and CloudLLM documentation to remove stale `--features server` instructions
+ - docs: Refresh installation, daemon, protocol, and design documentation
+   - Updated README quick-start guidance to emphasize `cargo install thoughtchain`, `thoughtchaind`, and `nohup thoughtchaind &`
+   - Updated MCP and REST protocol docs for schema `1`, registry-backed chain discovery, binary-default storage, bootstrap adapter overrides, and signature fields
+   - Updated the white paper to describe registries, schema versioning, migration, and the signing-oriented data model
+ - test: Expand coverage for the new schema and migration model
+   - Added coverage for stable signable payload generation
+   - Added coverage for v0 to v1 migration
+   - Added server coverage for registry-backed chain summaries and bootstrap adapter overrides
 
 0.2.1 MAR/11/2026
  - feat: Add env-controlled verbose interaction logging to `thoughtchaind`
