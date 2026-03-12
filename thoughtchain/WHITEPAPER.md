@@ -6,7 +6,7 @@
 
 Modern agent frameworks are still weak at long-term memory. In practice, memory is often reduced to ad hoc prompt stuffing, fragile `MEMORY.md` files, or proprietary session state that is hard to inspect, hard to transfer, and easy to lose or tamper with. `thoughtchain` is a simple, durable alternative: an append-only, semantically typed memory ledger for agents and teams of agents.
 
-ThoughtChain stores important thoughts, decisions, corrections, constraints, checkpoints, and handoffs as structured records in a hash-chained log. The chain model is storage-agnostic through a storage adapter layer, with JSONL as the current default backend. This makes memory replayable, queryable, portable, and auditable. It improves agent continuity across sessions, supports collaboration across specialized agents, and creates a clear foundation for future transparency, accountability, and regulatory compliance.
+ThoughtChain stores important thoughts, decisions, corrections, constraints, checkpoints, and handoffs as structured records in a hash-chained log. The chain model is storage-agnostic through a storage adapter layer, with binary storage as the current default backend and JSONL still supported. This makes memory replayable, queryable, portable, and auditable. It improves agent continuity across sessions, supports collaboration across specialized agents, and creates a clear foundation for future transparency, accountability, and regulatory compliance.
 
 ## Problem Statement
 
@@ -77,13 +77,13 @@ This is not presented as a public cryptocurrency system. It is a practical block
 
 ### 3. Shared Multi-Agent Memory
 
-ThoughtChain supports multiple agents writing to the same chain. Each thought can include:
+ThoughtChain supports multiple agents writing to the same chain. Each thought carries a stable:
 
 - `agent_id`
-- `agent_name`
-- optional `agent_owner`
 
-This allows a single chain to represent the work of a team, a workflow, a tenant, or a project. Memory can then be searched not only by content and type, but also by who produced it.
+Agent profile metadata such as display name, owner, aliases, descriptions, and public keys live in a per-chain agent registry rather than being duplicated inside every thought record.
+
+This allows a single chain to represent the work of a team, a workflow, a tenant, or a project. Memory can then be searched not only by content and type, but also by who produced it, while keeping the durable thought records smaller and the identity model more consistent.
 
 ### 4. Query, Replay, and Export
 
@@ -104,6 +104,8 @@ In practice, that also means a daemon can tell a caller:
 
 - which chain keys already exist
 - which distinct agents are writing to a shared chain
+- which schema version each chain uses
+- which storage adapter each chain uses
 
 That makes shared brains easier to inspect and safer to reuse across teams of
 agents.
@@ -113,11 +115,21 @@ agents.
 ThoughtChain now separates the chain model from the storage backend.
 
 - A `StorageAdapter` interface handles persistence.
-- A `JsonlStorageAdapter` provides the current default implementation.
-- A `BinaryStorageAdapter` provides a more compact serialized format.
+- A `BinaryStorageAdapter` provides the current default implementation.
+- A `JsonlStorageAdapter` remains available as a line-oriented, inspectable format.
 - Additional adapters can be added without changing the core memory model.
 
 This keeps the system simple today while allowing more efficient storage engines in the future.
+
+### 6. Versioned Schemas And Migration
+
+ThoughtChain schemas are versioned.
+
+- schema version `0` was the original format
+- schema version `1` adds explicit versioning and optional signing metadata
+- daemon startup can migrate discovered legacy chains before serving traffic
+
+This matters because append-only memory still evolves. A durable memory system needs a way to add fields, change attribution strategy, and improve integrity without abandoning existing chains.
 
 ## Data Model
 
@@ -135,7 +147,9 @@ It contains the semantic payload:
 - tags and concepts
 - confidence and importance
 - references and semantic relations
-- optional session and display metadata
+- optional session metadata
+- optional agent profile hints used to populate or update the registry
+- optional signing metadata
 
 It does not contain the final chain-managed fields such as index, timestamp, or hashes.
 
@@ -147,10 +161,13 @@ This is important because an agent should be able to say what memory it wants to
 
 ThoughtChain derives it from a `ThoughtInput` and adds the system-managed fields:
 
+- `schema_version`
 - `id`
 - `index`
 - `timestamp`
 - `agent_id`
+- optional `signing_key_id`
+- optional `thought_signature`
 - `prev_hash`
 - `hash`
 
@@ -242,7 +259,16 @@ This is useful for:
 
 The current hash chain makes memory rewrites detectable, but a sufficiently privileged malicious actor could still rewrite the full chain and recompute hashes.
 
-For that reason, the thought format leaves room for stronger controls, including signatures from a human-controlled or centrally controlled authority that agents themselves cannot control.
+For that reason, the thought format now includes optional signing hooks:
+
+- `signing_key_id`
+- `thought_signature`
+
+Those fields allow a thought to carry a detached signature over the signable payload, while public verification keys can live in the agent registry.
+
+This is still an early foundation rather than a full trust model. The current implementation does not yet require signatures or enforce a public-key policy, but the schema is now shaped to support Ed25519-style agent identity and stronger provenance controls.
+
+Stronger controls could include signatures from a human-controlled or centrally controlled authority that agents themselves cannot control.
 
 That authority could:
 

@@ -717,6 +717,19 @@ If you want ThoughtChain available to multiple agents, sessions, or external too
 standalone daemon from the `thoughtchain/` crate:
 
 ```bash
+cargo install thoughtchain
+thoughtchaind
+```
+
+If you want it to keep running after you close your SSH session:
+
+```bash
+nohup thoughtchaind &
+```
+
+If you are developing inside this repo and want to run it from source:
+
+```bash
 cd thoughtchain
 cargo run --bin thoughtchaind
 ```

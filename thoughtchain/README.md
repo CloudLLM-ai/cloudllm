@@ -4,7 +4,7 @@
 
 It stores semantically typed thoughts in an append-only, hash-chained memory
 log through a swappable storage adapter layer. The current default backend is
-JSONL, but the chain model is no longer tied to that format. Agents can:
+binary, but the chain model is no longer tied to that format. Agents can:
 
 - persist important insights, decisions, constraints, and checkpoints
 - record retrospectives and lessons learned after hard failures or non-obvious fixes
@@ -15,6 +15,21 @@ JSONL, but the chain model is no longer tied to that format. Agents can:
 
 The crate is intentionally independent from `cloudllm` so it can be embedded in
 other agent systems without creating circular dependencies.
+
+## Quick Start
+
+If you just want the daemon:
+
+```bash
+cargo install thoughtchain
+thoughtchaind
+```
+
+If you want to leave it running after closing your SSH session:
+
+```bash
+nohup thoughtchaind &
+```
 
 ## What Is In This Folder
 
@@ -47,7 +62,7 @@ Run the crate tests:
 cargo test
 ```
 
-Run tests without the default server feature:
+Run tests for the library-only build:
 
 ```bash
 cargo test --no-default-features
@@ -77,13 +92,13 @@ cargo doc --no-deps --no-default-features
 
 The standalone daemon binary is `thoughtchaind`.
 
-Run it:
+Run it from source:
 
 ```bash
 cargo run --bin thoughtchaind
 ```
 
-Install it from the crate directory:
+Install it from the crate directory while working in this repo:
 
 ```bash
 cargo install --path . --locked
