@@ -14,7 +14,7 @@
 //! - **Agent**: Represents an LLM agent with identity and capabilities
 //! - **LLMSession**: Each agent wraps its own session with rolling history and token tracking
 //! - **Tool Access**: Agents can be granted access to local or remote tools via [`ToolRegistry`](crate::tool_protocol::ToolRegistry)
-//! - **ThoughtChain**: Optional persistent, hash-chained memory for findings/decisions
+//! - **MentisDb**: Optional persistent, hash-chained memory for findings/decisions
 //! - **ContextStrategy**: Pluggable strategy for handling context window exhaustion
 //! - **EventHandler**: Optional callback for real-time observability of LLM calls, tool usage, and lifecycle events
 //! - **Expertise & Personality**: Optional attributes for behavior customization
@@ -58,7 +58,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::sync::Arc;
-use mentisdb::{Thought, ThoughtChain, ThoughtType};
+use mentisdb::{Thought, MentisDb, ThoughtType};
 use tokio::sync::RwLock;
 
 /// Internal representation of a resolved tool call.
@@ -98,7 +98,7 @@ pub struct AgentResponse {
 /// - Generate responses based on system prompts and user messages
 /// - Access tools through a [`ToolRegistry`] (single or multi-protocol)
 /// - Maintain per-agent conversation memory via [`LLMSession`]
-/// - Persist findings and decisions via [`ThoughtChain`]
+/// - Persist findings and decisions via [`MentisDb`]
 /// - Handle context window exhaustion via pluggable [`ContextStrategy`]
 /// - Emit [`AgentEvent`]s for real-time observability of LLM calls and tool usage
 /// - Be orchestrated by [`Orchestration`](crate::orchestration::Orchestration) or used independently
@@ -125,7 +125,7 @@ pub struct Agent {
 
     // ---- Context management (new) ----
     context_strategy: Box<dyn ContextStrategy>,
-    thought_chain: Option<Arc<RwLock<ThoughtChain>>>,
+    mentisdb: Option<Arc<RwLock<MentisDb>>>,
 
     /// Optional event handler for real-time observability. When set, the agent
     /// emits [`AgentEvent`]s during `send()`, `generate_with_tokens()`, `commit()`,
@@ -157,7 +157,7 @@ impl Agent {
             grok_tools: Vec::new(),
             openai_tools: Vec::new(),
             context_strategy: Box::new(TrimStrategy::default()),
-            thought_chain: None,
+            mentisdb: None,
             event_handler: None,
         }
     }
@@ -310,7 +310,7 @@ impl Agent {
         self.context_strategy = strategy;
     }
 
-    /// Attach a [`ThoughtChain`] for persistent memory (builder pattern).
+    /// Attach a [`MentisDb`] for persistent memory (builder pattern).
     ///
     /// Once attached, the agent can record findings and decisions via
     /// [`commit`](Agent::commit), and context strategies like
@@ -324,14 +324,14 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use mentisdb::ThoughtChain;
+    /// use mentisdb::MentisDb;
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
     /// use tokio::sync::RwLock;
     ///
     /// let chain = Arc::new(RwLock::new(
-    ///     ThoughtChain::open(
+    ///     MentisDb::open(
     ///         &PathBuf::from("chains"), "a1", "Agent", Some("ML"), None,
     ///     ).unwrap()
     /// ));
@@ -340,10 +340,10 @@ impl Agent {
     ///     "a1", "Agent",
     ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
     /// )
-    /// .with_thought_chain(chain);
+    /// .with_mentisdb(chain);
     /// ```
-    pub fn with_thought_chain(mut self, chain: Arc<RwLock<ThoughtChain>>) -> Self {
-        self.thought_chain = Some(chain);
+    pub fn with_mentisdb(mut self, chain: Arc<RwLock<MentisDb>>) -> Self {
+        self.mentisdb = Some(chain);
         self
     }
 
@@ -527,19 +527,19 @@ impl Agent {
             .collect()
     }
 
-    // ---- ThoughtChain convenience methods ----
+    // ---- MentisDb convenience methods ----
 
-    /// Append a thought to this agent's [`ThoughtChain`].
+    /// Append a thought to this agent's [`MentisDb`].
     ///
     /// This is a convenience wrapper that acquires a write lock on the chain
-    /// and calls [`ThoughtChain::append`].  If no chain is attached, the call
+    /// and calls [`MentisDb::append`].  If no chain is attached, the call
     /// is a silent no-op.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use mentisdb::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{MentisDb, ThoughtType};
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -547,12 +547,12 @@ impl Agent {
     ///
     /// # async {
     /// let chain = Arc::new(RwLock::new(
-    ///     ThoughtChain::open(&PathBuf::from("/tmp/ch"), "a1", "Agent", None, None).unwrap()
+    ///     MentisDb::open(&PathBuf::from("/tmp/ch"), "a1", "Agent", None, None).unwrap()
     /// ));
     /// let agent = Agent::new(
     ///     "a1", "Agent",
     ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
-    /// ).with_thought_chain(chain);
+    /// ).with_mentisdb(chain);
     ///
     /// agent.commit(ThoughtType::Finding, "Latency increased 3x").await.unwrap();
     /// agent.commit(ThoughtType::Decision, "Enable caching").await.unwrap();
@@ -566,7 +566,7 @@ impl Agent {
         entry_type: ThoughtType,
         content: impl Into<String>,
     ) -> io::Result<()> {
-        if let Some(chain) = &self.thought_chain {
+        if let Some(chain) = &self.mentisdb {
             let thought_type = entry_type;
             let mut chain = chain.write().await;
             chain.append(&self.id, entry_type, &content.into())?;
@@ -582,10 +582,10 @@ impl Agent {
 
     /// Return a snapshot of all thoughts in this agent's chain.
     ///
-    /// Returns `None` if no [`ThoughtChain`] is attached, or `Some(vec)` with
+    /// Returns `None` if no [`MentisDb`] is attached, or `Some(vec)` with
     /// cloned thoughts otherwise.
     pub async fn thought_entries(&self) -> Option<Vec<Thought>> {
-        if let Some(chain) = &self.thought_chain {
+        if let Some(chain) = &self.mentisdb {
             let chain = chain.read().await;
             Some(chain.thoughts().to_vec())
         } else {
@@ -598,7 +598,7 @@ impl Agent {
     /// Resume an agent from a specific thought in an existing chain.
     ///
     /// Resolves the context graph at `thought_index` via
-    /// [`ThoughtChain::resolve_context`] and injects the resulting bootstrap
+    /// [`MentisDb::resolve_context`] and injects the resulting bootstrap
     /// prompt into a fresh [`LLMSession`].  The agent starts with the
     /// critical reasoning context already in its history, ready to continue
     /// where it left off.
@@ -607,7 +607,7 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use mentisdb::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{MentisDb, ThoughtType};
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
@@ -615,7 +615,7 @@ impl Agent {
     ///
     /// // Assume a chain was previously populated
     /// let chain = Arc::new(RwLock::new(
-    ///     ThoughtChain::open(
+    ///     MentisDb::open(
     ///         &PathBuf::from("chains"), "a1", "Agent", Some("ML"), None,
     ///     ).unwrap()
     /// ));
@@ -633,7 +633,7 @@ impl Agent {
         name: impl Into<String>,
         client: Arc<dyn ClientWrapper>,
         max_tokens: usize,
-        chain: Arc<RwLock<ThoughtChain>>,
+        chain: Arc<RwLock<MentisDb>>,
         thought_index: u64,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let id = id.into();
@@ -642,7 +642,7 @@ impl Agent {
 
         // We need to block briefly to read the chain — this runs during construction
         let chain_guard = chain.try_read().map_err(|_| {
-            Box::new(io::Error::other("ThoughtChain is locked")) as Box<dyn Error + Send + Sync>
+            Box::new(io::Error::other("MentisDb is locked")) as Box<dyn Error + Send + Sync>
         })?;
         let bootstrap = chain_guard.to_bootstrap_prompt(thought_index);
         drop(chain_guard);
@@ -662,7 +662,7 @@ impl Agent {
             grok_tools: Vec::new(),
             openai_tools: Vec::new(),
             context_strategy: Box::new(TrimStrategy::default()),
-            thought_chain: Some(chain),
+            mentisdb: Some(chain),
             event_handler: None,
         })
     }
@@ -676,14 +676,14 @@ impl Agent {
     ///
     /// ```rust,no_run
     /// use cloudllm::Agent;
-    /// use mentisdb::ThoughtChain;
+    /// use mentisdb::MentisDb;
     /// use cloudllm::clients::openai::OpenAIClient;
     /// use std::sync::Arc;
     /// use std::path::PathBuf;
     /// use tokio::sync::RwLock;
     ///
     /// let chain = Arc::new(RwLock::new(
-    ///     ThoughtChain::open(
+    ///     MentisDb::open(
     ///         &PathBuf::from("chains"), "a1", "Agent", None, None,
     ///     ).unwrap()
     /// ));
@@ -700,11 +700,11 @@ impl Agent {
         name: impl Into<String>,
         client: Arc<dyn ClientWrapper>,
         max_tokens: usize,
-        chain: Arc<RwLock<ThoughtChain>>,
+        chain: Arc<RwLock<MentisDb>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let last_index = {
             let guard = chain.try_read().map_err(|_| {
-                Box::new(io::Error::other("ThoughtChain is locked")) as Box<dyn Error + Send + Sync>
+                Box::new(io::Error::other("MentisDb is locked")) as Box<dyn Error + Send + Sync>
             })?;
             guard.thoughts().last().map(|t| t.index).unwrap_or(0)
         };
@@ -760,7 +760,7 @@ impl Agent {
             grok_tools: self.grok_tools.clone(),
             openai_tools: self.openai_tools.clone(),
             context_strategy: Box::new(TrimStrategy::default()),
-            thought_chain: self.thought_chain.clone(),
+            mentisdb: self.mentisdb.clone(),
             event_handler: self.event_handler.clone(),
         }
     }
@@ -800,7 +800,7 @@ impl Agent {
             grok_tools: self.grok_tools.clone(),
             openai_tools: self.openai_tools.clone(),
             context_strategy: Box::new(TrimStrategy::default()),
-            thought_chain: self.thought_chain.clone(),
+            mentisdb: self.mentisdb.clone(),
             event_handler: self.event_handler.clone(),
         }
     }

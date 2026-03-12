@@ -7,7 +7,7 @@ use cloudllm::tool_protocols::CustomToolProtocol;
 use cloudllm::Agent;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
-use mentisdb::{ThoughtChain, ThoughtType};
+use mentisdb::{MentisDb, ThoughtType};
 use tokio::sync::RwLock;
 
 struct MockClient {
@@ -94,18 +94,18 @@ async fn test_agent_runtime_tool_mutation() {
 }
 
 #[tokio::test]
-async fn test_agent_with_thought_chain() {
+async fn test_agent_with_mentisdb() {
     let dir = std::env::temp_dir().join(format!("cloudllm_agent_tc_test_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
 
-    let chain = ThoughtChain::open(&dir, "agent1", "Agent", None, None).unwrap();
+    let chain = MentisDb::open(&dir, "agent1", "Agent", None, None).unwrap();
     let chain = Arc::new(RwLock::new(chain));
 
     let client: Arc<dyn ClientWrapper> = Arc::new(MockClient {
         response: "test".to_string(),
     });
 
-    let agent = Agent::new("agent1", "Agent", client).with_thought_chain(chain.clone());
+    let agent = Agent::new("agent1", "Agent", client).with_mentisdb(chain.clone());
 
     // Commit thoughts
     agent

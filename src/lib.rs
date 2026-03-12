@@ -313,7 +313,7 @@ pub use cloudllm::llm_session::LLMSession;
 pub use mcp;
 pub use mentisdb;
 pub use mentisdb::{
-    JsonlStorageAdapter, StorageAdapter, Thought, ThoughtChain, ThoughtInput, ThoughtQuery,
+    JsonlStorageAdapter, StorageAdapter, Thought, MentisDb, ThoughtInput, ThoughtQuery,
     ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
 };
 

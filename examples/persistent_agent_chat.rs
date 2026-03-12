@@ -22,7 +22,7 @@ use cloudllm::tool_protocol::ToolProtocol;
 use cloudllm::Agent;
 use persistent_agent_tools::build_persistent_agent_registry;
 use serde_json::json;
-use mentisdb::server::{default_mentisdb_dir, start_mcp_server, ThoughtChainServiceConfig};
+use mentisdb::server::{default_mentisdb_dir, start_mcp_server, MentisDbServiceConfig};
 
 const DEFAULT_CHAIN_KEY: &str = "borganism-brain";
 
@@ -33,11 +33,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let api_key = env::var("OPEN_AI_SECRET")
         .map_err(|_| "Please set OPEN_AI_SECRET to run persistent_agent_chat")?;
 
-    let chain_key = env::var("MENTISDB_CHAIN_KEY")
-        .or_else(|_| env::var("THOUGHTCHAIN_CHAIN_KEY"))
-        .unwrap_or_else(|_| DEFAULT_CHAIN_KEY.to_string());
+    let chain_key =
+        env::var("MENTISDB_CHAIN_KEY").unwrap_or_else(|_| DEFAULT_CHAIN_KEY.to_string());
     let chain_dir = env::var("MENTISDB_DIR")
-        .or_else(|_| env::var("THOUGHTCHAIN_DIR"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| default_mentisdb_dir());
     let filesystem_root = env::var("CLOUDLLM_CHAT_FS_ROOT")
@@ -45,14 +43,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap_or(env::current_dir()?);
 
     let mut embedded_server = None;
-    let mentisdb_endpoint = if let Ok(endpoint) =
-        env::var("MENTISDB_MCP_ENDPOINT").or_else(|_| env::var("THOUGHTCHAIN_MCP_ENDPOINT"))
-    {
+    let mentisdb_endpoint = if let Ok(endpoint) = env::var("MENTISDB_MCP_ENDPOINT") {
         endpoint
     } else {
         let server = start_mcp_server(
             SocketAddr::from(([127, 0, 0, 1], 0)),
-            ThoughtChainServiceConfig::new(
+            MentisDbServiceConfig::new(
                 chain_dir.clone(),
                 chain_key.clone(),
                 mentisdb::StorageAdapterKind::Jsonl,

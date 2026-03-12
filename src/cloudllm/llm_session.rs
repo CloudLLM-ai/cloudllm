@@ -367,7 +367,7 @@ impl LLMSession {
     /// The content is allocated in the session's arena and its token count
     /// is cached, just like messages added via
     /// [`send_message`](LLMSession::send_message).  Use this to inject
-    /// [`ThoughtChain`](crate::ThoughtChain) context into a fresh or cleared
+    /// [`MentisDb`](crate::MentisDb) context into a fresh or cleared
     /// session.
     ///
     /// # Example

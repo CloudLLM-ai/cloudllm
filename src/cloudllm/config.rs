@@ -1,7 +1,7 @@
 //! Configuration for CloudLLM.
 //!
 //! Provides the [`CloudLLMConfig`] struct for configuring
-//! [`ThoughtChain`](crate::ThoughtChain) storage configuration and other global settings.
+//! [`MentisDb`](crate::MentisDb) storage configuration and other global settings.
 //! Users construct this manually — no file parsing dependencies are required.
 //!
 //! # Example
@@ -10,12 +10,12 @@
 //! use cloudllm::CloudLLMConfig;
 //! use std::path::PathBuf;
 //!
-//! // Use the default ("thought_chains" in the current directory)
+//! // Use the default ("mentisdbs" in the current directory)
 //! let config = CloudLLMConfig::default();
 //!
 //! // Or specify a custom directory
 //! let config = CloudLLMConfig {
-//!     thought_chain_dir: PathBuf::from("/var/data/agent_chains"),
+//!     mentisdb_dir: PathBuf::from("/var/data/agent_chains"),
 //! };
 //! ```
 
@@ -33,20 +33,20 @@ use std::path::PathBuf;
 /// use std::path::PathBuf;
 ///
 /// let config = CloudLLMConfig {
-///     thought_chain_dir: PathBuf::from("/tmp/my_chains"),
+///     mentisdb_dir: PathBuf::from("/tmp/my_chains"),
 /// };
 /// ```
 pub struct CloudLLMConfig {
-    /// Directory where the default ThoughtChain JSONL storage adapter stores
+    /// Directory where the default MentisDb JSONL storage adapter stores
     /// chain files.
     ///
-    /// Passed to [`ThoughtChain::open`](crate::ThoughtChain::open) as the
+    /// Passed to [`MentisDb::open`](crate::MentisDb::open) as the
     /// `chain_dir` argument.
-    pub thought_chain_dir: PathBuf,
+    pub mentisdb_dir: PathBuf,
 }
 
 impl Default for CloudLLMConfig {
-    /// Create a config pointing at `"thought_chains"` in the current working
+    /// Create a config pointing at `"mentisdbs"` in the current working
     /// directory.
     ///
     /// # Example
@@ -56,11 +56,11 @@ impl Default for CloudLLMConfig {
     /// use std::path::PathBuf;
     ///
     /// let config = CloudLLMConfig::default();
-    /// assert_eq!(config.thought_chain_dir, PathBuf::from("thought_chains"));
+    /// assert_eq!(config.mentisdb_dir, PathBuf::from("mentisdbs"));
     /// ```
     fn default() -> Self {
         Self {
-            thought_chain_dir: PathBuf::from("thought_chains"),
+            mentisdb_dir: PathBuf::from("mentisdbs"),
         }
     }
 }

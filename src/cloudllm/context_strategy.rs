@@ -7,7 +7,7 @@
 //! - [`TrimStrategy`] (default): relies on [`LLMSession`]'s built-in oldest-first
 //!   trimming — `compact()` is a no-op.
 //! - [`SelfCompressionStrategy`]: asks the backing LLM to write a structured
-//!   save-file that is persisted to the agent's [`ThoughtChain`] and then
+//!   save-file that is persisted to the agent's [`MentisDb`] and then
 //!   injected back as a bootstrap prompt after clearing the session.
 //! - [`NoveltyAwareStrategy`]: wraps another strategy and uses an entropy
 //!   heuristic (unique n-gram ratio) to avoid compressing when the conversation
@@ -44,7 +44,7 @@ use async_trait::async_trait;
 use std::collections::HashSet;
 use std::error::Error;
 use std::sync::Arc;
-use mentisdb::{ThoughtChain, ThoughtInput, ThoughtRole, ThoughtType};
+use mentisdb::{MentisDb, ThoughtInput, ThoughtRole, ThoughtType};
 use tokio::sync::RwLock;
 
 /// Trait for pluggable context-window management strategies.
@@ -58,7 +58,7 @@ use tokio::sync::RwLock;
 /// ```rust,no_run
 /// use cloudllm::context_strategy::ContextStrategy;
 /// use cloudllm::LLMSession;
-/// use mentisdb::ThoughtChain;
+/// use mentisdb::MentisDb;
 /// use async_trait::async_trait;
 /// use std::sync::Arc;
 /// use tokio::sync::RwLock;
@@ -76,7 +76,7 @@ use tokio::sync::RwLock;
 ///     async fn compact(
 ///         &self,
 ///         session: &mut LLMSession,
-///         _chain: &Option<Arc<RwLock<ThoughtChain>>>,
+///         _chain: &Option<Arc<RwLock<MentisDb>>>,
 ///         _agent_id: &str,
 ///     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///         session.clear_history();
@@ -94,12 +94,12 @@ pub trait ContextStrategy: Send + Sync {
 
     /// Perform the actual compaction.
     ///
-    /// Strategies that need the [`ThoughtChain`] (e.g. [`SelfCompressionStrategy`])
+    /// Strategies that need the [`MentisDb`] (e.g. [`SelfCompressionStrategy`])
     /// use it; strategies that don't (e.g. [`TrimStrategy`]) ignore it.
     async fn compact(
         &self,
         session: &mut LLMSession,
-        thought_chain: &Option<Arc<RwLock<ThoughtChain>>>,
+        mentisdb: &Option<Arc<RwLock<MentisDb>>>,
         agent_id: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
@@ -169,7 +169,7 @@ impl ContextStrategy for TrimStrategy {
     async fn compact(
         &self,
         _session: &mut LLMSession,
-        _thought_chain: &Option<Arc<RwLock<ThoughtChain>>>,
+        _mentisdb: &Option<Arc<RwLock<MentisDb>>>,
         _agent_id: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // No-op — LLMSession's built-in trimming handles it.
@@ -193,11 +193,11 @@ impl ContextStrategy for TrimStrategy {
 ///    covering key findings, decisions, current state, open questions, and next steps.
 /// 2. Parses `REFS:` lines from the response via [`parse_refs`].
 /// 3. Appends a [`Summary`](mentisdb::ThoughtType::Summary) thought to the
-///    [`ThoughtChain`] with back-references.
+///    [`MentisDb`] with back-references.
 /// 4. Clears the session history.
-/// 5. Injects the resolved bootstrap prompt from the ThoughtChain into the fresh session.
+/// 5. Injects the resolved bootstrap prompt from the MentisDb into the fresh session.
 ///
-/// If no [`ThoughtChain`] is attached, the summary is injected directly as a
+/// If no [`MentisDb`] is attached, the summary is injected directly as a
 /// system message (no disk persistence).
 ///
 /// # Example
@@ -205,7 +205,7 @@ impl ContextStrategy for TrimStrategy {
 /// ```rust,no_run
 /// use cloudllm::Agent;
 /// use cloudllm::context_strategy::SelfCompressionStrategy;
-/// use mentisdb::ThoughtChain;
+/// use mentisdb::MentisDb;
 /// use cloudllm::clients::openai::OpenAIClient;
 /// use std::sync::Arc;
 /// use std::path::PathBuf;
@@ -213,14 +213,14 @@ impl ContextStrategy for TrimStrategy {
 ///
 /// # async {
 /// let chain = Arc::new(RwLock::new(
-///     ThoughtChain::open(&PathBuf::from("/tmp/chains"), "a1", "Agent", None, None).unwrap()
+///     MentisDb::open(&PathBuf::from("/tmp/chains"), "a1", "Agent", None, None).unwrap()
 /// ));
 ///
 /// let agent = Agent::new(
 ///     "a1", "Agent",
 ///     Arc::new(OpenAIClient::new_with_model_string("key", "gpt-4o")),
 /// )
-/// .with_thought_chain(chain)
+/// .with_mentisdb(chain)
 /// .context_collapse_strategy(Box::new(SelfCompressionStrategy::default()));
 /// # };
 /// ```
@@ -260,7 +260,7 @@ impl ContextStrategy for SelfCompressionStrategy {
     async fn compact(
         &self,
         session: &mut LLMSession,
-        thought_chain: &Option<Arc<RwLock<ThoughtChain>>>,
+        mentisdb: &Option<Arc<RwLock<MentisDb>>>,
         agent_id: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let compression_prompt = "\
@@ -285,8 +285,8 @@ Be concise but preserve all critical information.";
         let summary = response.content.to_string();
         let refs = parse_refs(&summary);
 
-        // Persist to ThoughtChain if available
-        if let Some(chain) = thought_chain {
+        // Persist to MentisDb if available
+        if let Some(chain) = mentisdb {
             let mut chain = chain.write().await;
             let summary_thought = ThoughtInput::new(ThoughtType::Summary, &summary)
                 .with_role(ThoughtRole::Compression)
@@ -302,7 +302,7 @@ Be concise but preserve all critical information.";
                 session.inject_message(Role::System, bootstrap);
             }
         } else {
-            // Without ThoughtChain, just clear and inject the summary
+            // Without MentisDb, just clear and inject the summary
             session.clear_history();
             session.inject_message(Role::System, summary);
         }
@@ -443,10 +443,10 @@ impl ContextStrategy for NoveltyAwareStrategy {
     async fn compact(
         &self,
         session: &mut LLMSession,
-        thought_chain: &Option<Arc<RwLock<ThoughtChain>>>,
+        mentisdb: &Option<Arc<RwLock<MentisDb>>>,
         agent_id: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.inner.compact(session, thought_chain, agent_id).await
+        self.inner.compact(session, mentisdb, agent_id).await
     }
 
     fn name(&self) -> &str {

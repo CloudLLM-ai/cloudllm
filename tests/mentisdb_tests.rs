@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use mentisdb::{chain_filename, ThoughtChain, ThoughtType};
+use mentisdb::{chain_filename, MentisDb, ThoughtType};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -12,9 +12,9 @@ fn unique_chain_dir() -> PathBuf {
 }
 
 #[test]
-fn test_thought_chain_create_and_append() {
+fn test_mentisdb_create_and_append() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Found pattern A")
@@ -35,12 +35,12 @@ fn test_thought_chain_create_and_append() {
 }
 
 #[test]
-fn test_thought_chain_disk_persistence() {
+fn test_mentisdb_disk_persistence() {
     let dir = unique_chain_dir();
 
     // Write and drop
     {
-        let mut chain = ThoughtChain::open(
+        let mut chain = MentisDb::open(
             &dir,
             "persist_agent",
             "Persist Analyst",
@@ -57,7 +57,7 @@ fn test_thought_chain_disk_persistence() {
     }
 
     // Reopen
-    let chain = ThoughtChain::open(
+    let chain = MentisDb::open(
         &dir,
         "persist_agent",
         "Persist Analyst",
@@ -73,9 +73,9 @@ fn test_thought_chain_disk_persistence() {
 }
 
 #[test]
-fn test_thought_chain_hash_integrity() {
+fn test_mentisdb_hash_integrity() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Entry 1")
@@ -93,9 +93,9 @@ fn test_thought_chain_hash_integrity() {
 }
 
 #[test]
-fn test_thought_chain_resolve_context() {
+fn test_mentisdb_resolve_context() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     // #0: Finding
     chain
@@ -131,7 +131,7 @@ fn test_thought_chain_resolve_context() {
 }
 
 #[test]
-fn test_thought_chain_filename_determinism() {
+fn test_mentisdb_filename_determinism() {
     // Same chain key -> same filename
     let f1 = chain_filename("id1", "Name", Some("exp"), Some("pers"));
     let f2 = chain_filename("id1", "Name", Some("exp"), Some("pers"));
@@ -147,9 +147,9 @@ fn test_thought_chain_filename_determinism() {
 }
 
 #[test]
-fn test_thought_chain_bootstrap_prompt() {
+fn test_mentisdb_bootstrap_prompt() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Key insight")

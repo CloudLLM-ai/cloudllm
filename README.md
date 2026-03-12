@@ -618,10 +618,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## MentisDB: Persistent Agent Memory
 
-MentisDB is the new product name for the durable memory system currently
-implemented in the standalone `thoughtchain` crate. Its core API is still
-exposed in code as [`thoughtchain::ThoughtChain`](https://docs.rs/thoughtchain/latest/thoughtchain/struct.ThoughtChain.html)
-while the repo completes the rename.
+MentisDB, formerly ThoughtChain, is the standalone durable-memory crate in this
+workspace. Its Rust API is exposed as
+[`mentisdb::MentisDb`](https://docs.rs/mentisdb/latest/mentisdb/struct.MentisDb.html).
 
 It is an append-only, SHA-256 hash-chained, adapter-backed memory log of agent thoughts. Each thought can carry
 back-references and typed relations to earlier thoughts, forming a graph that enables efficient context
@@ -639,16 +638,16 @@ MentisDB (adapter-backed; binary by default)
 
 ```rust,no_run
 use std::path::PathBuf;
-use thoughtchain::{ThoughtChain, ThoughtInput, ThoughtRole, ThoughtType};
+use mentisdb::{MentisDb, ThoughtInput, ThoughtRole, ThoughtType};
 
 fn main() -> std::io::Result<()> {
-    let mut chain = ThoughtChain::open_with_key(PathBuf::from("chains"), "borganism-brain")?;
+    let mut chain = MentisDb::open_with_key(PathBuf::from("chains"), "borganism-brain")?;
 
     chain.append_thought(
         "astro",
         ThoughtInput::new(
             ThoughtType::Decision,
-            "The repo now uses a three-crate workspace: cloudllm, thoughtchain, and mcp.",
+            "The repo now uses a three-crate workspace: cloudllm, mentisdb, and mcp.",
         )
         .with_agent_name("Astro")
         .with_agent_owner("@gubatron")
@@ -674,16 +673,16 @@ fn main() -> std::io::Result<()> {
 ```
 
 In CloudLLM, agents can still use MentisDB directly through
-[`Agent::with_thought_chain`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/agent/struct.Agent.html#method.with_thought_chain),
-but the storage and query model now lives in the standalone `thoughtchain` crate. Persistence is
+[`Agent::with_mentisdb`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/agent/struct.Agent.html#method.with_mentisdb),
+and the storage and query model now lives in the standalone `mentisdb` crate. Persistence is
 adapter-backed through a `StorageAdapter` interface. The built-in backends today are:
 
 - `JsonlStorageAdapter`
 - `BinaryStorageAdapter`
 
-Use `ThoughtChain::verify_integrity()` to detect tampering, `ThoughtChain::search(...)` to query
-semantic memory, `ThoughtChain::resolve_context(index)` to reconstruct the minimal dependency graph
-for a thought, and `ThoughtChain::to_memory_markdown(...)` to export a `MEMORY.md`-style snapshot.
+Use `MentisDb::verify_integrity()` to detect tampering, `MentisDb::search(...)` to query
+semantic memory, `MentisDb::resolve_context(index)` to reconstruct the minimal dependency graph
+for a thought, and `MentisDb::to_memory_markdown(...)` to export a `MEMORY.md`-style snapshot.
 For hard debugging snags or repeated failures, MentisDB now also supports dedicated
 retrospective memory via `ThoughtType::LessonLearned` and `ThoughtRole::Retrospective`.
 
@@ -691,7 +690,7 @@ Resume a previously running agent from its chain:
 
 ```rust,no_run
 use cloudllm::Agent;
-use thoughtchain::ThoughtChain;
+use mentisdb::MentisDb;
 use cloudllm::clients::openai::OpenAIClient;
 use std::sync::Arc;
 use std::path::PathBuf;
@@ -699,7 +698,7 @@ use tokio::sync::RwLock;
 
 # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 let chain = Arc::new(RwLock::new(
-    ThoughtChain::open_with_key(PathBuf::from("chains"), "borganism-brain")?
+    MentisDb::open_with_key(PathBuf::from("chains"), "borganism-brain")?
 ));
 
 // Resume from the latest thought — context graph is injected into a fresh session
@@ -718,15 +717,12 @@ let agent = Agent::resume_from_latest(
 ### `mentisdbd`: MCP + REST daemon for shared memory
 
 If you want MentisDB available to multiple agents, sessions, or external tools, run the
-standalone daemon from the `thoughtchain/` crate:
+standalone daemon from the `mentisdb/` crate:
 
 ```bash
 cargo install mentisdb
 mentisdbd
 ```
-
-During the transition, legacy `thoughtchain` / `thoughtchaind` package and
-binary names may still appear in older automation.
 
 If you want it to keep running after you close your SSH session:
 
@@ -737,7 +733,7 @@ nohup mentisdbd &
 If you are developing inside this repo and want to run it from source:
 
 ```bash
-cd thoughtchain
+cd mentisdb
 cargo run --bin mentisdbd
 ```
 
@@ -758,14 +754,11 @@ The daemon is configured with environment variables:
 - `MENTISDB_MCP_PORT`
 - `MENTISDB_REST_PORT`
 
-Legacy `THOUGHTCHAIN_*` names remain accepted for compatibility during the
-rename.
-
 For full daemon usage, remote MCP examples, and the REST contract, see:
 
-- [`thoughtchain/README.md`](thoughtchain/README.md)
-- [`THOUGHTCHAIN_MCP.md`](THOUGHTCHAIN_MCP.md)
-- [`THOUGHTCHAIN_REST.md`](THOUGHTCHAIN_REST.md)
+- [`mentisdb/README.md`](mentisdb/README.md)
+- [`MENTISDB_MCP.md`](MENTISDB_MCP.md)
+- [`MENTISDB_REST.md`](MENTISDB_REST.md)
 
 ---
 

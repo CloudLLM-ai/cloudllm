@@ -6,7 +6,7 @@
 //!
 //! - **LLM round-trips**: When each agent or planner turn sends to and receives from its LLM
 //! - **Tool operations**: Tool call detection, execution outcomes, iteration limits
-//! - **ThoughtChain**: Thought commits to persistent memory
+//! - **MentisDb**: Thought commits to persistent memory
 //! - **Tool mutations**: Protocol additions and removals at runtime
 //! - **Agent lifecycle**: Fork, system prompt changes, message injection
 //! - **Planner lifecycle**: Turn boundaries, per-iteration responses, policy denials
@@ -207,8 +207,8 @@ pub enum AgentEvent {
         agent_name: String,
     },
 
-    // ── ThoughtChain ─────────────────────────────────────────────────────
-    /// A thought was appended to the agent's [`ThoughtChain`](mentisdb::ThoughtChain).
+    // ── MentisDb ─────────────────────────────────────────────────────
+    /// A thought was appended to the agent's [`MentisDb`](mentisdb::MentisDb).
     ///
     /// Emitted after a successful [`Agent::commit`](crate::Agent::commit) call.
     ThoughtCommitted {
