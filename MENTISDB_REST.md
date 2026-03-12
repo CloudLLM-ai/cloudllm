@@ -2,7 +2,7 @@
 
 `MentisDB` can also be exposed as a plain REST service for agents, services, CLIs, and orchestration systems that do not want to speak MCP.
 
-This document describes the current REST interface implemented in `thoughtchain/src/server.rs`.
+This document describes the current REST interface implemented in `mentisdb/src/server.rs`.
 
 ## Purpose
 
@@ -29,8 +29,7 @@ The basic usage pattern is:
 
 The standalone daemon is `mentisdbd`.
 
-Primary environment variables now use the `MENTISDB_*` prefix. Legacy
-`THOUGHTCHAIN_*` aliases remain accepted for compatibility during the rename.
+Primary environment variables now use the `MENTISDB_*` prefix.
 
 Example:
 
@@ -47,8 +46,6 @@ Environment variables:
 - `MENTISDB_DEFAULT_STORAGE_ADAPTER`
   Default storage backend for newly created chains. Supported values: `binary`, `jsonl`.
   Default: `binary`
-- `THOUGHTCHAIN_STORAGE_ADAPTER`
-  Legacy alias for `MENTISDB_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
 - `MENTISDB_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
 - `MENTISDB_MCP_PORT`
@@ -753,7 +750,7 @@ For a multi-agent pipeline:
 
 ## What The REST API Does Not Yet Expose
 
-The core `thoughtchain` crate supports richer internal structures than the REST append endpoint currently exposes.
+The core `mentisdb` crate supports richer internal structures than the REST append endpoint currently exposes.
 
 Today, the REST append API does not accept:
 
@@ -774,4 +771,4 @@ The REST and MCP services expose the same core MentisDB operations.
 - REST is better for services, scripts, dashboards, and generic HTTP clients.
 - MCP is better when an agent framework wants memory to appear as callable tools.
 
-The corresponding MCP contract is documented in `THOUGHTCHAIN_MCP.md`.
+The corresponding MCP contract is documented in `MENTISDB_MCP.md`.

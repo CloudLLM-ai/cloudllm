@@ -1,7 +1,7 @@
 # MentisDB
 
-MentisDB is the new product name for the standalone durable-memory crate that
-still lives under `thoughtchain/` in this repo during the rename.
+MentisDB, formerly ThoughtChain, is the standalone durable-memory crate in this
+repository.
 
 It stores semantically typed thoughts in an append-only, hash-chained memory
 log through a swappable storage adapter layer. The current default backend is
@@ -34,16 +34,16 @@ nohup mentisdbd &
 
 ## What Is In This Folder
 
-`thoughtchain/` contains:
+`mentisdb/` contains:
 
 - the standalone `mentisdb` library crate
 - server support for HTTP MCP and REST, enabled by default
 - the `mentisdbd` daemon binary
-- dedicated tests under `thoughtchain/tests`
+- dedicated tests under `mentisdb/tests`
 
 ## Build
 
-From inside `thoughtchain/`:
+From inside `mentisdb/`:
 
 ```bash
 cargo build
@@ -132,16 +132,14 @@ Once startup completes, it prints:
 - `MENTISDB_DEFAULT_STORAGE_ADAPTER`
   Default storage backend for newly created chains. Supported values: `binary`, `jsonl`.
   Default: `binary`
-- `THOUGHTCHAIN_STORAGE_ADAPTER`
-  Legacy alias for `MENTISDB_DEFAULT_STORAGE_ADAPTER`, still accepted for compatibility.
+- `MENTISDB_STORAGE_ADAPTER`
+  Optional short alias for `MENTISDB_DEFAULT_STORAGE_ADAPTER`.
 - `MENTISDB_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
 - `MENTISDB_MCP_PORT`
   MCP server port. Default: `9471`
 - `MENTISDB_REST_PORT`
   REST server port. Default: `9472`
-
-Legacy `THOUGHTCHAIN_*` names remain accepted during the transition.
 
 Example:
 
@@ -224,11 +222,9 @@ The daemon currently exposes 17 MCP tools:
 - `mentisdb_head`
   Return head metadata, latest thought summary, and integrity state.
 
-Legacy `thoughtchain_*` MCP tool names remain accepted for compatibility.
-
 The detailed request and response shapes for the MCP surface live in
-[`THOUGHTCHAIN_MCP.md`](../THOUGHTCHAIN_MCP.md). The REST equivalents live in
-[`THOUGHTCHAIN_REST.md`](../THOUGHTCHAIN_REST.md).
+[`MENTISDB_MCP.md`](../MENTISDB_MCP.md). The REST equivalents live in
+[`MENTISDB_REST.md`](../MENTISDB_REST.md).
 
 ## Using With MCP Clients
 
@@ -402,7 +398,7 @@ before they start writing thoughts.
 
 At the repository root:
 
-- `THOUGHTCHAIN_MCP.md`
-- `THOUGHTCHAIN_REST.md`
-- `thoughtchain/WHITEPAPER.md`
-- `thoughtchain/changelog.txt`
+- `MENTISDB_MCP.md`
+- `MENTISDB_REST.md`
+- `mentisdb/WHITEPAPER.md`
+- `mentisdb/changelog.txt`

@@ -9,8 +9,8 @@ use mentisdb::{
     load_registered_chains, migrate_registered_chains, migrate_registered_chains_with_adapter,
     signable_thought_payload,
     BinaryStorageAdapter, JsonlStorageAdapter, StorageAdapter, StorageAdapterKind, Thought,
-    ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole,
-    ThoughtType, THOUGHTCHAIN_CURRENT_VERSION,
+    MentisDb, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole,
+    ThoughtType, MENTISDB_CURRENT_VERSION,
 };
 use uuid::Uuid;
 
@@ -51,7 +51,7 @@ fn append_and_reload_preserves_semantic_metadata() {
     let session_id = Uuid::new_v4();
 
     {
-        let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("rust"), None).unwrap();
+        let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("rust"), None).unwrap();
         chain
             .append_thought(
                 "agent1",
@@ -70,7 +70,7 @@ fn append_and_reload_preserves_semantic_metadata() {
             .unwrap();
     }
 
-    let chain = ThoughtChain::open(
+    let chain = MentisDb::open(
         &dir,
         "agent1",
         "Analyst",
@@ -96,7 +96,7 @@ fn append_and_reload_preserves_semantic_metadata() {
 #[test]
 fn resolve_context_follows_refs_and_relations() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
 
     let base_id = chain
         .append(
@@ -138,7 +138,7 @@ fn resolve_context_follows_refs_and_relations() {
 #[test]
 fn query_filters_by_type_tag_and_text() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("memory"), None).unwrap();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("memory"), None).unwrap();
 
     chain
         .append_thought(
@@ -176,7 +176,7 @@ fn query_filters_by_type_tag_and_text() {
 #[test]
 fn query_filters_retrospectives_and_lesson_learned() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open_with_key(&dir, "shared-project").unwrap();
+    let mut chain = MentisDb::open_with_key(&dir, "shared-project").unwrap();
 
     chain
         .append_thought(
@@ -255,7 +255,7 @@ impl StorageAdapter for MemoryStorageAdapter {
 #[test]
 fn custom_storage_adapter_can_back_a_chain() {
     let adapter = MemoryStorageAdapter::new("memory://test");
-    let mut chain = ThoughtChain::open_with_storage(Box::new(adapter.clone())).unwrap();
+    let mut chain = MentisDb::open_with_storage(Box::new(adapter.clone())).unwrap();
     chain
         .append(
             "agent1",
@@ -265,7 +265,7 @@ fn custom_storage_adapter_can_back_a_chain() {
         .unwrap();
     assert_eq!(chain.storage_location(), "memory://test");
 
-    let reloaded = ThoughtChain::open_with_storage(Box::new(adapter)).unwrap();
+    let reloaded = MentisDb::open_with_storage(Box::new(adapter)).unwrap();
     assert_eq!(reloaded.thoughts().len(), 1);
     assert_eq!(
         reloaded.thoughts()[0].content,
@@ -282,7 +282,7 @@ fn binary_storage_adapter_persists_and_reloads() {
         StorageAdapterKind::Binary,
     ));
 
-    let mut chain = ThoughtChain::open_with_storage(Box::new(adapter.clone())).unwrap();
+    let mut chain = MentisDb::open_with_storage(Box::new(adapter.clone())).unwrap();
     chain
         .append(
             "agent1",
@@ -291,7 +291,7 @@ fn binary_storage_adapter_persists_and_reloads() {
         )
         .unwrap();
 
-    let reloaded = ThoughtChain::open_with_storage(Box::new(adapter)).unwrap();
+    let reloaded = MentisDb::open_with_storage(Box::new(adapter)).unwrap();
     assert_eq!(reloaded.thoughts().len(), 1);
     assert_eq!(
         reloaded.thoughts()[0].content,
@@ -308,7 +308,7 @@ fn binary_storage_adapter_persists_and_reloads() {
 #[test]
 fn shared_chain_queries_can_filter_by_agent_identity() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open_with_key(&dir, "shared-project").unwrap();
+    let mut chain = MentisDb::open_with_key(&dir, "shared-project").unwrap();
 
     chain
         .append_thought(
@@ -361,7 +361,7 @@ fn shared_chain_queries_can_filter_by_agent_identity() {
 #[test]
 fn memory_markdown_groups_thoughts_into_sections() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open(&dir, "agent1", "Analyst", Some("memory"), None).unwrap();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("memory"), None).unwrap();
 
     chain
         .append(
@@ -502,7 +502,7 @@ fn signable_payload_is_stable_for_normalized_input() {
 #[test]
 fn agent_registry_admin_methods_manage_metadata_and_keys() {
     let dir = unique_chain_dir();
-    let mut chain = ThoughtChain::open_with_key(&dir, "registry-admin").unwrap();
+    let mut chain = MentisDb::open_with_key(&dir, "registry-admin").unwrap();
 
     let created = chain
         .upsert_agent(
@@ -548,7 +548,7 @@ fn agent_registry_admin_methods_manage_metadata_and_keys() {
 
     drop(chain);
 
-    let reloaded = ThoughtChain::open_with_key(&dir, "registry-admin").unwrap();
+    let reloaded = MentisDb::open_with_key(&dir, "registry-admin").unwrap();
     let record = reloaded.get_agent("agent-admin").unwrap();
     assert_eq!(record.description.as_deref(), Some("Updated admin agent"));
     assert!(record.aliases.iter().any(|alias| alias == "astro-admin"));
@@ -570,19 +570,19 @@ fn migrate_v0_jsonl_and_binary_chains_to_v1() {
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].chain_key, chain_key);
         assert_eq!(reports[0].storage_adapter, StorageAdapterKind::Binary);
-        assert_eq!(reports[0].to_version, THOUGHTCHAIN_CURRENT_VERSION);
+        assert_eq!(reports[0].to_version, MENTISDB_CURRENT_VERSION);
 
         let registry = load_registered_chains(&dir).unwrap();
         let entry = registry.chains.get(&chain_key).unwrap();
-        assert_eq!(entry.version, THOUGHTCHAIN_CURRENT_VERSION);
+        assert_eq!(entry.version, MENTISDB_CURRENT_VERSION);
         assert_eq!(entry.storage_adapter, StorageAdapterKind::Binary);
         assert_eq!(entry.thought_count, 1);
 
-        let chain = ThoughtChain::open_with_key(&dir, &chain_key).unwrap();
+        let chain = MentisDb::open_with_key(&dir, &chain_key).unwrap();
         assert_eq!(chain.thoughts().len(), 1);
         assert_eq!(
             chain.thoughts()[0].schema_version,
-            THOUGHTCHAIN_CURRENT_VERSION
+            MENTISDB_CURRENT_VERSION
         );
         assert!(chain.thoughts()[0].signing_key_id.is_none());
         let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
@@ -593,7 +593,7 @@ fn migrate_v0_jsonl_and_binary_chains_to_v1() {
 
         let archived = dir
             .join("migrations")
-            .join(format!("v{}_to_v{}", 0, THOUGHTCHAIN_CURRENT_VERSION))
+            .join(format!("v{}_to_v{}", 0, MENTISDB_CURRENT_VERSION))
             .join(chain_storage_filename(&chain_key, kind));
         assert!(archived.exists());
 
@@ -620,14 +620,14 @@ fn migrate_v0_chains_can_target_an_explicit_storage_adapter() {
     assert!(active_path.exists());
     let archived = dir
         .join("migrations")
-        .join(format!("v{}_to_v{}", 0, THOUGHTCHAIN_CURRENT_VERSION))
+        .join(format!("v{}_to_v{}", 0, MENTISDB_CURRENT_VERSION))
         .join(chain_storage_filename(chain_key, StorageAdapterKind::Binary));
     assert!(archived.exists());
 
-    let chain = ThoughtChain::open_with_key_and_storage_kind(&dir, chain_key, StorageAdapterKind::Jsonl)
+    let chain = MentisDb::open_with_key_and_storage_kind(&dir, chain_key, StorageAdapterKind::Jsonl)
         .unwrap();
     assert_eq!(chain.thoughts().len(), 1);
-    assert_eq!(chain.thoughts()[0].schema_version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(chain.thoughts()[0].schema_version, MENTISDB_CURRENT_VERSION);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -639,7 +639,7 @@ fn current_version_jsonl_chain_is_reconciled_to_default_binary_storage() {
 
     {
         let adapter = JsonlStorageAdapter::for_chain_key(&dir, chain_key);
-        let mut chain = ThoughtChain::open_with_storage(Box::new(adapter)).unwrap();
+        let mut chain = MentisDb::open_with_storage(Box::new(adapter)).unwrap();
         chain
             .append_thought(
                 "legacy-agent",
@@ -652,15 +652,15 @@ fn current_version_jsonl_chain_is_reconciled_to_default_binary_storage() {
 
     let before = load_registered_chains(&dir).unwrap();
     let before_entry = before.chains.get(chain_key).unwrap();
-    assert_eq!(before_entry.version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(before_entry.version, MENTISDB_CURRENT_VERSION);
     assert_eq!(before_entry.storage_adapter, StorageAdapterKind::Jsonl);
 
     let reports = migrate_registered_chains_with_adapter(&dir, StorageAdapterKind::Binary, |_| {})
         .unwrap();
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].chain_key, chain_key);
-    assert_eq!(reports[0].from_version, THOUGHTCHAIN_CURRENT_VERSION);
-    assert_eq!(reports[0].to_version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(reports[0].from_version, MENTISDB_CURRENT_VERSION);
+    assert_eq!(reports[0].to_version, MENTISDB_CURRENT_VERSION);
     assert_eq!(reports[0].source_storage_adapter, StorageAdapterKind::Jsonl);
     assert_eq!(reports[0].storage_adapter, StorageAdapterKind::Binary);
 
@@ -674,15 +674,15 @@ fn current_version_jsonl_chain_is_reconciled_to_default_binary_storage() {
         .join("migrations")
         .join(format!(
             "v{}_to_v{}",
-            THOUGHTCHAIN_CURRENT_VERSION,
-            THOUGHTCHAIN_CURRENT_VERSION
+            MENTISDB_CURRENT_VERSION,
+            MENTISDB_CURRENT_VERSION
         ))
         .join(chain_storage_filename(chain_key, StorageAdapterKind::Jsonl));
     assert!(archived_jsonl.exists());
 
-    let chain = ThoughtChain::open_with_key(&dir, chain_key).unwrap();
+    let chain = MentisDb::open_with_key(&dir, chain_key).unwrap();
     assert_eq!(chain.thoughts().len(), 1);
-    assert_eq!(chain.thoughts()[0].schema_version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(chain.thoughts()[0].schema_version, MENTISDB_CURRENT_VERSION);
     let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
     assert_eq!(record.display_name, "Legacy Agent");
     assert_eq!(record.owner.as_deref(), Some("legacy-team"));
@@ -698,7 +698,7 @@ fn legacy_registry_filename_is_upgraded_to_mentisdb_registry_name() {
     std::fs::write(&legacy_registry_path, r#"{"version":1,"chains":{}}"#).unwrap();
 
     let registry = load_registered_chains(&dir).unwrap();
-    assert_eq!(registry.version, THOUGHTCHAIN_CURRENT_VERSION);
+    assert_eq!(registry.version, MENTISDB_CURRENT_VERSION);
     assert!(!legacy_registry_path.exists());
     assert!(dir.join("mentisdb-registry.json").exists());
 

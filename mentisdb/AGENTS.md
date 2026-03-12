@@ -1,12 +1,12 @@
-# thoughtchain Standards
+# mentisdb Standards
 
-`thoughtchain` follows the same engineering bar as `cloudllm`.
+`mentisdb` follows the same engineering bar as `cloudllm`.
 
 ## Scope
 
-- `thoughtchain` is a standalone crate.
-- `cloudllm` may depend on `thoughtchain`.
-- `thoughtchain` must not depend on `cloudllm`.
+- `mentisdb` is a standalone crate.
+- `cloudllm` may depend on `mentisdb`.
+- `mentisdb` must not depend on `cloudllm`.
 
 ## Standards
 

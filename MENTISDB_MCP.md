@@ -2,9 +2,6 @@
 
 `MentisDB` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
 
-Primary tool names now use the `mentisdb_*` prefix. Legacy `thoughtchain_*`
-aliases are still accepted for compatibility during the rename.
-
 At the moment, the MentisDB MCP server exposes 17 tools:
 
 - `mentisdb_bootstrap`
@@ -25,7 +22,7 @@ At the moment, the MentisDB MCP server exposes 17 tools:
 - `mentisdb_memory_markdown`
 - `mentisdb_head`
 
-This document describes the current remote interface implemented in `thoughtchain/src/server.rs`.
+This document describes the current remote interface implemented in `mentisdb/src/server.rs`.
 
 ## Purpose
 
@@ -805,7 +802,7 @@ Store a checkpoint:
 
 In the MCP interface, a thought refers to previous thoughts through `refs`, which are prior thought indices.
 
-The current remote MCP interface does not yet expose typed graph relations directly. The core `thoughtchain` crate supports typed relations internally, but the MCP server currently exposes only `refs`.
+The current remote MCP interface does not yet expose typed graph relations directly. The core `mentisdb` crate supports typed relations internally, but the MCP server currently exposes only `refs`.
 
 A thought should usually refer to earlier thoughts when one of these is true:
 
@@ -881,7 +878,7 @@ That makes the later lesson part of the same causal memory thread as the earlier
 
 ## What The Remote Interface Does Not Yet Expose
 
-The core `thoughtchain` crate supports more than the current MCP surface. In particular, the current MCP server does not yet expose:
+The core `mentisdb` crate supports more than the current MCP surface. In particular, the current MCP server does not yet expose:
 
 - typed `relations`
 - `session_id`

@@ -2,6 +2,7 @@
 Note: historical entries below use the original ThoughtChain / thoughtchaind
 names because they describe earlier releases. The project is now being
 rebranded to MentisDB / mentisdbd.
+This release also records the project rename from ThoughtChain to MentisDB.
 
  - feat: Introduce ThoughtChain schema version `1`
    - Added explicit `schema_version` to durable thought records

@@ -10,7 +10,7 @@ use axum::http::{Request, StatusCode};
 use serde_json::json;
 use mentisdb::server::{
     adopt_legacy_default_mentisdb_dir, mcp_router, rest_router, standard_mcp_router,
-    ThoughtChainServerConfig, ThoughtChainServiceConfig,
+    MentisDbServerConfig, MentisDbServiceConfig,
 };
 use mentisdb::StorageAdapterKind;
 use tower::util::ServiceExt;
@@ -36,7 +36,7 @@ fn env_mutex() -> &'static Mutex<()> {
 #[test]
 fn server_config_parses_mentisdb_verbose_env_values() {
     let _guard = env_mutex().lock().unwrap();
-    let original = std::env::var("THOUGHTCHAIN_VERBOSE").ok();
+    let original = std::env::var("MENTISDB_VERBOSE").ok();
 
     for (raw_value, expected) in [
         ("1", true),
@@ -47,21 +47,21 @@ fn server_config_parses_mentisdb_verbose_env_values() {
         ("FALSE", false),
         ("unexpected", false),
     ] {
-        std::env::set_var("THOUGHTCHAIN_VERBOSE", raw_value);
-        let config = ThoughtChainServerConfig::from_env();
+        std::env::set_var("MENTISDB_VERBOSE", raw_value);
+        let config = MentisDbServerConfig::from_env();
         assert_eq!(
             config.service.verbose, expected,
             "raw value {raw_value:?} should parse to {expected}"
         );
     }
 
-    std::env::remove_var("THOUGHTCHAIN_VERBOSE");
-    assert!(!ThoughtChainServerConfig::from_env().service.verbose);
+    std::env::remove_var("MENTISDB_VERBOSE");
+    assert!(!MentisDbServerConfig::from_env().service.verbose);
 
     if let Some(original) = original {
-        std::env::set_var("THOUGHTCHAIN_VERBOSE", original);
+        std::env::set_var("MENTISDB_VERBOSE", original);
     } else {
-        std::env::remove_var("THOUGHTCHAIN_VERBOSE");
+        std::env::remove_var("MENTISDB_VERBOSE");
     }
 }
 
@@ -69,7 +69,7 @@ fn server_config_parses_mentisdb_verbose_env_values() {
 fn legacy_default_storage_root_is_adopted_before_server_config_uses_default_dir() {
     let _guard = env_mutex().lock().unwrap();
     let original_home = std::env::var("HOME").ok();
-    let original_dir = std::env::var("THOUGHTCHAIN_DIR").ok();
+    let original_dir = std::env::var("MENTISDB_DIR").ok();
 
     let home_dir = unique_chain_dir();
     let legacy_dir = home_dir.join(".cloudllm").join("thoughtchain");
@@ -79,7 +79,7 @@ fn legacy_default_storage_root_is_adopted_before_server_config_uses_default_dir(
     std::fs::write(legacy_dir.join("chain-note.txt"), "legacy").unwrap();
 
     std::env::set_var("HOME", &home_dir);
-    std::env::remove_var("THOUGHTCHAIN_DIR");
+    std::env::remove_var("MENTISDB_DIR");
 
     let report = adopt_legacy_default_mentisdb_dir()
         .unwrap()
@@ -87,7 +87,7 @@ fn legacy_default_storage_root_is_adopted_before_server_config_uses_default_dir(
     assert_eq!(report.source_dir, legacy_dir);
     assert_eq!(report.target_dir, mentisdb_dir);
 
-    let config = ThoughtChainServerConfig::from_env();
+    let config = MentisDbServerConfig::from_env();
     assert_eq!(config.service.chain_dir, mentisdb_dir);
     assert!(config.service.chain_dir.join("mentisdb-registry.json").exists());
     assert!(config.service.chain_dir.join("chain-note.txt").exists());
@@ -99,9 +99,9 @@ fn legacy_default_storage_root_is_adopted_before_server_config_uses_default_dir(
         std::env::remove_var("HOME");
     }
     if let Some(original_dir) = original_dir {
-        std::env::set_var("THOUGHTCHAIN_DIR", original_dir);
+        std::env::set_var("MENTISDB_DIR", original_dir);
     } else {
-        std::env::remove_var("THOUGHTCHAIN_DIR");
+        std::env::remove_var("MENTISDB_DIR");
     }
 
     let _ = std::fs::remove_dir_all(&home_dir);
@@ -110,7 +110,7 @@ fn legacy_default_storage_root_is_adopted_before_server_config_uses_default_dir(
 #[tokio::test]
 async fn mcp_router_lists_mentisdb_tools() {
     let dir = unique_chain_dir();
-    let router = mcp_router(ThoughtChainServiceConfig::new(
+    let router = mcp_router(MentisDbServiceConfig::new(
         dir.clone(),
         "server-test",
         StorageAdapterKind::Jsonl,
@@ -178,7 +178,7 @@ async fn mcp_router_lists_mentisdb_tools() {
 #[tokio::test]
 async fn rest_router_bootstraps_and_reports_head() {
     let dir = unique_chain_dir();
-    let router = rest_router(ThoughtChainServiceConfig::new(
+    let router = rest_router(MentisDbServiceConfig::new(
         dir.clone(),
         "server-test",
         StorageAdapterKind::Jsonl,
@@ -278,7 +278,7 @@ async fn rest_router_bootstraps_and_reports_head() {
 #[tokio::test]
 async fn rest_router_supports_shared_chain_agent_identity() {
     let dir = unique_chain_dir();
-    let router = rest_router(ThoughtChainServiceConfig::new(
+    let router = rest_router(MentisDbServiceConfig::new(
         dir.clone(),
         "shared-chain",
         StorageAdapterKind::Jsonl,
@@ -343,7 +343,7 @@ async fn rest_router_supports_shared_chain_agent_identity() {
 #[tokio::test]
 async fn rest_router_appends_retrospective_with_defaults() {
     let dir = unique_chain_dir();
-    let router = rest_router(ThoughtChainServiceConfig::new(
+    let router = rest_router(MentisDbServiceConfig::new(
         dir.clone(),
         "shared-chain",
         StorageAdapterKind::Jsonl,
@@ -384,7 +384,7 @@ async fn rest_router_appends_retrospective_with_defaults() {
 #[tokio::test]
 async fn rest_router_lists_chains_and_agents() {
     let dir = unique_chain_dir();
-    let router = rest_router(ThoughtChainServiceConfig::new(
+    let router = rest_router(MentisDbServiceConfig::new(
         dir.clone(),
         "shared-brain",
         StorageAdapterKind::Jsonl,
@@ -508,7 +508,7 @@ async fn rest_router_lists_chains_and_agents() {
 #[tokio::test]
 async fn rest_router_manages_agent_registry_records() {
     let dir = unique_chain_dir();
-    let router = rest_router(ThoughtChainServiceConfig::new(
+    let router = rest_router(MentisDbServiceConfig::new(
         dir.clone(),
         "registry-admin",
         StorageAdapterKind::Binary,
@@ -691,7 +691,7 @@ async fn rest_router_manages_agent_registry_records() {
 #[tokio::test]
 async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
     let dir = unique_chain_dir();
-    let router = standard_mcp_router(ThoughtChainServiceConfig::new(
+    let router = standard_mcp_router(MentisDbServiceConfig::new(
         dir.clone(),
         "server-test",
         StorageAdapterKind::Jsonl,

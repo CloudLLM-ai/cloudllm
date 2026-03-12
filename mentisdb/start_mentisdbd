@@ -10,6 +10,4 @@ cd "$(dirname "$0")"
 # export MENTISDB_BIND_HOST="127.0.0.1"
 # export MENTISDB_MCP_PORT="9471"
 # export MENTISDB_REST_PORT="9472"
-# Legacy THOUGHTCHAIN_* aliases are still accepted during the rename.
-
 cargo run --bin mentisdbd

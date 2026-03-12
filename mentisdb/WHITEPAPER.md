@@ -1,7 +1,7 @@
 # DRAFT: MentisDB White Paper
 
 Note: the product is now named MentisDB. Some code artifacts in this repo may
-still carry the legacy `thoughtchain` name during the transition.
+still carry the legacy `mentisdb` name during the transition.
 
 **Author:** Angel Leon
 

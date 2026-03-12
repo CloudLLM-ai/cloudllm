@@ -37,8 +37,3 @@ tower = { version = "0.5.3", features = ["util"] }
 name = "mentisdbd"
 path = "src/bin/mentisdbd.rs"
 required-features = ["server"]
-
-[[bin]]
-name = "thoughtchaind"
-path = "src/bin/thoughtchaind.rs"
-required-features = ["server"]

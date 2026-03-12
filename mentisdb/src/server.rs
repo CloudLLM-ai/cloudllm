@@ -1,7 +1,7 @@
-//! HTTP servers for exposing ThoughtChain as MCP and REST services.
+//! HTTP servers for exposing MentisDB as MCP and REST services.
 //!
-//! This module keeps the server implementation inside the `thoughtchain` crate
-//! so other projects can run ThoughtChain as an independent long-running
+//! This module keeps the server implementation inside the `mentisdb` crate
+//! so other projects can run MentisDB as an independent long-running
 //! process without depending on `cloudllm`.
 //!
 //! The MCP surface includes both:
@@ -11,7 +11,7 @@
 //!   - `POST /tools/list`
 //!   - `POST /tools/execute`
 //!
-//! The REST surface exposes ThoughtChain operations directly:
+//! The REST surface exposes MentisDB operations directly:
 //!
 //! - `GET /health`
 //! - `POST /v1/bootstrap`
@@ -26,8 +26,8 @@
 
 use crate::{
     load_registered_chains, AgentRecord, AgentStatus, PublicKeyAlgorithm, StorageAdapterKind,
-    Thought, ThoughtChain, ThoughtInput, ThoughtQuery, ThoughtRole, ThoughtType,
-    THOUGHTCHAIN_CURRENT_VERSION,
+    Thought, MentisDb, ThoughtInput, ThoughtQuery, ThoughtRole, ThoughtType,
+    MENTISDB_CURRENT_VERSION,
 };
 use async_trait::async_trait;
 use axum::extract::State;
@@ -58,17 +58,17 @@ const MENTISDB_REGISTRY_FILENAME: &str = "mentisdb-registry.json";
 const LEGACY_THOUGHTCHAIN_REGISTRY_FILENAME: &str = "thoughtchain-registry.json";
 const MENTISDB_PROTOCOL_NAME: &str = "mentisdb";
 
-/// Configuration shared by ThoughtChain server variants.
+/// Configuration shared by MentisDB server variants.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
 /// use mentisdb::StorageAdapterKind;
-/// use mentisdb::server::ThoughtChainServiceConfig;
+/// use mentisdb::server::MentisDbServiceConfig;
 ///
-/// let config = ThoughtChainServiceConfig::new(
-///     PathBuf::from("/tmp/thoughtchain"),
+/// let config = MentisDbServiceConfig::new(
+///     PathBuf::from("/tmp/mentisdb"),
 ///     "borganism-brain",
 ///     StorageAdapterKind::Jsonl,
 /// );
@@ -76,18 +76,18 @@ const MENTISDB_PROTOCOL_NAME: &str = "mentisdb";
 /// assert!(!config.verbose);
 /// ```
 #[derive(Debug, Clone)]
-pub struct ThoughtChainServiceConfig {
+pub struct MentisDbServiceConfig {
     /// Directory containing chain storage files.
     pub chain_dir: PathBuf,
     /// Default chain key used when requests omit `chain_key`.
     pub default_chain_key: String,
     /// Default storage adapter used when creating new chains.
     pub default_storage_adapter: StorageAdapterKind,
-    /// When true, log each ThoughtChain read or write interaction to stderr.
+    /// When true, log each MentisDB read or write interaction to stderr.
     pub verbose: bool,
 }
 
-impl ThoughtChainServiceConfig {
+impl MentisDbServiceConfig {
     /// Create a new service configuration.
     pub fn new(
         chain_dir: PathBuf,
@@ -109,64 +109,60 @@ impl ThoughtChainServiceConfig {
     }
 }
 
-/// Runtime configuration for the standalone `thoughtchaind` process.
+/// Runtime configuration for the standalone `mentisdbd` process.
 ///
 /// Environment variables:
 ///
-/// - `THOUGHTCHAIN_DIR`
-/// - `THOUGHTCHAIN_DEFAULT_KEY`
-/// - `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
-/// - `THOUGHTCHAIN_VERBOSE`
-/// - `THOUGHTCHAIN_BIND_HOST`
-/// - `THOUGHTCHAIN_MCP_PORT`
-/// - `THOUGHTCHAIN_REST_PORT`
+/// - `MENTISDB_DIR`
+/// - `MENTISDB_DEFAULT_KEY`
+/// - `MENTISDB_DEFAULT_STORAGE_ADAPTER`
+/// - `MENTISDB_VERBOSE`
+/// - `MENTISDB_BIND_HOST`
+/// - `MENTISDB_MCP_PORT`
+/// - `MENTISDB_REST_PORT`
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use mentisdb::server::ThoughtChainServerConfig;
+/// use mentisdb::server::MentisDbServerConfig;
 ///
-/// let config = ThoughtChainServerConfig::from_env();
+/// let config = MentisDbServerConfig::from_env();
 /// assert!(config.mcp_addr.port() > 0);
 /// ```
 #[derive(Debug, Clone)]
-pub struct ThoughtChainServerConfig {
+pub struct MentisDbServerConfig {
     /// Shared storage configuration for both HTTP servers.
-    pub service: ThoughtChainServiceConfig,
+    pub service: MentisDbServiceConfig,
     /// Socket address to bind the MCP server to.
     pub mcp_addr: SocketAddr,
     /// Socket address to bind the REST server to.
     pub rest_addr: SocketAddr,
 }
 
-impl ThoughtChainServerConfig {
+impl MentisDbServerConfig {
     /// Build a server configuration from environment variables.
     pub fn from_env() -> Self {
-        let bind_host = env_var(&["MENTISDB_BIND_HOST", "THOUGHTCHAIN_BIND_HOST"])
+        let bind_host = env_var(&["MENTISDB_BIND_HOST"])
             .ok()
             .and_then(|value| value.parse::<IpAddr>().ok())
             .unwrap_or(IpAddr::from([127, 0, 0, 1]));
         let storage_adapter = env_var(&[
             "MENTISDB_DEFAULT_STORAGE_ADAPTER",
             "MENTISDB_STORAGE_ADAPTER",
-            "THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER",
-            "THOUGHTCHAIN_STORAGE_ADAPTER",
         ])
             .ok()
             .map(|value| value.parse().unwrap_or(StorageAdapterKind::Binary))
             .unwrap_or(StorageAdapterKind::Binary);
-        let verbose = env_bool(&["MENTISDB_VERBOSE", "THOUGHTCHAIN_VERBOSE"]).unwrap_or(false);
-        let mcp_port =
-            env_u16(&["MENTISDB_MCP_PORT", "THOUGHTCHAIN_MCP_PORT"]).unwrap_or(9471);
-        let rest_port =
-            env_u16(&["MENTISDB_REST_PORT", "THOUGHTCHAIN_REST_PORT"]).unwrap_or(9472);
+        let verbose = env_bool(&["MENTISDB_VERBOSE"]).unwrap_or(false);
+        let mcp_port = env_u16(&["MENTISDB_MCP_PORT"]).unwrap_or(9471);
+        let rest_port = env_u16(&["MENTISDB_REST_PORT"]).unwrap_or(9472);
 
         Self {
-            service: ThoughtChainServiceConfig::new(
-                env_var(&["MENTISDB_DIR", "THOUGHTCHAIN_DIR"])
+            service: MentisDbServiceConfig::new(
+                env_var(&["MENTISDB_DIR"])
                     .map(PathBuf::from)
                     .unwrap_or_else(|_| default_mentisdb_dir()),
-                env_var(&["MENTISDB_DEFAULT_KEY", "THOUGHTCHAIN_DEFAULT_KEY"])
+                env_var(&["MENTISDB_DEFAULT_KEY"])
                     .unwrap_or_else(|_| "borganism-brain".to_string()),
                 storage_adapter,
             )
@@ -221,16 +217,16 @@ impl ServerHandle {
     }
 }
 
-/// Handles for a running ThoughtChain MCP and REST server pair.
+/// Handles for a running MentisDb MCP and REST server pair.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use mentisdb::server::{start_servers, ThoughtChainServerConfig};
+/// use mentisdb::server::{start_servers, MentisDbServerConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// let config = ThoughtChainServerConfig::from_env();
+/// let config = MentisDbServerConfig::from_env();
 /// let handles = start_servers(config).await?;
 /// println!("MCP: {}", handles.mcp.local_addr());
 /// println!("REST: {}", handles.rest.local_addr());
@@ -238,14 +234,14 @@ impl ServerHandle {
 /// # }
 /// ```
 #[derive(Debug)]
-pub struct ThoughtChainServerHandles {
+pub struct MentisDbServerHandles {
     /// Running MCP server handle.
     pub mcp: ServerHandle,
     /// Running REST server handle.
     pub rest: ServerHandle,
 }
 
-/// Return the default on-disk ThoughtChain directory.
+/// Return the default on-disk MentisDB directory.
 ///
 /// The default is `$HOME/.cloudllm/mentisdb` when `HOME` is available,
 /// otherwise `./.cloudllm/mentisdb`.
@@ -269,13 +265,7 @@ pub fn default_mentisdb_dir() -> PathBuf {
     }
 }
 
-/// Backward-compatible alias for callers still using the old ThoughtChain API
-/// name while the MentisDB rebrand rolls out.
-pub fn default_thoughtchain_dir() -> PathBuf {
-    default_mentisdb_dir()
-}
-
-/// Report returned when legacy default ThoughtChain storage is adopted into the
+/// Report returned when legacy default MentisDB storage is adopted into the
 /// MentisDB default location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LegacyDefaultStorageMigration {
@@ -331,12 +321,6 @@ pub fn adopt_legacy_default_mentisdb_dir(
         merged_entries,
         renamed_registry_file,
     }))
-}
-
-/// Backward-compatible alias for the old ThoughtChain helper name.
-pub fn adopt_legacy_default_thoughtchain_dir(
-) -> io::Result<Option<LegacyDefaultStorageMigration>> {
-    adopt_legacy_default_mentisdb_dir()
 }
 
 fn move_legacy_storage_entries(source_dir: &Path, target_dir: &Path) -> io::Result<usize> {
@@ -397,7 +381,7 @@ fn rename_legacy_registry_file_if_needed(chain_dir: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Start a standalone ThoughtChain MCP server.
+/// Start a standalone MentisDb MCP server.
 ///
 /// The returned server exposes both standard MCP and the legacy
 /// CloudLLM-compatible MCP HTTP endpoints.
@@ -408,11 +392,11 @@ fn rename_legacy_registry_file_if_needed(chain_dir: &Path) -> io::Result<bool> {
 /// use std::net::SocketAddr;
 /// use std::path::PathBuf;
 /// use mentisdb::StorageAdapterKind;
-/// use mentisdb::server::{start_mcp_server, ThoughtChainServiceConfig};
+/// use mentisdb::server::{start_mcp_server, MentisDbServiceConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// let config = ThoughtChainServiceConfig::new(
+/// let config = MentisDbServiceConfig::new(
 ///     PathBuf::from("/tmp/tc"),
 ///     "agent-memory",
 ///     StorageAdapterKind::Jsonl,
@@ -424,13 +408,13 @@ fn rename_legacy_registry_file_if_needed(chain_dir: &Path) -> io::Result<bool> {
 /// ```
 pub async fn start_mcp_server(
     addr: SocketAddr,
-    config: ThoughtChainServiceConfig,
+    config: MentisDbServiceConfig,
 ) -> Result<ServerHandle, Box<dyn Error + Send + Sync>> {
-    let service = Arc::new(ThoughtChainService::new(config));
+    let service = Arc::new(MentisDbService::new(config));
     start_router(addr, standard_and_legacy_mcp_router(service, addr)).await
 }
 
-/// Start a standalone ThoughtChain REST server.
+/// Start a standalone MentisDb REST server.
 ///
 /// # Example
 ///
@@ -438,11 +422,11 @@ pub async fn start_mcp_server(
 /// use std::net::SocketAddr;
 /// use std::path::PathBuf;
 /// use mentisdb::StorageAdapterKind;
-/// use mentisdb::server::{start_rest_server, ThoughtChainServiceConfig};
+/// use mentisdb::server::{start_rest_server, MentisDbServiceConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// let config = ThoughtChainServiceConfig::new(
+/// let config = MentisDbServiceConfig::new(
 ///     PathBuf::from("/tmp/tc"),
 ///     "agent-memory",
 ///     StorageAdapterKind::Jsonl,
@@ -454,26 +438,26 @@ pub async fn start_mcp_server(
 /// ```
 pub async fn start_rest_server(
     addr: SocketAddr,
-    config: ThoughtChainServiceConfig,
+    config: MentisDbServiceConfig,
 ) -> Result<ServerHandle, Box<dyn Error + Send + Sync>> {
     start_router(addr, rest_router(config)).await
 }
 
-/// Start both the MCP and REST servers for `thoughtchaind`.
+/// Start both the MCP and REST servers for `mentisdbd`.
 pub async fn start_servers(
-    config: ThoughtChainServerConfig,
-) -> Result<ThoughtChainServerHandles, Box<dyn Error + Send + Sync>> {
+    config: MentisDbServerConfig,
+) -> Result<MentisDbServerHandles, Box<dyn Error + Send + Sync>> {
     let mcp = start_mcp_server(config.mcp_addr, config.service.clone()).await?;
     let rest = start_rest_server(config.rest_addr, config.service).await?;
-    Ok(ThoughtChainServerHandles { mcp, rest })
+    Ok(MentisDbServerHandles { mcp, rest })
 }
 
 /// Build the MCP router without binding a socket.
 ///
 /// This is useful for embedding the service inside another process or testing
 /// the HTTP contract in-process.
-pub fn mcp_router(config: ThoughtChainServiceConfig) -> Router {
-    let service = Arc::new(ThoughtChainService::new(config));
+pub fn mcp_router(config: MentisDbServiceConfig) -> Router {
+    let service = Arc::new(MentisDbService::new(config));
     Router::new()
         .route("/health", get(health_handler))
         .route("/tools/list", post(mcp_list_tools_handler))
@@ -485,8 +469,8 @@ pub fn mcp_router(config: ThoughtChainServiceConfig) -> Router {
 ///
 /// This exposes the modern MCP root endpoint used by remote MCP clients such as
 /// Codex and Claude Code. It is primarily useful for testing and embedding.
-pub fn standard_mcp_router(config: ThoughtChainServiceConfig) -> Router {
-    let service = Arc::new(ThoughtChainService::new(config));
+pub fn standard_mcp_router(config: MentisDbServiceConfig) -> Router {
+    let service = Arc::new(MentisDbService::new(config));
     standard_mcp_only_router(service, SocketAddr::from(([127, 0, 0, 1], 0)))
 }
 
@@ -494,8 +478,8 @@ pub fn standard_mcp_router(config: ThoughtChainServiceConfig) -> Router {
 ///
 /// This is useful for embedding the service inside another process or testing
 /// the HTTP contract in-process.
-pub fn rest_router(config: ThoughtChainServiceConfig) -> Router {
-    let service = Arc::new(ThoughtChainService::new(config));
+pub fn rest_router(config: MentisDbServiceConfig) -> Router {
+    let service = Arc::new(MentisDbService::new(config));
     Router::new()
         .route("/health", get(health_handler))
         .route("/v1/bootstrap", post(rest_bootstrap_handler))
@@ -528,23 +512,23 @@ pub fn rest_router(config: ThoughtChainServiceConfig) -> Router {
 }
 
 #[derive(Clone)]
-struct ThoughtChainService {
-    config: ThoughtChainServiceConfig,
-    chains: Arc<RwLock<HashMap<String, Arc<RwLock<ThoughtChain>>>>>,
+struct MentisDbService {
+    config: MentisDbServiceConfig,
+    chains: Arc<RwLock<HashMap<String, Arc<RwLock<MentisDb>>>>>,
 }
 
 #[derive(Clone)]
-struct ThoughtChainMcpProtocol {
-    service: Arc<ThoughtChainService>,
+struct MentisDbMcpProtocol {
+    service: Arc<MentisDbService>,
 }
 
-impl ThoughtChainMcpProtocol {
-    fn new(service: Arc<ThoughtChainService>) -> Self {
+impl MentisDbMcpProtocol {
+    fn new(service: Arc<MentisDbService>) -> Self {
         Self { service }
     }
 }
 
-fn standard_and_legacy_mcp_router(service: Arc<ThoughtChainService>, addr: SocketAddr) -> Router {
+fn standard_and_legacy_mcp_router(service: Arc<MentisDbService>, addr: SocketAddr) -> Router {
     standard_mcp_only_router(service.clone(), addr).merge(shared_mcp_router(
         &HttpServerConfig {
             addr,
@@ -552,11 +536,11 @@ fn standard_and_legacy_mcp_router(service: Arc<ThoughtChainService>, addr: Socke
             ip_filter: IpFilter::new(),
             event_handler: None,
         },
-        Arc::new(ThoughtChainMcpProtocol::new(service)),
+        Arc::new(MentisDbMcpProtocol::new(service)),
     ))
 }
 
-fn standard_mcp_only_router(service: Arc<ThoughtChainService>, addr: SocketAddr) -> Router {
+fn standard_mcp_only_router(service: Arc<MentisDbService>, addr: SocketAddr) -> Router {
     Router::new()
         .route("/health", get(health_handler))
         .merge(streamable_http_router(
@@ -571,12 +555,12 @@ fn standard_mcp_only_router(service: Arc<ThoughtChainService>, addr: SocketAddr)
                 .with_instructions(
                     "MentisDB provides semantic, append-only memory tools for durable agent context, memory search, handoff, and auditability.",
                 ),
-            Arc::new(ThoughtChainMcpProtocol::new(service)),
+            Arc::new(MentisDbMcpProtocol::new(service)),
         ))
 }
 
 #[async_trait]
-impl ToolProtocol for ThoughtChainMcpProtocol {
+impl ToolProtocol for MentisDbMcpProtocol {
     async fn execute(
         &self,
         tool_name: &str,
@@ -666,8 +650,8 @@ impl ToolProtocol for ThoughtChainMcpProtocol {
     }
 }
 
-impl ThoughtChainService {
-    fn new(config: ThoughtChainServiceConfig) -> Self {
+impl MentisDbService {
+    fn new(config: MentisDbServiceConfig) -> Self {
         Self {
             config,
             chains: Arc::new(RwLock::new(HashMap::new())),
@@ -678,7 +662,7 @@ impl ThoughtChainService {
         &self,
         chain_key: Option<&str>,
         storage_adapter: Option<StorageAdapterKind>,
-    ) -> Result<Arc<RwLock<ThoughtChain>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Arc<RwLock<MentisDb>>, Box<dyn Error + Send + Sync>> {
         let chain_key = chain_key
             .unwrap_or(&self.config.default_chain_key)
             .to_string();
@@ -687,7 +671,7 @@ impl ThoughtChainService {
             return Ok(existing);
         }
 
-        let chain = Arc::new(RwLock::new(ThoughtChain::open_with_key_and_storage_kind(
+        let chain = Arc::new(RwLock::new(MentisDb::open_with_key_and_storage_kind(
             &self.config.chain_dir,
             &chain_key,
             storage_adapter.unwrap_or(self.config.default_storage_adapter),
@@ -929,7 +913,7 @@ impl ThoughtChainService {
             })
             .collect();
 
-        let open_chains: Vec<(String, Arc<RwLock<ThoughtChain>>)> = self
+        let open_chains: Vec<(String, Arc<RwLock<MentisDb>>)> = self
             .chains
             .read()
             .await
@@ -944,14 +928,14 @@ impl ThoughtChainService {
             chains_by_key
                 .entry(chain_key.clone())
                 .and_modify(|summary| {
-                    summary.version = THOUGHTCHAIN_CURRENT_VERSION;
+                    summary.version = MENTISDB_CURRENT_VERSION;
                     summary.thought_count = chain.thoughts().len() as u64;
                     summary.agent_count = chain.agent_registry().agents.len();
                     summary.storage_location = storage_location.clone();
                 })
                 .or_insert_with(|| ChainSummary {
                     chain_key: chain_key.clone(),
-                    version: THOUGHTCHAIN_CURRENT_VERSION,
+                    version: MENTISDB_CURRENT_VERSION,
                     storage_adapter: infer_storage_adapter_name(&storage_location),
                     thought_count: chain.thoughts().len() as u64,
                     agent_count: chain.agent_registry().agents.len(),
@@ -1335,11 +1319,11 @@ struct InteractionMetadata {
 }
 
 impl InteractionMetadata {
-    fn from_chain_thought(chain: &ThoughtChain, thought: &Thought) -> Self {
+    fn from_chain_thought(chain: &MentisDb, thought: &Thought) -> Self {
         Self::from_chain_thoughts(chain, std::iter::once(thought))
     }
 
-    fn from_chain_thoughts<'a, I>(chain: &ThoughtChain, thoughts: I) -> Self
+    fn from_chain_thoughts<'a, I>(chain: &MentisDb, thoughts: I) -> Self
     where
         I: IntoIterator<Item = &'a Thought>,
     {
@@ -1666,10 +1650,10 @@ async fn mcp_list_tools_handler() -> Json<Value> {
 }
 
 async fn mcp_execute_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<McpExecuteRequest>,
 ) -> (StatusCode, Json<Value>) {
-    let protocol = ThoughtChainMcpProtocol::new(service);
+    let protocol = MentisDbMcpProtocol::new(service);
 
     match protocol.execute(&request.tool, request.parameters).await {
         Ok(result) => (StatusCode::OK, Json(json!({ "result": result }))),
@@ -1681,118 +1665,118 @@ async fn mcp_execute_handler(
 }
 
 async fn rest_bootstrap_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<BootstrapRequest>,
 ) -> Result<Json<BootstrapResponse>, (StatusCode, Json<Value>)> {
     service_call(service.bootstrap(request).await)
 }
 
 async fn rest_append_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<AppendThoughtRequest>,
 ) -> Result<Json<AppendThoughtResponse>, (StatusCode, Json<Value>)> {
     service_call(service.append(request).await)
 }
 
 async fn rest_append_retrospective_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<AppendRetrospectiveRequest>,
 ) -> Result<Json<AppendThoughtResponse>, (StatusCode, Json<Value>)> {
     service_call(service.append_retrospective(request).await)
 }
 
 async fn rest_search_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, (StatusCode, Json<Value>)> {
     service_call(service.search(request).await)
 }
 
 async fn rest_list_chains_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
 ) -> Result<Json<ListChainsResponse>, (StatusCode, Json<Value>)> {
     service_call(service.list_chains().await)
 }
 
 async fn rest_list_agents_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<ListAgentsRequest>,
 ) -> Result<Json<ListAgentsResponse>, (StatusCode, Json<Value>)> {
     service_call(service.list_agents(request).await)
 }
 
 async fn rest_get_agent_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<GetAgentRequest>,
 ) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
     service_call(service.get_agent(request).await)
 }
 
 async fn rest_list_agent_registry_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<ListAgentRegistryRequest>,
 ) -> Result<Json<AgentRegistryResponse>, (StatusCode, Json<Value>)> {
     service_call(service.list_agent_registry(request).await)
 }
 
 async fn rest_upsert_agent_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<UpsertAgentRequest>,
 ) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
     service_call(service.upsert_agent(request).await)
 }
 
 async fn rest_set_agent_description_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<SetAgentDescriptionRequest>,
 ) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
     service_call(service.set_agent_description(request).await)
 }
 
 async fn rest_add_agent_alias_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<AddAgentAliasRequest>,
 ) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
     service_call(service.add_agent_alias(request).await)
 }
 
 async fn rest_add_agent_key_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<AddAgentKeyRequest>,
 ) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
     service_call(service.add_agent_key(request).await)
 }
 
 async fn rest_revoke_agent_key_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<RevokeAgentKeyRequest>,
 ) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
     service_call(service.revoke_agent_key(request).await)
 }
 
 async fn rest_disable_agent_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<DisableAgentRequest>,
 ) -> Result<Json<AgentRecordResponse>, (StatusCode, Json<Value>)> {
     service_call(service.disable_agent(request).await)
 }
 
 async fn rest_recent_context_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<RecentContextRequest>,
 ) -> Result<Json<RecentContextResponse>, (StatusCode, Json<Value>)> {
     service_call(service.recent_context(request).await)
 }
 
 async fn rest_memory_markdown_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<MemoryMarkdownRequest>,
 ) -> Result<Json<MemoryMarkdownResponse>, (StatusCode, Json<Value>)> {
     service_call(service.memory_markdown(request).await)
 }
 
 async fn rest_head_handler(
-    State(service): State<Arc<ThoughtChainService>>,
+    State(service): State<Arc<MentisDbService>>,
     Json(request): Json<ChainHeadRequest>,
 ) -> Result<Json<HeadResponse>, (StatusCode, Json<Value>)> {
     service_call(service.head(request).await)
@@ -1866,7 +1850,7 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         ),
         ToolMetadata::new(
             "mentisdb_append",
-            "Append a durable semantic memory to ThoughtChain. Use exact ThoughtType names like PreferenceUpdate, Constraint, Decision, Insight, Wonder, Question, Summary, Mistake, or Correction.",
+            "Append a durable semantic memory to MentisDb. Use exact ThoughtType names like PreferenceUpdate, Constraint, Decision, Insight, Wonder, Question, Summary, Mistake, or Correction.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Optional producing agent id. Defaults to the chain key when omitted."))
@@ -1919,7 +1903,7 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of results.")),
         ToolMetadata::new(
             "mentisdb_list_chains",
-            "List the durable chain keys currently available in ThoughtChain storage, together with the server default chain key.",
+            "List the durable chain keys currently available in MentisDb storage, together with the server default chain key.",
         ),
         ToolMetadata::new(
             "mentisdb_list_agents",
@@ -1985,13 +1969,13 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id to disable.").required()),
         ToolMetadata::new(
             "mentisdb_recent_context",
-            "Render recent ThoughtChain context as a prompt snippet suitable for resuming work.",
+            "Render recent MentisDb context as a prompt snippet suitable for resuming work.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
         .with_parameter(ToolParameter::new("last_n", ToolParameterType::Integer).with_description("How many recent thoughts to include.")),
         ToolMetadata::new(
             "mentisdb_memory_markdown",
-            "Export a MEMORY.md style Markdown summary from ThoughtChain.",
+            "Export a MEMORY.md style Markdown summary from MentisDb.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
         .with_parameter(ToolParameter::new("text", ToolParameterType::String).with_description("Optional text filter."))
@@ -2009,7 +1993,7 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of thoughts.")),
         ToolMetadata::new(
             "mentisdb_head",
-            "Return head metadata for a ThoughtChain including length, latest thought, and head hash.",
+            "Return head metadata for a MentisDb including length, latest thought, and head hash.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key.")),
     ]
@@ -2191,7 +2175,7 @@ fn infer_storage_adapter_name(storage_location: &str) -> String {
     }
 }
 
-fn thought_to_json(chain: &ThoughtChain, thought: &Thought) -> Value {
+fn thought_to_json(chain: &MentisDb, thought: &Thought) -> Value {
     chain.thought_json(thought)
 }
 

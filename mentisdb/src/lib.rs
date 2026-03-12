@@ -1,6 +1,6 @@
 //! Semantic, hash-chained memory for long-running agents.
 //!
-//! `thoughtchain` provides an append-only, adapter-backed memory log for
+//! `mentisdb` provides an append-only, adapter-backed memory log for
 //! durable, queryable cognitive state. Thoughts are timestamped, hash-chained,
 //! typed, optionally connected to prior thoughts, and exportable as prompts or
 //! Markdown memory snapshots. The current default backend is binary, but the
@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// Persistence interface for ThoughtChain storage backends.
+/// Persistence interface for MentisDb storage backends.
 ///
 /// Storage adapters are responsible only for durable read and append
 /// operations. The in-memory chain model, hashing, querying, and replay logic
-/// remain inside [`ThoughtChain`].
+/// remain inside [`MentisDb`].
 ///
 /// # Example
 ///
@@ -55,20 +55,20 @@ pub trait StorageAdapter: Send + Sync {
     fn storage_path(&self) -> Option<&Path>;
 }
 
-/// Legacy ThoughtChain storage schema version.
-pub const THOUGHTCHAIN_SCHEMA_V0: u32 = 0;
-/// First registry-backed ThoughtChain storage schema version.
-pub const THOUGHTCHAIN_SCHEMA_V1: u32 = 1;
-/// Alias for the latest supported ThoughtChain storage schema version.
-pub const THOUGHTCHAIN_CURRENT_VERSION: u32 = THOUGHTCHAIN_SCHEMA_V1;
+/// Legacy MentisDb storage schema version.
+pub const MENTISDB_SCHEMA_V0: u32 = 0;
+/// First registry-backed MentisDb storage schema version.
+pub const MENTISDB_SCHEMA_V1: u32 = 1;
+/// Alias for the latest supported MentisDb storage schema version.
+pub const MENTISDB_CURRENT_VERSION: u32 = MENTISDB_SCHEMA_V1;
 const MENTISDB_REGISTRY_FILENAME: &str = "mentisdb-registry.json";
 const LEGACY_THOUGHTCHAIN_REGISTRY_FILENAME: &str = "thoughtchain-registry.json";
 
 fn current_schema_version() -> u32 {
-    THOUGHTCHAIN_CURRENT_VERSION
+    MENTISDB_CURRENT_VERSION
 }
 
-/// Supported durable storage formats for ThoughtChain.
+/// Supported durable storage formats for MentisDb.
 ///
 /// This enum lets applications select a backend without hard-coding a concrete
 /// adapter type. `Jsonl` remains the most human-inspectable option, while
@@ -148,16 +148,16 @@ impl FromStr for StorageAdapterKind {
             "jsonl" => Ok(Self::Jsonl),
             "binary" => Ok(Self::Binary),
             other => Err(format!(
-                "Unsupported ThoughtChain storage adapter '{other}'. Expected 'jsonl' or 'binary'"
+                "Unsupported MentisDb storage adapter '{other}'. Expected 'jsonl' or 'binary'"
             )),
         }
     }
 }
 
-/// Append-only JSONL storage adapter for ThoughtChain.
+/// Append-only JSONL storage adapter for MentisDb.
 ///
-/// This is the default storage backend used by [`ThoughtChain::open`] and
-/// [`ThoughtChain::open_with_key`].
+/// This is the default storage backend used by [`MentisDb::open`] and
+/// [`MentisDb::open_with_key`].
 ///
 /// # Example
 ///
@@ -179,7 +179,7 @@ impl JsonlStorageAdapter {
         Self { file_path }
     }
 
-    /// Create a JSONL adapter using the stable ThoughtChain filename for a chain key.
+    /// Create a JSONL adapter using the stable MentisDb filename for a chain key.
     pub fn for_chain_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> Self {
         let file_path = chain_dir
             .as_ref()
@@ -235,7 +235,7 @@ impl StorageAdapter for JsonlStorageAdapter {
     }
 }
 
-/// Append-only binary storage adapter for ThoughtChain.
+/// Append-only binary storage adapter for MentisDb.
 ///
 /// Each record is stored as a length-prefixed serialized [`Thought`], which
 /// keeps append operations simple while avoiding JSON parse overhead on reload.
@@ -260,7 +260,7 @@ impl BinaryStorageAdapter {
         Self { file_path }
     }
 
-    /// Create a binary adapter using the stable ThoughtChain filename for a chain key.
+    /// Create a binary adapter using the stable MentisDb filename for a chain key.
     pub fn for_chain_key<P: AsRef<Path>>(chain_dir: P, chain_key: &str) -> Self {
         let file_path = chain_dir.as_ref().join(chain_storage_filename(
             chain_key,
@@ -326,7 +326,7 @@ impl FromStr for PublicKeyAlgorithm {
         match value.trim().to_ascii_lowercase().as_str() {
             "ed25519" => Ok(Self::Ed25519),
             other => Err(format!(
-                "Unsupported ThoughtChain public-key algorithm '{other}'. Expected 'ed25519'"
+                "Unsupported MentisDb public-key algorithm '{other}'. Expected 'ed25519'"
             )),
         }
     }
@@ -380,7 +380,7 @@ impl FromStr for AgentStatus {
             "active" => Ok(Self::Active),
             "revoked" | "disabled" => Ok(Self::Revoked),
             other => Err(format!(
-                "Unsupported ThoughtChain agent status '{other}'. Expected 'active' or 'revoked'"
+                "Unsupported MentisDb agent status '{other}'. Expected 'active' or 'revoked'"
             )),
         }
     }
@@ -591,7 +591,7 @@ impl AgentRegistry {
 
 /// Metadata describing one registered thought chain.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ThoughtChainRegistration {
+pub struct MentisDbRegistration {
     /// Stable chain identifier.
     pub chain_key: String,
     /// Storage schema version for the active chain file.
@@ -612,16 +612,16 @@ pub struct ThoughtChainRegistration {
 
 /// Registry of all known thought chains in one storage directory.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ThoughtChainRegistry {
+pub struct MentisDbRegistry {
     /// Version of the registry file itself.
     pub version: u32,
     /// Registered chains keyed by stable `chain_key`.
-    pub chains: BTreeMap<String, ThoughtChainRegistration>,
+    pub chains: BTreeMap<String, MentisDbRegistration>,
 }
 
 /// Summary of a successful chain migration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ThoughtChainMigrationReport {
+pub struct MentisDbMigrationReport {
     /// Stable chain identifier.
     pub chain_key: String,
     /// Previous storage schema version.
@@ -640,7 +640,7 @@ pub struct ThoughtChainMigrationReport {
 
 /// Progress notifications emitted during migration.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ThoughtChainMigrationEvent {
+pub enum MentisDbMigrationEvent {
     /// A migration run is starting for a chain.
     Started {
         /// Stable chain identifier.
@@ -877,7 +877,7 @@ pub struct ThoughtRelation {
 /// what the thought means, how important it is, which earlier thoughts it
 /// refers to, and which optional metadata should accompany it.
 ///
-/// ThoughtChain then turns that input into a persisted [`Thought`] by adding
+/// MentisDb then turns that input into a persisted [`Thought`] by adding
 /// the system-managed fields that callers should not forge directly, such as:
 ///
 /// - the stable thought `id`
@@ -893,7 +893,7 @@ pub struct ThoughtRelation {
 /// - [`Thought`] is the committed memory record
 ///
 /// Use `ThoughtInput` when you want richer metadata than the simple
-/// [`ThoughtChain::append`] helper allows.
+/// [`MentisDb::append`] helper allows.
 ///
 /// # Example
 ///
@@ -1111,7 +1111,7 @@ pub fn signable_thought_payload(agent_id: &str, input: &ThoughtInput) -> Vec<u8>
     }
 
     let payload = SignableThoughtPayload {
-        schema_version: THOUGHTCHAIN_CURRENT_VERSION,
+        schema_version: MENTISDB_CURRENT_VERSION,
         agent_id,
         session_id: input.session_id,
         thought_type: input.thought_type,
@@ -1130,12 +1130,12 @@ pub fn signable_thought_payload(agent_id: &str, input: &ThoughtInput) -> Vec<u8>
 
 /// A single durable thought record.
 ///
-/// `Thought` is the committed record that ThoughtChain stores and returns. It
+/// `Thought` is the committed record that MentisDb stores and returns. It
 /// contains the semantic memory payload together with the fields required for
 /// ordering, attribution, and integrity verification.
 ///
 /// A caller typically does not construct this type directly. Instead, the
-/// caller provides a [`ThoughtInput`], and ThoughtChain produces a `Thought`
+/// caller provides a [`ThoughtInput`], and MentisDb produces a `Thought`
 /// with system-managed fields filled in. This distinction prevents accidental
 /// confusion between "memory content proposed by an agent" and "memory record
 /// accepted into the chain".
@@ -1144,10 +1144,10 @@ pub fn signable_thought_payload(agent_id: &str, input: &ThoughtInput) -> Vec<u8>
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
-/// use mentisdb::{ThoughtChain, ThoughtType};
+/// use mentisdb::{MentisDb, ThoughtType};
 ///
 /// # fn main() -> std::io::Result<()> {
-/// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_doc"), "agent1", "Agent", None, None)?;
+/// let mut chain = MentisDb::open(&PathBuf::from("/tmp/tc_doc"), "agent1", "Agent", None, None)?;
 /// let thought = chain.append("agent1", ThoughtType::Finding, "The cache hit rate is 97%.")?;
 ///
 /// assert_eq!(thought.index, 0);
@@ -1169,7 +1169,7 @@ pub struct Thought {
     pub index: u64,
     /// UTC timestamp when the thought was recorded.
     ///
-    /// Assigned at commit time by ThoughtChain.
+    /// Assigned at commit time by MentisDb.
     pub timestamp: DateTime<Utc>,
     /// Optional session identifier associated with the thought.
     pub session_id: Option<Uuid>,
@@ -1443,7 +1443,7 @@ impl ThoughtQuery {
 
 /// Append-only, hash-chained semantic memory store.
 ///
-/// `ThoughtChain` stores thoughts in memory and persists them through a
+/// `MentisDb` stores thoughts in memory and persists them through a
 /// [`StorageAdapter`]. Every record includes a SHA-256 hash of its canonical
 /// contents plus the previous record hash, making offline tampering
 /// detectable. The default backend is newline-delimited JSON via
@@ -1453,10 +1453,10 @@ impl ThoughtQuery {
 ///
 /// ```rust,no_run
 /// use std::path::PathBuf;
-/// use mentisdb::{ThoughtChain, ThoughtType};
+/// use mentisdb::{MentisDb, ThoughtType};
 ///
 /// # fn main() -> std::io::Result<()> {
-/// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_chain"), "researcher", "Researcher", None, None)?;
+/// let mut chain = MentisDb::open(&PathBuf::from("/tmp/tc_chain"), "researcher", "Researcher", None, None)?;
 /// chain.append("researcher", ThoughtType::FactLearned, "The corpus contains 4 million rows.")?;
 ///
 /// assert!(chain.verify_integrity());
@@ -1495,7 +1495,7 @@ struct LegacyThoughtV0 {
 }
 
 /// Append-only, hash-chained semantic memory store.
-pub struct ThoughtChain {
+pub struct MentisDb {
     thoughts: Vec<Thought>,
     id_to_index: HashMap<Uuid, usize>,
     agent_registry: AgentRegistry,
@@ -1504,7 +1504,7 @@ pub struct ThoughtChain {
     persistence: Option<ChainPersistenceMetadata>,
 }
 
-impl ThoughtChain {
+impl MentisDb {
     /// Open or create a chain using the agent id as the durable storage key.
     ///
     /// The additional identity parameters are accepted for compatibility with
@@ -1515,10 +1515,10 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::ThoughtChain;
+    /// use mentisdb::MentisDb;
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_open"), "agent1", "Agent", None, None)?;
+    /// let chain = MentisDb::open(&PathBuf::from("/tmp/tc_open"), "agent1", "Agent", None, None)?;
     /// assert!(chain.thoughts().is_empty());
     /// # Ok(())
     /// # }
@@ -1539,11 +1539,11 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::{JsonlStorageAdapter, ThoughtChain};
+    /// use mentisdb::{JsonlStorageAdapter, MentisDb};
     ///
     /// # fn main() -> std::io::Result<()> {
     /// let adapter = JsonlStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_custom"), "project-memory");
-    /// let chain = ThoughtChain::open_with_storage(Box::new(adapter))?;
+    /// let chain = MentisDb::open_with_storage(Box::new(adapter))?;
     /// assert!(chain.thoughts().is_empty());
     /// # Ok(())
     /// # }
@@ -1607,10 +1607,10 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::ThoughtChain;
+    /// use mentisdb::MentisDb;
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let chain = ThoughtChain::open_with_key(PathBuf::from("/tmp/tc_key"), "project-memory")?;
+    /// let chain = MentisDb::open_with_key(PathBuf::from("/tmp/tc_key"), "project-memory")?;
     /// assert!(chain.thoughts().is_empty());
     /// # Ok(())
     /// # }
@@ -1639,10 +1639,10 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{MentisDb, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_append"), "agent1", "Agent", None, None)?;
+    /// let mut chain = MentisDb::open(&PathBuf::from("/tmp/tc_append"), "agent1", "Agent", None, None)?;
     /// let thought = chain.append("agent1", ThoughtType::Decision, "Use SQLite for local state.")?;
     ///
     /// assert_eq!(thought.index, 0);
@@ -1664,10 +1664,10 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{MentisDb, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_refs"), "agent1", "Agent", None, None)?;
+    /// let mut chain = MentisDb::open(&PathBuf::from("/tmp/tc_refs"), "agent1", "Agent", None, None)?;
     /// chain.append("agent1", ThoughtType::Finding, "Observed rising latency.")?;
     /// let summary = chain.append_with_refs("agent1", ThoughtType::Summary, "Latency issue captured.", vec![0])?;
     ///
@@ -1694,10 +1694,10 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::{ThoughtChain, ThoughtInput, ThoughtRole, ThoughtType};
+    /// use mentisdb::{MentisDb, ThoughtInput, ThoughtRole, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_rich"), "agent1", "Agent", None, None)?;
+    /// let mut chain = MentisDb::open(&PathBuf::from("/tmp/tc_rich"), "agent1", "Agent", None, None)?;
     /// let input = ThoughtInput::new(ThoughtType::Constraint, "The system must work offline.")
     ///     .with_role(ThoughtRole::Checkpoint)
     ///     .with_importance(0.95)
@@ -1748,7 +1748,7 @@ impl ThoughtChain {
             .map(ToOwned::to_owned);
         input.importance = input.importance.clamp(0.0, 1.0);
         let thought = Thought {
-            schema_version: THOUGHTCHAIN_CURRENT_VERSION,
+            schema_version: MENTISDB_CURRENT_VERSION,
             id: Uuid::new_v4(),
             index,
             timestamp,
@@ -2136,10 +2136,10 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::{ThoughtChain, ThoughtQuery, ThoughtType};
+    /// use mentisdb::{MentisDb, ThoughtQuery, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_query"), "agent1", "Agent", None, None)?;
+    /// let mut chain = MentisDb::open(&PathBuf::from("/tmp/tc_query"), "agent1", "Agent", None, None)?;
     /// chain.append("agent1", ThoughtType::Decision, "Use SQLite for local state.")?;
     ///
     /// let results = chain.query(&ThoughtQuery::new().with_types(vec![ThoughtType::Decision]));
@@ -2179,7 +2179,7 @@ impl ThoughtChain {
             return String::new();
         }
 
-        let mut prompt = String::from("=== RESTORED CONTEXT (from ThoughtChain) ===\n\n");
+        let mut prompt = String::from("=== RESTORED CONTEXT (from MentisDb) ===\n\n");
         for thought in resolved {
             prompt.push_str(&format!(
                 "[#{}] {:?} / {:?} ({})\n{}\n",
@@ -2239,10 +2239,10 @@ impl ThoughtChain {
     ///
     /// ```rust,no_run
     /// use std::path::PathBuf;
-    /// use mentisdb::{ThoughtChain, ThoughtType};
+    /// use mentisdb::{MentisDb, ThoughtType};
     ///
     /// # fn main() -> std::io::Result<()> {
-    /// let mut chain = ThoughtChain::open(&PathBuf::from("/tmp/tc_md"), "agent1", "Agent", None, None)?;
+    /// let mut chain = MentisDb::open(&PathBuf::from("/tmp/tc_md"), "agent1", "Agent", None, None)?;
     /// chain.append("agent1", ThoughtType::PreferenceUpdate, "User prefers concise Markdown.")?;
     ///
     /// let markdown = chain.to_memory_markdown(None);
@@ -2379,7 +2379,7 @@ impl ThoughtChain {
             return Ok(());
         };
 
-        let mut registry = load_thoughtchain_registry(&metadata.chain_dir)?;
+        let mut registry = load_mentisdb_registry(&metadata.chain_dir)?;
         let now = Utc::now();
         let created_at = registry
             .chains
@@ -2388,9 +2388,9 @@ impl ThoughtChain {
             .unwrap_or(now);
         registry.chains.insert(
             metadata.chain_key.clone(),
-            ThoughtChainRegistration {
+            MentisDbRegistration {
                 chain_key: metadata.chain_key.clone(),
-                version: THOUGHTCHAIN_CURRENT_VERSION,
+                version: MENTISDB_CURRENT_VERSION,
                 storage_adapter: metadata.storage_kind,
                 storage_location: self.storage.storage_location(),
                 thought_count: self.thoughts.len() as u64,
@@ -2399,7 +2399,7 @@ impl ThoughtChain {
                 updated_at: now,
             },
         );
-        save_thoughtchain_registry(&metadata.chain_dir, &registry)
+        save_mentisdb_registry(&metadata.chain_dir, &registry)
     }
 }
 
@@ -2459,7 +2459,7 @@ pub fn chain_storage_filename(chain_key: &str, kind: StorageAdapterKind) -> Stri
     format!("{safe_key}-{fingerprint}.{}", kind.file_extension())
 }
 
-/// Recover the stable chain key portion from a ThoughtChain storage filename.
+/// Recover the stable chain key portion from a MentisDb storage filename.
 ///
 /// This reverses the filename convention used by [`chain_storage_filename`]
 /// and returns the durable chain key prefix as stored in the filename. The
@@ -2577,11 +2577,11 @@ fn save_agent_registry(
         .map_err(|error| io::Error::other(format!("Failed to serialize agent registry: {error}")))
 }
 
-fn load_thoughtchain_registry(chain_dir: &Path) -> io::Result<ThoughtChainRegistry> {
+fn load_mentisdb_registry(chain_dir: &Path) -> io::Result<MentisDbRegistry> {
     let path = resolve_registry_path(chain_dir)?;
     if !path.exists() {
-        return Ok(ThoughtChainRegistry {
-            version: THOUGHTCHAIN_CURRENT_VERSION,
+        return Ok(MentisDbRegistry {
+            version: MENTISDB_CURRENT_VERSION,
             chains: BTreeMap::new(),
         });
     }
@@ -2590,12 +2590,12 @@ fn load_thoughtchain_registry(chain_dir: &Path) -> io::Result<ThoughtChainRegist
     serde_json::from_reader(file).map_err(|error| {
         io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("Failed to deserialize thoughtchain registry: {error}"),
+            format!("Failed to deserialize MentisDB registry: {error}"),
         )
     })
 }
 
-fn save_thoughtchain_registry(chain_dir: &Path, registry: &ThoughtChainRegistry) -> io::Result<()> {
+fn save_mentisdb_registry(chain_dir: &Path, registry: &MentisDbRegistry) -> io::Result<()> {
     let path = mentisdb_registry_path(chain_dir);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -2603,7 +2603,7 @@ fn save_thoughtchain_registry(chain_dir: &Path, registry: &ThoughtChainRegistry)
     let file = fs::File::create(path)?;
     serde_json::to_writer_pretty(file, registry).map_err(|error| {
         io::Error::other(format!(
-            "Failed to serialize thoughtchain registry: {error}"
+            "Failed to serialize MentisDB registry: {error}"
         ))
     })?;
 
@@ -2620,7 +2620,7 @@ fn resolve_storage_kind_for_chain(
     chain_key: &str,
     default_kind: StorageAdapterKind,
 ) -> io::Result<StorageAdapterKind> {
-    let registry = load_thoughtchain_registry(chain_dir)?;
+    let registry = load_mentisdb_registry(chain_dir)?;
     if let Some(entry) = registry.chains.get(chain_key) {
         return Ok(entry.storage_adapter);
     }
@@ -2649,18 +2649,18 @@ fn resolve_storage_kind_for_chain(
 }
 
 /// Load the registry of all known thought chains for a storage directory.
-pub fn load_registered_chains<P: AsRef<Path>>(chain_dir: P) -> io::Result<ThoughtChainRegistry> {
-    load_thoughtchain_registry(chain_dir.as_ref())
+pub fn load_registered_chains<P: AsRef<Path>>(chain_dir: P) -> io::Result<MentisDbRegistry> {
+    load_mentisdb_registry(chain_dir.as_ref())
 }
 
 /// Migrate all legacy v0 chain files in a storage directory to the current format.
 pub fn migrate_registered_chains<P, F>(
     chain_dir: P,
     progress: F,
-) -> io::Result<Vec<ThoughtChainMigrationReport>>
+) -> io::Result<Vec<MentisDbMigrationReport>>
 where
     P: AsRef<Path>,
-    F: FnMut(ThoughtChainMigrationEvent),
+    F: FnMut(MentisDbMigrationEvent),
 {
     migrate_registered_chains_with_adapter(chain_dir, StorageAdapterKind::default(), progress)
 }
@@ -2671,14 +2671,14 @@ pub fn migrate_registered_chains_with_adapter<P, F>(
     chain_dir: P,
     target_storage_adapter: StorageAdapterKind,
     mut progress: F,
-) -> io::Result<Vec<ThoughtChainMigrationReport>>
+) -> io::Result<Vec<MentisDbMigrationReport>>
 where
     P: AsRef<Path>,
-    F: FnMut(ThoughtChainMigrationEvent),
+    F: FnMut(MentisDbMigrationEvent),
 {
     let chain_dir = chain_dir.as_ref();
     fs::create_dir_all(chain_dir)?;
-    let mut registry = load_thoughtchain_registry(chain_dir)?;
+    let mut registry = load_mentisdb_registry(chain_dir)?;
     let mut discovered = discover_chain_files(chain_dir)?;
     discovered.sort_by(|left, right| left.chain_key.cmp(&right.chain_key));
     let pending: Vec<DiscoveredChainFile> = discovered
@@ -2687,7 +2687,7 @@ where
             registry
                 .chains
                 .get(&candidate.chain_key)
-                .map(|entry| entry.version < THOUGHTCHAIN_CURRENT_VERSION)
+                .map(|entry| entry.version < MENTISDB_CURRENT_VERSION)
                 .unwrap_or(true)
         })
         .collect();
@@ -2697,18 +2697,18 @@ where
 
     for (position, candidate) in pending.into_iter().enumerate() {
         let current = position + 1;
-        progress(ThoughtChainMigrationEvent::Started {
+        progress(MentisDbMigrationEvent::Started {
             chain_key: candidate.chain_key.clone(),
-            from_version: THOUGHTCHAIN_SCHEMA_V0,
-            to_version: THOUGHTCHAIN_CURRENT_VERSION,
+            from_version: MENTISDB_SCHEMA_V0,
+            to_version: MENTISDB_CURRENT_VERSION,
             current,
             total,
         });
 
         let report = migrate_legacy_chain_v0(chain_dir, &candidate, target_storage_adapter)?;
         upsert_chain_registration_from_report(chain_dir, &mut registry, &report)?;
-        save_thoughtchain_registry(chain_dir, &registry)?;
-        progress(ThoughtChainMigrationEvent::Completed {
+        save_mentisdb_registry(chain_dir, &registry)?;
+        progress(MentisDbMigrationEvent::Completed {
             chain_key: report.chain_key.clone(),
             from_version: report.from_version,
             to_version: report.to_version,
@@ -2762,7 +2762,7 @@ where
         .map(|(candidate, _)| candidate.storage_kind)
         .unwrap_or(target_storage_adapter);
 
-        progress(ThoughtChainMigrationEvent::StartedReconciliation {
+        progress(MentisDbMigrationEvent::StartedReconciliation {
             chain_key: chain_key.clone(),
             from_storage_adapter: source_storage_adapter,
             to_storage_adapter: target_storage_adapter,
@@ -2778,8 +2778,8 @@ where
             target_storage_adapter,
         )? {
             upsert_chain_registration_from_report(chain_dir, &mut registry, &report)?;
-            save_thoughtchain_registry(chain_dir, &registry)?;
-            progress(ThoughtChainMigrationEvent::CompletedReconciliation {
+            save_mentisdb_registry(chain_dir, &registry)?;
+            progress(MentisDbMigrationEvent::CompletedReconciliation {
                 chain_key: report.chain_key.clone(),
                 from_storage_adapter: report.source_storage_adapter,
                 to_storage_adapter: report.storage_adapter,
@@ -2840,8 +2840,8 @@ fn storage_adapter_for_path(
     }
 }
 
-fn open_current_chain_at(path: &Path, storage_kind: StorageAdapterKind) -> io::Result<ThoughtChain> {
-    ThoughtChain::open_with_storage(storage_adapter_for_path(storage_kind, path))
+fn open_current_chain_at(path: &Path, storage_kind: StorageAdapterKind) -> io::Result<MentisDb> {
+    MentisDb::open_with_storage(storage_adapter_for_path(storage_kind, path))
 }
 
 fn persist_thoughts_to_path(
@@ -2888,8 +2888,8 @@ fn archive_chain_file(
 
 fn upsert_chain_registration_from_report(
     chain_dir: &Path,
-    registry: &mut ThoughtChainRegistry,
-    report: &ThoughtChainMigrationReport,
+    registry: &mut MentisDbRegistry,
+    report: &MentisDbMigrationReport,
 ) -> io::Result<()> {
     let now = Utc::now();
     let created_at = registry
@@ -2899,7 +2899,7 @@ fn upsert_chain_registration_from_report(
         .unwrap_or(now);
     registry.chains.insert(
         report.chain_key.clone(),
-        ThoughtChainRegistration {
+        MentisDbRegistration {
             chain_key: report.chain_key.clone(),
             version: report.to_version,
             storage_adapter: report.storage_adapter,
@@ -2924,7 +2924,7 @@ fn upsert_chain_registration_from_report(
 fn chain_needs_reconciliation(
     chain_dir: &Path,
     chain_key: &str,
-    registration: Option<&ThoughtChainRegistration>,
+    registration: Option<&MentisDbRegistration>,
     discovered: &[DiscoveredChainFile],
     target_storage_adapter: StorageAdapterKind,
 ) -> bool {
@@ -2932,7 +2932,7 @@ fn chain_needs_reconciliation(
         return false;
     };
 
-    if registration.version < THOUGHTCHAIN_CURRENT_VERSION {
+    if registration.version < MENTISDB_CURRENT_VERSION {
         return false;
     }
 
@@ -2953,10 +2953,10 @@ fn chain_needs_reconciliation(
 fn select_reconciliation_source(
     chain_dir: &Path,
     chain_key: &str,
-    registration: Option<&ThoughtChainRegistration>,
+    registration: Option<&MentisDbRegistration>,
     discovered: &[DiscoveredChainFile],
     target_storage_adapter: StorageAdapterKind,
-) -> io::Result<Option<(DiscoveredChainFile, ThoughtChain)>> {
+) -> io::Result<Option<(DiscoveredChainFile, MentisDb)>> {
     let mut candidates = discovered.to_vec();
     candidates.sort_by_key(|candidate| {
         if registration
@@ -2982,7 +2982,7 @@ fn select_reconciliation_source(
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
-                "No valid ThoughtChain source found to repair chain '{chain_key}' at {}",
+                "No valid MentisDb source found to repair chain '{chain_key}' at {}",
                 expected_path.display()
             ),
         ));
@@ -2994,10 +2994,10 @@ fn select_reconciliation_source(
 fn reconcile_current_chain(
     chain_dir: &Path,
     chain_key: &str,
-    registration: Option<&ThoughtChainRegistration>,
+    registration: Option<&MentisDbRegistration>,
     discovered: &[DiscoveredChainFile],
     target_storage_adapter: StorageAdapterKind,
-) -> io::Result<Option<ThoughtChainMigrationReport>> {
+) -> io::Result<Option<MentisDbMigrationReport>> {
     let expected_path = chain_dir.join(chain_storage_filename(chain_key, target_storage_adapter));
     let Some((source, chain)) = select_reconciliation_source(
         chain_dir,
@@ -3045,8 +3045,8 @@ fn reconcile_current_chain(
             let archived = archive_chain_file(
                 chain_dir,
                 &candidate.path,
-                THOUGHTCHAIN_CURRENT_VERSION,
-                THOUGHTCHAIN_CURRENT_VERSION,
+                MENTISDB_CURRENT_VERSION,
+                MENTISDB_CURRENT_VERSION,
             )?;
             if archived_path.is_none() {
                 archived_path = Some(archived);
@@ -3054,10 +3054,10 @@ fn reconcile_current_chain(
         }
     }
 
-    Ok(Some(ThoughtChainMigrationReport {
+    Ok(Some(MentisDbMigrationReport {
         chain_key: chain_key.to_string(),
-        from_version: THOUGHTCHAIN_CURRENT_VERSION,
-        to_version: THOUGHTCHAIN_CURRENT_VERSION,
+        from_version: MENTISDB_CURRENT_VERSION,
+        to_version: MENTISDB_CURRENT_VERSION,
         source_storage_adapter: source.storage_kind,
         storage_adapter: target_storage_adapter,
         thought_count: chain.thoughts().len() as u64,
@@ -3069,7 +3069,7 @@ fn migrate_legacy_chain_v0(
     chain_dir: &Path,
     discovered: &DiscoveredChainFile,
     target_storage_adapter: StorageAdapterKind,
-) -> io::Result<ThoughtChainMigrationReport> {
+) -> io::Result<MentisDbMigrationReport> {
     let legacy_thoughts = load_legacy_v0_thoughts(&discovered.path, discovered.storage_kind)?;
     let (thoughts, agent_registry) = migrate_legacy_thoughts(legacy_thoughts);
     let active_path = chain_dir.join(chain_storage_filename(
@@ -3099,15 +3099,15 @@ fn migrate_legacy_chain_v0(
     let archived_legacy_path = archive_chain_file(
         chain_dir,
         &discovered.path,
-        THOUGHTCHAIN_SCHEMA_V0,
-        THOUGHTCHAIN_CURRENT_VERSION,
+        MENTISDB_SCHEMA_V0,
+        MENTISDB_CURRENT_VERSION,
     )?;
     fs::rename(&temp_path, &active_path)?;
 
-    Ok(ThoughtChainMigrationReport {
+    Ok(MentisDbMigrationReport {
         chain_key: discovered.chain_key.clone(),
-        from_version: THOUGHTCHAIN_SCHEMA_V0,
-        to_version: THOUGHTCHAIN_CURRENT_VERSION,
+        from_version: MENTISDB_SCHEMA_V0,
+        to_version: MENTISDB_CURRENT_VERSION,
         source_storage_adapter: discovered.storage_kind,
         storage_adapter: target_storage_adapter,
         thought_count: thoughts.len() as u64,
@@ -3189,7 +3189,7 @@ fn migrate_legacy_thoughts(legacy_thoughts: Vec<LegacyThoughtV0>) -> (Vec<Though
 
     for legacy in legacy_thoughts {
         let thought = Thought {
-            schema_version: THOUGHTCHAIN_CURRENT_VERSION,
+            schema_version: MENTISDB_CURRENT_VERSION,
             id: legacy.id,
             index: legacy.index,
             timestamp: legacy.timestamp,
@@ -3227,7 +3227,7 @@ fn migrate_legacy_thoughts(legacy_thoughts: Vec<LegacyThoughtV0>) -> (Vec<Though
 
 fn append_memory_section(
     markdown: &mut String,
-    chain: &ThoughtChain,
+    chain: &MentisDb,
     title: &str,
     thoughts: &[&Thought],
     types: &[ThoughtType],

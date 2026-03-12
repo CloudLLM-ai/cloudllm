@@ -1,4 +1,4 @@
-//! Standalone ThoughtChain daemon.
+//! Standalone MentisDb daemon.
 //!
 //! This binary starts both:
 //!
@@ -7,23 +7,23 @@
 //!
 //! Configuration is read from environment variables:
 //!
-//! - `THOUGHTCHAIN_DIR`
-//! - `THOUGHTCHAIN_DEFAULT_KEY`
-//! - `THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER`
-//! - `THOUGHTCHAIN_VERBOSE`
-//! - `THOUGHTCHAIN_BIND_HOST`
-//! - `THOUGHTCHAIN_MCP_PORT`
-//! - `THOUGHTCHAIN_REST_PORT`
+//! - `MENTISDB_DIR`
+//! - `MENTISDB_DEFAULT_KEY`
+//! - `MENTISDB_DEFAULT_STORAGE_ADAPTER`
+//! - `MENTISDB_VERBOSE`
+//! - `MENTISDB_BIND_HOST`
+//! - `MENTISDB_MCP_PORT`
+//! - `MENTISDB_REST_PORT`
 //! - `RUST_LOG`
 
 use env_logger::Env;
 use mentisdb::server::{
-    adopt_legacy_default_mentisdb_dir, start_servers, ThoughtChainServerConfig,
-    ThoughtChainServerHandles,
+    adopt_legacy_default_mentisdb_dir, start_servers, MentisDbServerConfig,
+    MentisDbServerHandles,
 };
 use mentisdb::{
-    load_registered_chains, migrate_registered_chains_with_adapter, ThoughtChain,
-    ThoughtChainMigrationEvent,
+    load_registered_chains, migrate_registered_chains_with_adapter, MentisDb,
+    MentisDbMigrationEvent,
 };
 
 const THOUGHT_BANNER: &str = r#"████████╗██╗  ██╗ ██████╗ ██╗   ██╗ ██████╗ ██╗  ██╗████████╗
@@ -44,15 +44,12 @@ const RESET: &str = "\x1b[0m";
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     init_logger();
-    let storage_root_migration = if std::env::var_os("MENTISDB_DIR")
-        .or_else(|| std::env::var_os("THOUGHTCHAIN_DIR"))
-        .is_none()
-    {
+    let storage_root_migration = if std::env::var_os("MENTISDB_DIR").is_none() {
         adopt_legacy_default_mentisdb_dir()?
     } else {
         None
     };
-    let config = ThoughtChainServerConfig::from_env();
+    let config = MentisDbServerConfig::from_env();
 
     print_banner();
     println!("mentisdb v{}", env!("CARGO_PKG_VERSION"));
@@ -78,43 +75,22 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
     println!("Configuration:");
+    print_env_var("MENTISDB_DIR", Some(config.service.chain_dir.display().to_string()));
+    print_env_var("MENTISDB_DEFAULT_KEY", Some(config.service.default_chain_key.clone()));
     print_env_var(
-        &["MENTISDB_DIR", "THOUGHTCHAIN_DIR"],
-        Some(config.service.chain_dir.display().to_string()),
-    );
-    print_env_var(
-        &["MENTISDB_DEFAULT_KEY", "THOUGHTCHAIN_DEFAULT_KEY"],
-        Some(config.service.default_chain_key.clone()),
-    );
-    print_env_var(
-        &[
-            "MENTISDB_DEFAULT_STORAGE_ADAPTER",
-            "THOUGHTCHAIN_DEFAULT_STORAGE_ADAPTER",
-        ],
+        "MENTISDB_DEFAULT_STORAGE_ADAPTER",
         Some(config.service.default_storage_adapter.to_string()),
     );
-    print_env_var(
-        &["MENTISDB_VERBOSE", "THOUGHTCHAIN_VERBOSE"],
-        Some(config.service.verbose.to_string()),
-    );
-    print_env_var(
-        &["MENTISDB_BIND_HOST", "THOUGHTCHAIN_BIND_HOST"],
-        Some(config.mcp_addr.ip().to_string()),
-    );
-    print_env_var(
-        &["MENTISDB_MCP_PORT", "THOUGHTCHAIN_MCP_PORT"],
-        Some(config.mcp_addr.port().to_string()),
-    );
-    print_env_var(
-        &["MENTISDB_REST_PORT", "THOUGHTCHAIN_REST_PORT"],
-        Some(config.rest_addr.port().to_string()),
-    );
+    print_env_var("MENTISDB_VERBOSE", Some(config.service.verbose.to_string()));
+    print_env_var("MENTISDB_BIND_HOST", Some(config.mcp_addr.ip().to_string()));
+    print_env_var("MENTISDB_MCP_PORT", Some(config.mcp_addr.port().to_string()));
+    print_env_var("MENTISDB_REST_PORT", Some(config.rest_addr.port().to_string()));
 
     let migration_reports = migrate_registered_chains_with_adapter(
         &config.service.chain_dir,
         config.service.default_storage_adapter,
         |event| match event {
-            ThoughtChainMigrationEvent::Started {
+            MentisDbMigrationEvent::Started {
                 chain_key,
                 from_version,
                 to_version,
@@ -127,7 +103,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 from_version,
                 to_version
             ),
-            ThoughtChainMigrationEvent::Completed {
+            MentisDbMigrationEvent::Completed {
                 chain_key,
                 from_version,
                 to_version,
@@ -140,7 +116,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 from_version,
                 to_version
             ),
-            ThoughtChainMigrationEvent::StartedReconciliation {
+            MentisDbMigrationEvent::StartedReconciliation {
                 chain_key,
                 from_storage_adapter,
                 to_storage_adapter,
@@ -153,7 +129,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 from_storage_adapter,
                 to_storage_adapter
             ),
-            ThoughtChainMigrationEvent::CompletedReconciliation {
+            MentisDbMigrationEvent::CompletedReconciliation {
                 chain_key,
                 from_storage_adapter,
                 to_storage_adapter,
@@ -192,25 +168,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     run().await
 }
 
-fn print_env_var(names: &[&str], effective_value: Option<String>) {
-    let primary = names.first().copied().unwrap_or("<unknown>");
-    for name in names {
-        if let Ok(raw_value) = std::env::var(name) {
-            let label = if *name == primary {
-                (*name).to_string()
-            } else {
-                format!("{primary} (legacy {name})")
-            };
-            println!(
-                "  {label}={raw_value} (effective: {})",
-                display_value(effective_value)
-            );
-            return;
-        }
+fn print_env_var(name: &str, effective_value: Option<String>) {
+    if let Ok(raw_value) = std::env::var(name) {
+        println!(
+            "  {name}={raw_value} (effective: {})",
+            display_value(effective_value)
+        );
+        return;
     }
 
     println!(
-        "  {primary}=<unset> (effective default: {})",
+        "  {name}=<unset> (effective default: {})",
         display_value(effective_value)
     );
 }
@@ -244,7 +212,7 @@ fn progress_bar(current: usize, total: usize) -> String {
     )
 }
 
-fn print_endpoint_catalog(handles: &ThoughtChainServerHandles) {
+fn print_endpoint_catalog(handles: &MentisDbServerHandles) {
     println!();
     println!("Endpoints:");
     println!("  MCP");
@@ -297,7 +265,7 @@ fn print_endpoint_catalog(handles: &ThoughtChainServerHandles) {
 }
 
 fn print_chain_summary(
-    config: &ThoughtChainServerConfig,
+    config: &MentisDbServerConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let registry = load_registered_chains(&config.service.chain_dir)?;
     println!("Chain Summary:");
@@ -318,7 +286,7 @@ fn print_chain_summary(
         );
         println!("    {}", entry.storage_location);
 
-        match ThoughtChain::open_with_storage(
+        match MentisDb::open_with_storage(
             entry
                 .storage_adapter
                 .for_chain_key(&config.service.chain_dir, &entry.chain_key),
