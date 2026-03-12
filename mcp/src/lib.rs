@@ -2,7 +2,7 @@
 //!
 //! This crate contains the protocol-facing pieces that can be shared by multiple
 //! higher-level projects. It intentionally avoids any dependency on `cloudllm`
-//! so crates such as `thoughtchain` and `cloudllm` can both build on the same
+//! so crates such as `mentisdb` and `cloudllm` can both build on the same
 //! MCP foundation without introducing circular dependencies.
 #![warn(missing_docs)]
 

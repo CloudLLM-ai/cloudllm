@@ -3,8 +3,8 @@
 This directory contains project-local agent briefs for Claude-compatible agent
 setups.
 
-The source of truth for durable memory is ThoughtChain, not these files.
-Use these files as compact operating briefs and use ThoughtChain for:
+The source of truth for durable memory is MentisDB, not these files.
+Use these files as compact operating briefs and use MentisDB for:
 
 - retrieval of prior decisions, corrections, and constraints
 - shared memory across agents
@@ -26,24 +26,24 @@ Each agent should keep its own identity fields:
 
 - This repository is a workspace with three crates:
   - `cloudllm`
-  - `thoughtchain`
+  - `mentisdb`
   - `mcp` as the published package `cloudllm_mcp`
 - Dependency direction must stay one-way:
-  - `cloudllm` may depend on `thoughtchain` and `mcp`
-  - `thoughtchain` may depend on `mcp`
-  - `thoughtchain` must not depend on `cloudllm`
-- `thoughtchaind` is the standalone daemon in `thoughtchain`
-- `thoughtchaind` exposes:
+  - `cloudllm` may depend on `mentisdb` and `mcp`
+  - `mentisdb` may depend on `mcp`
+  - `mentisdb` must not depend on `cloudllm`
+- `mentisdbd` is the standalone daemon in `mentisdb`
+- `mentisdbd` exposes:
   - standard MCP at `POST /`
   - legacy compatibility MCP at `POST /tools/list` and `POST /tools/execute`
   - REST under `/v1/...`
-- ThoughtChain storage is adapter-backed:
+- MentisDB storage is adapter-backed:
   - `jsonl`
   - `binary`
 - The daemon default shared chain key is `borganism-brain`
 - Publish order is:
   - `cloudllm_mcp`
-  - `thoughtchain`
+  - `mentisdb`
   - `cloudllm`
 
 ## Engineering Standards

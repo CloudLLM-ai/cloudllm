@@ -52,6 +52,6 @@ cargo test -p cloudllm_mcp
 ## Intended Use
 
 - `cloudllm` depends on `mcp` for its shared MCP protocol/runtime layer
-- `thoughtchain` depends on `mcp` for its MCP-facing tool schema and result types
+- `mentisdb` depends on `mcp` for its MCP-facing tool schema and result types
 
 This crate is transport/runtime infrastructure, not a complete agent framework.

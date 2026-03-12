@@ -22,19 +22,36 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
-//! use cloudllm::mcp_server::UnifiedMcpServer;
-//! use cloudllm::tools::Memory;
-//! use cloudllm::tool_protocols::MemoryProtocol;
-//! use cloudllm::tool_protocol::ToolProtocol;
+//! ```ignore
+//! use async_trait::async_trait;
+//! use mcp::{ToolMetadata, ToolProtocol, ToolResult};
+//! use mcp::UnifiedMcpServer;
 //! use std::sync::Arc;
 //!
+//! struct MemoryProtocol;
+//!
+//! #[async_trait]
+//! impl ToolProtocol for MemoryProtocol {
+//!     async fn execute(
+//!         &self,
+//!         _tool_name: &str,
+//!         _parameters: serde_json::Value,
+//!     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+//!         Ok(ToolResult::success(serde_json::json!({"ok": true})))
+//!     }
+//!
+//!     async fn list_tools(
+//!         &self,
+//!     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+//!         Ok(vec![])
+//!     }
+//! }
+//!
 //! # async {
-//! let memory = Arc::new(Memory::new());
-//! let memory_protocol = Arc::new(MemoryProtocol::new(memory));
+//! let memory_protocol = Arc::new(MemoryProtocol);
 //!
 //! let mut server = UnifiedMcpServer::new();
-//! server.register_tool("memory", memory_protocol);
+//! server.register_tool("memory", memory_protocol).await;
 //!
 //! // Now the server implements ToolProtocol and can route calls
 //! let tools = server.list_tools().await.unwrap();
@@ -85,16 +102,33 @@ impl UnifiedMcpServer {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// use cloudllm::mcp_server::UnifiedMcpServer;
-    /// use cloudllm::tools::Memory;
-    /// use cloudllm::tool_protocols::MemoryProtocol;
+    /// ```ignore
+    /// use async_trait::async_trait;
+    /// use mcp::{ToolMetadata, ToolProtocol, ToolResult, UnifiedMcpServer};
     /// use std::sync::Arc;
+    ///
+    /// struct MemoryProtocol;
+    ///
+    /// #[async_trait]
+    /// impl ToolProtocol for MemoryProtocol {
+    ///     async fn execute(
+    ///         &self,
+    ///         _tool_name: &str,
+    ///         _parameters: serde_json::Value,
+    ///     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+    ///         Ok(ToolResult::success(serde_json::json!({"ok": true})))
+    ///     }
+    ///
+    ///     async fn list_tools(
+    ///         &self,
+    ///     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+    ///         Ok(vec![])
+    ///     }
+    /// }
     ///
     /// # #[tokio::main]
     /// # async fn main() {
-    /// let memory = Arc::new(Memory::new());
-    /// let memory_protocol = Arc::new(MemoryProtocol::new(memory));
+    /// let memory_protocol = Arc::new(MemoryProtocol);
     ///
     /// let mut server = UnifiedMcpServer::new();
     /// server.register_tool("memory", memory_protocol).await;

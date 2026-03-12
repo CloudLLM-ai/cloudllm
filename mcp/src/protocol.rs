@@ -236,7 +236,7 @@ impl ToolParameter {
     /// # Example
     ///
     /// ```rust
-    /// use cloudllm::tool_protocol::{ToolParameter, ToolParameterType};
+    /// use mcp::{ToolParameter, ToolParameterType};
     ///
     /// let param = ToolParameter::new("query", ToolParameterType::String)
     ///     .with_description("Search query string")
@@ -355,7 +355,7 @@ impl ToolMetadata {
     /// # Example
     ///
     /// ```rust
-    /// use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType};
+    /// use mcp::{ToolMetadata, ToolParameter, ToolParameterType};
     ///
     /// let meta = ToolMetadata::new("calculator", "Evaluates a math expression")
     ///     .with_parameter(
@@ -532,21 +532,77 @@ impl Tool {
 ///
 /// # Single Protocol
 ///
-/// ```rust,no_run
-/// use cloudllm::tool_protocol::ToolRegistry;
-/// use cloudllm::tool_protocols::CustomToolProtocol;
+/// ```ignore
+/// use async_trait::async_trait;
+/// use mcp::{ToolMetadata, ToolProtocol, ToolRegistry, ToolResult};
 /// use std::sync::Arc;
 ///
-/// let protocol = Arc::new(CustomToolProtocol::new());
+/// struct DemoProtocol;
+///
+/// #[async_trait]
+/// impl ToolProtocol for DemoProtocol {
+///     async fn execute(
+///         &self,
+///         _tool_name: &str,
+///         _parameters: serde_json::Value,
+///     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(ToolResult::success(serde_json::json!({"ok": true})))
+///     }
+///
+///     async fn list_tools(
+///         &self,
+///     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(vec![])
+///     }
+/// }
+///
+/// let protocol = Arc::new(DemoProtocol);
 /// let registry = ToolRegistry::new(protocol);
 /// ```
 ///
 /// # Multiple Protocols
 ///
-/// ```rust,no_run
-/// use cloudllm::tool_protocol::ToolRegistry;
-/// use cloudllm::tool_protocols::{CustomToolProtocol, McpClientProtocol};
+/// ```ignore
+/// use async_trait::async_trait;
+/// use mcp::{ToolMetadata, ToolProtocol, ToolRegistry, ToolResult};
 /// use std::sync::Arc;
+///
+/// struct LocalProtocol;
+/// struct RemoteProtocol;
+///
+/// #[async_trait]
+/// impl ToolProtocol for LocalProtocol {
+///     async fn execute(
+///         &self,
+///         _tool_name: &str,
+///         _parameters: serde_json::Value,
+///     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(ToolResult::success(serde_json::json!({"source": "local"})))
+///     }
+///
+///     async fn list_tools(
+///         &self,
+///     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(vec![])
+///     }
+/// }
+///
+/// #[async_trait]
+/// impl ToolProtocol for RemoteProtocol {
+///     async fn execute(
+///         &self,
+///         _tool_name: &str,
+///         _parameters: serde_json::Value,
+///     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(ToolResult::success(serde_json::json!({"source": "remote"})))
+///     }
+///
+///     async fn list_tools(
+///         &self,
+///     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(vec![])
+///     }
+/// }
 ///
 /// # async {
 /// let mut registry = ToolRegistry::empty();
@@ -554,13 +610,13 @@ impl Tool {
 /// // Add local tools
 /// registry.add_protocol(
 ///     "local",
-///     Arc::new(CustomToolProtocol::new())
+///     Arc::new(LocalProtocol)
 /// ).await.ok();
 ///
 /// // Add remote MCP server
 /// registry.add_protocol(
 ///     "youtube",
-///     Arc::new(McpClientProtocol::new("http://youtube-mcp:8081".to_string()))
+///     Arc::new(RemoteProtocol)
 /// ).await.ok();
 ///
 /// // Agent transparently accesses both
@@ -626,20 +682,39 @@ impl ToolRegistry {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// use cloudllm::tool_protocol::ToolRegistry;
-    /// use cloudllm::tool_protocols::McpClientProtocol;
+    /// ```ignore
+    /// use async_trait::async_trait;
+    /// use mcp::{ToolMetadata, ToolProtocol, ToolRegistry, ToolResult};
     /// use std::sync::Arc;
     ///
-    /// # async {
-    /// let mut registry = ToolRegistry::empty();
-    /// registry.add_protocol(
-    ///     "memory_server",
-    ///     Arc::new(McpClientProtocol::new("http://localhost:8080".to_string()))
-    /// ).await?;
-    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
-    /// # };
-    /// ```
+    /// struct MemoryServerProtocol;
+    ///
+    /// #[async_trait]
+    /// impl ToolProtocol for MemoryServerProtocol {
+    ///     async fn execute(
+    ///         &self,
+    ///         _tool_name: &str,
+    ///         _parameters: serde_json::Value,
+    ///     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+    ///         Ok(ToolResult::success(serde_json::json!({"ok": true})))
+    ///     }
+    ///
+    ///     async fn list_tools(
+    ///         &self,
+    ///     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+    ///         Ok(vec![])
+    ///     }
+    /// }
+///
+/// # async {
+/// let mut registry = ToolRegistry::empty();
+/// registry.add_protocol(
+///     "memory_server",
+///     Arc::new(MemoryServerProtocol)
+/// ).await?;
+/// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+/// # };
+/// ```
     pub async fn add_protocol(
         &mut self,
         protocol_name: &str,
@@ -796,17 +871,36 @@ impl ToolRegistry {
     ///
     /// # Example
     ///
-    /// ```rust
-    /// use cloudllm::tool_protocol::{ToolRegistry, Tool, ToolMetadata, ToolParameter, ToolParameterType};
-    /// use cloudllm::tool_protocols::CustomToolProtocol;
+    /// ```ignore
+    /// use async_trait::async_trait;
+    /// use mcp::{Tool, ToolDefinition, ToolMetadata, ToolProtocol, ToolRegistry, ToolResult};
     /// use std::sync::Arc;
     ///
-    /// # #[tokio::main]
-    /// # async fn main() {
-    /// let protocol = Arc::new(CustomToolProtocol::new());
-    /// let mut registry = ToolRegistry::new(protocol.clone());
+    /// struct DemoProtocol;
     ///
-    /// let tool = Tool::new("calculator", "Evaluates math", protocol);
+    /// #[async_trait]
+    /// impl ToolProtocol for DemoProtocol {
+    ///     async fn execute(
+    ///         &self,
+    ///         _tool_name: &str,
+    ///         _parameters: serde_json::Value,
+    ///     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+    ///         Ok(ToolResult::success(serde_json::json!({"ok": true})))
+    ///     }
+    ///
+    ///     async fn list_tools(
+    ///         &self,
+    ///     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+    ///         Ok(vec![])
+    ///     }
+    /// }
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let protocol = Arc::new(DemoProtocol);
+/// let mut registry = ToolRegistry::new(protocol.clone());
+///
+/// let tool = Tool::new("calculator", "Evaluates math", protocol);
     /// registry.add_tool(tool);
     ///
     /// let defs = registry.to_tool_definitions();

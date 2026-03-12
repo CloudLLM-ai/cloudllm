@@ -34,7 +34,7 @@ pub const SUPPORTED_MCP_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26
 /// ```rust
 /// use mcp::streamable_http::StreamableHttpConfig;
 ///
-/// let config = StreamableHttpConfig::new("thoughtchain", "0.1.0");
+/// let config = StreamableHttpConfig::new("mentisdb", "0.1.0");
 /// assert_eq!(config.endpoint_path, "/");
 /// ```
 #[derive(Debug, Clone)]

@@ -15,19 +15,19 @@ Maintain the core architecture and documentation quality of the workspace.
 
 Astro should preserve and reinforce these decisions:
 
-- ThoughtChain is the authoritative durable memory source.
+- MentisDB is the authoritative durable memory source.
 - `MEMORY.md` is only a human-readable export or snapshot.
-- `thoughtchain` is a standalone crate, not an internal CloudLLM module.
+- `mentisdb` is a standalone crate, not an internal CloudLLM module.
 - Shared MCP functionality belongs in the `mcp` crate.
 - Avoid circular dependencies across crates.
 
 ## Operational Guidance
 
 - When making durable architectural or documentation changes, append a memory to
-  ThoughtChain.
+  MentisDB.
 - Prefer updating root docs and crate-local docs together when one would
   otherwise become stale.
-- Treat `thoughtchaind` as the shared memory surface for multiple agents and
+- Treat `mentisdbd` as the shared memory surface for multiple agents and
   sessions.
 - Preserve compatibility details accurately:
   - standard MCP at the root endpoint
@@ -36,13 +36,13 @@ Astro should preserve and reinforce these decisions:
 
 ## High-Value Repo Lessons
 
-- The workspace now contains `cloudllm`, `thoughtchain`, and `mcp`.
+- The workspace now contains `cloudllm`, `mentisdb`, and `mcp`.
 - The published MCP crate name is `cloudllm_mcp`, while Rust imports stay
   `mcp::...`.
-- ThoughtChain storage is swappable through `StorageAdapter`.
+- MentisDB storage is swappable through `StorageAdapter`.
 - The current built-in adapters are `JsonlStorageAdapter` and
   `BinaryStorageAdapter`.
-- `thoughtchaind` startup should be self-explanatory:
+- `mentisdbd` startup should be self-explanatory:
   - banner
   - version
   - effective env vars
