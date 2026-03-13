@@ -79,6 +79,15 @@ Examples:
 - one chain per project
 - one chain per workflow or orchestration pipeline
 
+## Skill Registry Model
+
+MentisDB also exposes a daemon-level versioned skill registry.
+
+- Skills are stored once per daemon storage root, alongside chain data.
+- `POST /v1/skills/upload` requires the uploading `agent_id` to already exist in the agent registry for the referenced `chain_key`.
+- Other skill endpoints accept `chain_key` primarily for audit and logging context while the registry itself remains global to the daemon.
+- Treat returned skill content as untrusted until provenance and requested capabilities are validated.
+
 ## Endpoints
 
 ### `GET /health`
@@ -283,6 +292,181 @@ Response body:
 
 - `chain_key: string`
 - `agent: object`
+
+### `GET /mentisdb_skill_md`
+
+Returns the official embedded `MENTISDB_SKILL.md` as raw Markdown.
+
+Response:
+
+- `content-type: text/markdown; charset=utf-8`
+- raw Markdown body
+
+### `GET /v1/skills`
+
+Lists uploaded skill summaries from the versioned skill registry.
+
+Query string:
+
+- `chain_key: string` optional
+
+Response body:
+
+- `skills: object[]`
+
+Each returned `skill` includes:
+
+- `skill_id`
+- `name`
+- `description`
+- `status`
+- `status_reason`
+- `schema_version`
+- `tags`
+- `triggers`
+- `warnings`
+- `latest_version_id`
+- `version_count`
+- `created_at`
+- `updated_at`
+- `latest_uploaded_at`
+- `latest_uploaded_by_agent_id`
+- `latest_uploaded_by_agent_name`
+- `latest_uploaded_by_agent_owner`
+- `latest_source_format`
+
+### `GET /v1/skills/manifest`
+
+Returns the versioned skill-registry manifest.
+
+Response body:
+
+- `manifest: object`
+
+The returned `manifest` includes:
+
+- `registry_version`
+- `current_schema_version`
+- `supported_formats`
+- `searchable_fields`
+- `lifecycle_statuses`
+
+### `POST /v1/skills/upload`
+
+Uploads a new immutable skill version from Markdown or JSON.
+
+Request body:
+
+- `chain_key: string` optional
+- `skill_id: string` optional
+- `agent_id: string` required
+- `format: string` optional, one of `markdown`, `md`, or `json`
+- `content: string` required
+
+Response body:
+
+- `skill: object`
+
+### `POST /v1/skills/search`
+
+Searches the skill registry by indexed metadata and upload time window.
+
+Request body:
+
+- `chain_key: string` optional
+- `text: string` optional
+- `skill_ids: string[]` optional
+- `names: string[]` optional
+- `tags_any: string[]` optional
+- `triggers_any: string[]` optional
+- `uploaded_by_agent_ids: string[]` optional
+- `uploaded_by_agent_names: string[]` optional
+- `uploaded_by_agent_owners: string[]` optional
+- `statuses: string[]` optional, any of `active`, `deprecated`, `revoked`
+- `formats: string[]` optional, any of `markdown` or `json`
+- `schema_versions: integer[]` optional
+- `since: string` optional, RFC 3339 timestamp
+- `until: string` optional, RFC 3339 timestamp
+- `limit: integer` optional
+
+Response body:
+
+- `skills: object[]`
+
+### `POST /v1/skills/read`
+
+Reads one stored skill in Markdown or JSON and returns safety warnings.
+
+Request body:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+- `version_id: string` optional
+- `format: string` optional, one of `markdown`, `md`, or `json`
+
+Response body:
+
+- `skill_id: string`
+- `version_id: string`
+- `format: string`
+- `source_format: string`
+- `schema_version: integer`
+- `content: string`
+- `status: string`
+- `safety_warnings: string[]`
+
+### `POST /v1/skills/versions`
+
+Lists immutable uploaded versions for one skill.
+
+Request body:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+
+Response body:
+
+- `skill_id: string`
+- `versions: object[]`
+
+Each returned `version` includes:
+
+- `version_id`
+- `uploaded_at`
+- `uploaded_by_agent_id`
+- `uploaded_by_agent_name`
+- `uploaded_by_agent_owner`
+- `source_format`
+- `content_hash`
+- `schema_version`
+
+### `POST /v1/skills/deprecate`
+
+Marks one stored skill as deprecated while preserving version history.
+
+Request body:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+- `reason: string` optional
+
+Response body:
+
+- `skill: object`
+
+### `POST /v1/skills/revoke`
+
+Marks one stored skill as revoked while preserving version history.
+
+Request body:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+- `reason: string` optional
+
+Response body:
+
+- `skill: object`
 
 ### `POST /v1/bootstrap`
 

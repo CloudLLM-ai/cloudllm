@@ -165,6 +165,9 @@ MCP endpoints:
 REST endpoints:
 
 - `GET /health`
+- `GET /mentisdb_skill_md`
+- `GET /v1/skills`
+- `GET /v1/skills/manifest`
 - `GET /v1/chains`
 - `POST /v1/bootstrap`
 - `POST /v1/agents`
@@ -181,11 +184,17 @@ REST endpoints:
 - `POST /v1/search`
 - `POST /v1/recent-context`
 - `POST /v1/memory-markdown`
+- `POST /v1/skills/upload`
+- `POST /v1/skills/search`
+- `POST /v1/skills/read`
+- `POST /v1/skills/versions`
+- `POST /v1/skills/deprecate`
+- `POST /v1/skills/revoke`
 - `POST /v1/head`
 
 ## MCP Tool Catalog
 
-The daemon currently exposes 17 MCP tools:
+The daemon currently exposes 26 MCP tools:
 
 - `mentisdb_bootstrap`
   Create a chain if needed and write one bootstrap checkpoint when it is empty.
@@ -219,12 +228,53 @@ The daemon currently exposes 17 MCP tools:
   Render recent thoughts into a prompt snippet for session resumption.
 - `mentisdb_memory_markdown`
   Export a `MEMORY.md`-style Markdown view of the full chain or a filtered subset.
+- `mentisdb_skill_md`
+  Return the official embedded `MENTISDB_SKILL.md` Markdown file.
+- `mentisdb_list_skills`
+  List versioned skill summaries from the skill registry.
+- `mentisdb_skill_manifest`
+  Return the versioned skill-registry manifest, including searchable fields and supported formats.
+- `mentisdb_upload_skill`
+  Upload a new immutable skill version from Markdown or JSON.
+- `mentisdb_search_skill`
+  Search skills by indexed metadata such as ids, names, tags, triggers, uploader identity, status, format, schema version, and time window.
+- `mentisdb_read_skill`
+  Read one stored skill as Markdown or JSON. Responses include trust warnings for untrusted or malicious skill content.
+- `mentisdb_skill_versions`
+  List immutable uploaded versions for one skill.
+- `mentisdb_deprecate_skill`
+  Mark a skill as deprecated while preserving all prior versions.
+- `mentisdb_revoke_skill`
+  Mark a skill as revoked while preserving audit history.
 - `mentisdb_head`
   Return head metadata, latest thought summary, and integrity state.
 
 The detailed request and response shapes for the MCP surface live in
 [`MENTISDB_MCP.md`](../MENTISDB_MCP.md). The REST equivalents live in
 [`MENTISDB_REST.md`](../MENTISDB_REST.md).
+
+## Skill Registry
+
+MentisDB now includes a versioned skill registry stored alongside chain data in a binary file. Skills are ingested through adapters:
+
+- Markdown -> `SkillDocument`
+- JSON -> `SkillDocument`
+- `SkillDocument` -> Markdown
+- `SkillDocument` -> JSON
+
+Each uploaded skill version records:
+
+- registry file version
+- skill schema version
+- upload timestamp
+- responsible `agent_id`
+- optional agent display name and owner from the MentisDB agent registry
+- source format
+- integrity hash
+
+Uploaders must already exist in the agent registry for the referenced chain. Reusing an existing `skill_id` creates a new immutable version; it does not overwrite history.
+
+`read_skill` responses include explicit safety warnings because `SKILL.md` content can be malicious. Treat every skill as advisory until provenance, trust, and requested capabilities are validated.
 
 ## Using With MCP Clients
 

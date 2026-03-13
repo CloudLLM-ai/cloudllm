@@ -9,6 +9,7 @@
 
 #[cfg(feature = "server")]
 pub mod server;
+mod skills;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,13 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use uuid::Uuid;
+
+pub use skills::{
+    export_skill, import_skill, SkillDocument, SkillEntry, SkillFormat, SkillQuery, SkillRegistry,
+    SkillRegistryManifest, SkillSection, SkillStatus, SkillSummary, SkillVersion,
+    SkillVersionSummary, MENTISDB_SKILL_CURRENT_SCHEMA_VERSION,
+    MENTISDB_SKILL_REGISTRY_CURRENT_VERSION,
+};
 
 /// Persistence interface for MentisDb storage backends.
 ///
@@ -1372,6 +1380,19 @@ impl ThoughtQuery {
         self
     }
 
+    fn candidate_position_bounds(&self, thoughts: &[Thought]) -> (usize, usize) {
+        let start = self
+            .since
+            .map(|since| thoughts.partition_point(|thought| thought.timestamp < since))
+            .unwrap_or(0);
+        let end = self
+            .until
+            .map(|until| thoughts.partition_point(|thought| thought.timestamp <= until))
+            .unwrap_or(thoughts.len());
+
+        (start.min(end), end)
+    }
+
     fn matches(&self, thought: &Thought) -> bool {
         if let Some(types) = &self.thought_types {
             if !types.contains(&thought.thought_type) {
@@ -1441,6 +1462,35 @@ impl ThoughtQuery {
     }
 }
 
+#[derive(Default)]
+struct QueryIndexes {
+    by_agent_id: HashMap<String, Vec<usize>>,
+    by_thought_type: HashMap<ThoughtType, Vec<usize>>,
+    by_role: HashMap<ThoughtRole, Vec<usize>>,
+}
+
+impl QueryIndexes {
+    fn from_thoughts(thoughts: &[Thought]) -> Self {
+        let mut indexes = Self::default();
+        for (position, thought) in thoughts.iter().enumerate() {
+            indexes.observe(position, thought);
+        }
+        indexes
+    }
+
+    fn observe(&mut self, position: usize, thought: &Thought) {
+        self.by_agent_id
+            .entry(thought.agent_id.clone())
+            .or_default()
+            .push(position);
+        self.by_thought_type
+            .entry(thought.thought_type)
+            .or_default()
+            .push(position);
+        self.by_role.entry(thought.role).or_default().push(position);
+    }
+}
+
 /// Append-only, hash-chained semantic memory store.
 ///
 /// `MentisDb` stores thoughts in memory and persists them through a
@@ -1499,6 +1549,7 @@ pub struct MentisDb {
     thoughts: Vec<Thought>,
     id_to_index: HashMap<Uuid, usize>,
     agent_registry: AgentRegistry,
+    query_indexes: QueryIndexes,
     storage: Box<dyn StorageAdapter>,
     auto_flush: bool,
     persistence: Option<ChainPersistenceMetadata>,
@@ -1583,6 +1634,7 @@ impl MentisDb {
         }
 
         let chain = Self {
+            query_indexes: QueryIndexes::from_thoughts(&thoughts),
             thoughts,
             id_to_index,
             agent_registry,
@@ -1789,6 +1841,7 @@ impl MentisDb {
         );
         self.persist_registries()?;
         self.id_to_index.insert(thought.id, self.thoughts.len());
+        self.query_indexes.observe(self.thoughts.len(), &thought);
         self.thoughts.push(thought.clone());
         Ok(self.thoughts.last().unwrap())
     }
@@ -1965,11 +2018,7 @@ impl MentisDb {
     }
 
     /// Revoke one public verification key on an existing registered agent.
-    pub fn revoke_agent_key(
-        &mut self,
-        agent_id: &str,
-        key_id: &str,
-    ) -> io::Result<AgentRecord> {
+    pub fn revoke_agent_key(&mut self, agent_id: &str, key_id: &str) -> io::Result<AgentRecord> {
         let key_id = normalize_non_empty_label(key_id, "key_id")?;
         let record = self.agent_record_mut(agent_id)?;
         if !record.revoke_key(&key_id, Utc::now()) {
@@ -1998,12 +2047,15 @@ impl MentisDb {
 
     fn agent_record_mut(&mut self, agent_id: &str) -> io::Result<&mut AgentRecord> {
         let agent_id = normalize_non_empty_label(agent_id, "agent_id")?;
-        self.agent_registry.agents.get_mut(&agent_id).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("No agent '{agent_id}' is registered in this chain"),
-            )
-        })
+        self.agent_registry
+            .agents
+            .get_mut(&agent_id)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("No agent '{agent_id}' is registered in this chain"),
+                )
+            })
     }
 
     fn agent_label_for(&self, thought: &Thought) -> String {
@@ -2148,9 +2200,27 @@ impl MentisDb {
     /// # }
     /// ```
     pub fn query(&self, query: &ThoughtQuery) -> Vec<&Thought> {
-        let mut results: Vec<&Thought> = self
-            .thoughts
-            .iter()
+        let (start, end) = query.candidate_position_bounds(&self.thoughts);
+        let empty: &[Thought] = &[];
+        let candidate_positions = self.indexed_candidate_positions(query);
+        let candidate_thoughts: Box<dyn Iterator<Item = &Thought> + '_> =
+            if let Some(positions) = candidate_positions {
+                Box::new(
+                    positions
+                        .into_iter()
+                        .filter(move |position| *position >= start && *position < end)
+                        .map(|position| &self.thoughts[position]),
+                )
+            } else {
+                let slice = if start >= end {
+                    empty
+                } else {
+                    &self.thoughts[start..end]
+                };
+                Box::new(slice.iter())
+            };
+
+        let mut results: Vec<&Thought> = candidate_thoughts
             .filter(|thought| query.matches(thought) && self.query_matches_registry(thought, query))
             .collect();
 
@@ -2161,6 +2231,82 @@ impl MentisDb {
         }
 
         results
+    }
+
+    fn indexed_candidate_positions(&self, query: &ThoughtQuery) -> Option<Vec<usize>> {
+        let mut filters = Vec::new();
+
+        if let Some(thought_types) = &query.thought_types {
+            filters.push(union_position_lists(thought_types.iter().filter_map(
+                |thought_type| self.query_indexes.by_thought_type.get(thought_type),
+            )));
+        }
+
+        if let Some(roles) = &query.roles {
+            filters.push(union_position_lists(
+                roles
+                    .iter()
+                    .filter_map(|role| self.query_indexes.by_role.get(role)),
+            ));
+        }
+
+        if let Some(agent_ids) = &query.agent_ids {
+            filters.push(union_position_lists(
+                agent_ids
+                    .iter()
+                    .filter_map(|agent_id| self.query_indexes.by_agent_id.get(agent_id)),
+            ));
+        }
+
+        if let Some(agent_names) = &query.agent_names {
+            let matching_agent_ids: Vec<&str> = self
+                .agent_registry
+                .agents
+                .values()
+                .filter(|record| {
+                    agent_names.iter().any(|agent_name| {
+                        equals_case_insensitive(&record.display_name, agent_name)
+                            || record
+                                .aliases
+                                .iter()
+                                .any(|alias| equals_case_insensitive(alias, agent_name))
+                    })
+                })
+                .map(|record| record.agent_id.as_str())
+                .collect();
+            filters.push(union_position_lists(
+                matching_agent_ids
+                    .into_iter()
+                    .filter_map(|agent_id| self.query_indexes.by_agent_id.get(agent_id)),
+            ));
+        }
+
+        if let Some(agent_owners) = &query.agent_owners {
+            let matching_agent_ids: Vec<&str> = self
+                .agent_registry
+                .agents
+                .values()
+                .filter(|record| {
+                    record.owner.as_ref().is_some_and(|owner| {
+                        agent_owners
+                            .iter()
+                            .any(|agent_owner| equals_case_insensitive(owner, agent_owner))
+                    })
+                })
+                .map(|record| record.agent_id.as_str())
+                .collect();
+            filters.push(union_position_lists(
+                matching_agent_ids
+                    .into_iter()
+                    .filter_map(|agent_id| self.query_indexes.by_agent_id.get(agent_id)),
+            ));
+        }
+
+        let mut filters = filters.into_iter();
+        let first = filters.next()?;
+        Some(filters.fold(first, |acc, positions| {
+            intersect_sorted_positions(&acc, &positions)
+        }))
     }
 
     /// Convenience helper to find thoughts related to a concept string.
@@ -2602,9 +2748,7 @@ fn save_mentisdb_registry(chain_dir: &Path, registry: &MentisDbRegistry) -> io::
     }
     let file = fs::File::create(path)?;
     serde_json::to_writer_pretty(file, registry).map_err(|error| {
-        io::Error::other(format!(
-            "Failed to serialize MentisDB registry: {error}"
-        ))
+        io::Error::other(format!("Failed to serialize MentisDB registry: {error}"))
     })?;
 
     let legacy_path = legacy_thoughtchain_registry_path(chain_dir);
@@ -2947,7 +3091,9 @@ fn chain_needs_reconciliation(
         return true;
     }
 
-    discovered.iter().any(|candidate| candidate.path != expected_path)
+    discovered
+        .iter()
+        .any(|candidate| candidate.path != expected_path)
 }
 
 fn select_reconciliation_source(
@@ -3005,15 +3151,19 @@ fn reconcile_current_chain(
         registration,
         discovered,
         target_storage_adapter,
-    )? else {
+    )?
+    else {
         return Ok(None);
     };
 
-    let source_is_target = source.storage_kind == target_storage_adapter && source.path == expected_path;
+    let source_is_target =
+        source.storage_kind == target_storage_adapter && source.path == expected_path;
     let target_missing = !expected_path.exists();
     let target_invalid = expected_path.exists()
         && open_current_chain_at(&expected_path, target_storage_adapter).is_err();
-    let has_extra_files = discovered.iter().any(|candidate| candidate.path != expected_path);
+    let has_extra_files = discovered
+        .iter()
+        .any(|candidate| candidate.path != expected_path);
     if source_is_target && !target_missing && !target_invalid && !has_extra_files {
         return Ok(None);
     }
@@ -3303,6 +3453,39 @@ fn normalize_strings(values: Vec<String>) -> Vec<String> {
         }
     }
     normalized
+}
+
+fn union_position_lists<'a, I>(lists: I) -> Vec<usize>
+where
+    I: IntoIterator<Item = &'a Vec<usize>>,
+{
+    let mut positions: Vec<usize> = lists
+        .into_iter()
+        .flat_map(|entries| entries.iter().copied())
+        .collect();
+    positions.sort_unstable();
+    positions.dedup();
+    positions
+}
+
+fn intersect_sorted_positions(left: &[usize], right: &[usize]) -> Vec<usize> {
+    let mut result = Vec::with_capacity(left.len().min(right.len()));
+    let mut left_index = 0;
+    let mut right_index = 0;
+
+    while left_index < left.len() && right_index < right.len() {
+        match left[left_index].cmp(&right[right_index]) {
+            std::cmp::Ordering::Less => left_index += 1,
+            std::cmp::Ordering::Greater => right_index += 1,
+            std::cmp::Ordering::Equal => {
+                result.push(left[left_index]);
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+
+    result
 }
 
 fn validate_refs(thoughts: &[Thought], refs: &[u64]) -> io::Result<()> {

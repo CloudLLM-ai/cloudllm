@@ -1,17 +1,17 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::sleep;
+use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use mentisdb::{
-    AgentStatus, PublicKeyAlgorithm,
     chain_filename, chain_key_from_storage_filename, chain_storage_filename,
     load_registered_chains, migrate_registered_chains, migrate_registered_chains_with_adapter,
-    signable_thought_payload,
-    BinaryStorageAdapter, JsonlStorageAdapter, StorageAdapter, StorageAdapterKind, Thought,
-    MentisDb, ThoughtInput, ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole,
-    ThoughtType, MENTISDB_CURRENT_VERSION,
+    signable_thought_payload, AgentStatus, BinaryStorageAdapter, JsonlStorageAdapter, MentisDb,
+    PublicKeyAlgorithm, StorageAdapter, StorageAdapterKind, Thought, ThoughtInput, ThoughtQuery,
+    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType, MENTISDB_CURRENT_VERSION,
 };
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -210,6 +210,57 @@ fn query_filters_retrospectives_and_lesson_learned() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].thought_type, ThoughtType::LessonLearned);
     assert_eq!(results[0].role, ThoughtRole::Retrospective);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn query_filters_by_timestamp_window() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("timing"), None).unwrap();
+
+    let first_timestamp = chain
+        .append("agent1", ThoughtType::Insight, "First observation.")
+        .unwrap()
+        .timestamp;
+    sleep(Duration::from_millis(5));
+    let second_timestamp = chain
+        .append("agent1", ThoughtType::Insight, "Second observation.")
+        .unwrap()
+        .timestamp;
+    sleep(Duration::from_millis(5));
+    let third_timestamp = chain
+        .append("agent1", ThoughtType::Insight, "Third observation.")
+        .unwrap()
+        .timestamp;
+
+    assert!(first_timestamp <= second_timestamp);
+    assert!(second_timestamp <= third_timestamp);
+
+    let middle = chain.query(
+        &ThoughtQuery::new()
+            .with_since(second_timestamp)
+            .with_until(second_timestamp),
+    );
+    assert_eq!(middle.len(), 1);
+    assert_eq!(middle[0].content, "Second observation.");
+
+    let trailing = chain.query(&ThoughtQuery::new().with_since(second_timestamp));
+    assert_eq!(trailing.len(), 2);
+    assert_eq!(trailing[0].content, "Second observation.");
+    assert_eq!(trailing[1].content, "Third observation.");
+
+    let leading = chain.query(&ThoughtQuery::new().with_until(second_timestamp));
+    assert_eq!(leading.len(), 2);
+    assert_eq!(leading[0].content, "First observation.");
+    assert_eq!(leading[1].content, "Second observation.");
+
+    let empty = chain.query(
+        &ThoughtQuery::new()
+            .with_since(third_timestamp)
+            .with_until(first_timestamp),
+    );
+    assert!(empty.is_empty());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -520,7 +571,10 @@ fn agent_registry_admin_methods_manage_metadata_and_keys() {
     let described = chain
         .set_agent_description("agent-admin", Some("Updated admin agent"))
         .unwrap();
-    assert_eq!(described.description.as_deref(), Some("Updated admin agent"));
+    assert_eq!(
+        described.description.as_deref(),
+        Some("Updated admin agent")
+    );
 
     let aliased = chain.add_agent_alias("agent-admin", "astro-admin").unwrap();
     assert!(aliased.aliases.iter().any(|alias| alias == "astro-admin"));
@@ -536,7 +590,9 @@ fn agent_registry_admin_methods_manage_metadata_and_keys() {
     assert_eq!(keyed.public_keys.len(), 1);
     assert_eq!(keyed.public_keys[0].algorithm, PublicKeyAlgorithm::Ed25519);
 
-    let revoked = chain.revoke_agent_key("agent-admin", "main-ed25519").unwrap();
+    let revoked = chain
+        .revoke_agent_key("agent-admin", "main-ed25519")
+        .unwrap();
     assert!(revoked.public_keys[0].revoked_at.is_some());
 
     let disabled = chain.disable_agent("agent-admin").unwrap();
@@ -580,15 +636,15 @@ fn migrate_v0_jsonl_and_binary_chains_to_v1() {
 
         let chain = MentisDb::open_with_key(&dir, &chain_key).unwrap();
         assert_eq!(chain.thoughts().len(), 1);
-        assert_eq!(
-            chain.thoughts()[0].schema_version,
-            MENTISDB_CURRENT_VERSION
-        );
+        assert_eq!(chain.thoughts()[0].schema_version, MENTISDB_CURRENT_VERSION);
         assert!(chain.thoughts()[0].signing_key_id.is_none());
         let record = chain.agent_registry().agents.get("legacy-agent").unwrap();
         assert_eq!(record.display_name, "Legacy Agent");
         assert_eq!(record.owner.as_deref(), Some("legacy-team"));
-        let active_path = dir.join(chain_storage_filename(&chain_key, StorageAdapterKind::Binary));
+        let active_path = dir.join(chain_storage_filename(
+            &chain_key,
+            StorageAdapterKind::Binary,
+        ));
         assert!(active_path.exists());
 
         let archived = dir
@@ -621,11 +677,15 @@ fn migrate_v0_chains_can_target_an_explicit_storage_adapter() {
     let archived = dir
         .join("migrations")
         .join(format!("v{}_to_v{}", 0, MENTISDB_CURRENT_VERSION))
-        .join(chain_storage_filename(chain_key, StorageAdapterKind::Binary));
+        .join(chain_storage_filename(
+            chain_key,
+            StorageAdapterKind::Binary,
+        ));
     assert!(archived.exists());
 
-    let chain = MentisDb::open_with_key_and_storage_kind(&dir, chain_key, StorageAdapterKind::Jsonl)
-        .unwrap();
+    let chain =
+        MentisDb::open_with_key_and_storage_kind(&dir, chain_key, StorageAdapterKind::Jsonl)
+            .unwrap();
     assert_eq!(chain.thoughts().len(), 1);
     assert_eq!(chain.thoughts()[0].schema_version, MENTISDB_CURRENT_VERSION);
 
@@ -655,8 +715,8 @@ fn current_version_jsonl_chain_is_reconciled_to_default_binary_storage() {
     assert_eq!(before_entry.version, MENTISDB_CURRENT_VERSION);
     assert_eq!(before_entry.storage_adapter, StorageAdapterKind::Jsonl);
 
-    let reports = migrate_registered_chains_with_adapter(&dir, StorageAdapterKind::Binary, |_| {})
-        .unwrap();
+    let reports =
+        migrate_registered_chains_with_adapter(&dir, StorageAdapterKind::Binary, |_| {}).unwrap();
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].chain_key, chain_key);
     assert_eq!(reports[0].from_version, MENTISDB_CURRENT_VERSION);
@@ -668,14 +728,16 @@ fn current_version_jsonl_chain_is_reconciled_to_default_binary_storage() {
     let after_entry = after.chains.get(chain_key).unwrap();
     assert_eq!(after_entry.storage_adapter, StorageAdapterKind::Binary);
 
-    let active_binary = dir.join(chain_storage_filename(chain_key, StorageAdapterKind::Binary));
+    let active_binary = dir.join(chain_storage_filename(
+        chain_key,
+        StorageAdapterKind::Binary,
+    ));
     assert!(active_binary.exists());
     let archived_jsonl = dir
         .join("migrations")
         .join(format!(
             "v{}_to_v{}",
-            MENTISDB_CURRENT_VERSION,
-            MENTISDB_CURRENT_VERSION
+            MENTISDB_CURRENT_VERSION, MENTISDB_CURRENT_VERSION
         ))
         .join(chain_storage_filename(chain_key, StorageAdapterKind::Jsonl));
     assert!(archived_jsonl.exists());

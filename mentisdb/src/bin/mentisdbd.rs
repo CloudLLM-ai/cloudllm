@@ -18,8 +18,7 @@
 
 use env_logger::Env;
 use mentisdb::server::{
-    adopt_legacy_default_mentisdb_dir, start_servers, MentisDbServerConfig,
-    MentisDbServerHandles,
+    adopt_legacy_default_mentisdb_dir, start_servers, MentisDbServerConfig, MentisDbServerHandles,
 };
 use mentisdb::{
     load_registered_chains, migrate_registered_chains_with_adapter, MentisDb,
@@ -75,16 +74,28 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
     println!("Configuration:");
-    print_env_var("MENTISDB_DIR", Some(config.service.chain_dir.display().to_string()));
-    print_env_var("MENTISDB_DEFAULT_KEY", Some(config.service.default_chain_key.clone()));
+    print_env_var(
+        "MENTISDB_DIR",
+        Some(config.service.chain_dir.display().to_string()),
+    );
+    print_env_var(
+        "MENTISDB_DEFAULT_KEY",
+        Some(config.service.default_chain_key.clone()),
+    );
     print_env_var(
         "MENTISDB_DEFAULT_STORAGE_ADAPTER",
         Some(config.service.default_storage_adapter.to_string()),
     );
     print_env_var("MENTISDB_VERBOSE", Some(config.service.verbose.to_string()));
     print_env_var("MENTISDB_BIND_HOST", Some(config.mcp_addr.ip().to_string()));
-    print_env_var("MENTISDB_MCP_PORT", Some(config.mcp_addr.port().to_string()));
-    print_env_var("MENTISDB_REST_PORT", Some(config.rest_addr.port().to_string()));
+    print_env_var(
+        "MENTISDB_MCP_PORT",
+        Some(config.mcp_addr.port().to_string()),
+    );
+    print_env_var(
+        "MENTISDB_REST_PORT",
+        Some(config.rest_addr.port().to_string()),
+    );
 
     let migration_reports = migrate_registered_chains_with_adapter(
         &config.service.chain_dir,
@@ -233,31 +244,103 @@ fn print_endpoint_catalog(handles: &MentisDbServerHandles) {
     println!("      List agent identity summaries for one chain.");
     println!("    POST http://{}/v1/agent", handles.rest.local_addr());
     println!("      Return one full agent registry record.");
-    println!("    POST http://{}/v1/agent-registry", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/agent-registry",
+        handles.rest.local_addr()
+    );
     println!("      Return the full agent registry for one chain.");
-    println!("    POST http://{}/v1/agents/upsert", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/agents/upsert",
+        handles.rest.local_addr()
+    );
     println!("      Create or update an agent registry record.");
-    println!("    POST http://{}/v1/agents/description", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/agents/description",
+        handles.rest.local_addr()
+    );
     println!("      Set or clear one agent description.");
-    println!("    POST http://{}/v1/agents/aliases", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/agents/aliases",
+        handles.rest.local_addr()
+    );
     println!("      Add one alias to a registered agent.");
-    println!("    POST http://{}/v1/agents/keys", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/agents/keys",
+        handles.rest.local_addr()
+    );
     println!("      Add or replace one agent public key.");
-    println!("    POST http://{}/v1/agents/keys/revoke", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/agents/keys/revoke",
+        handles.rest.local_addr()
+    );
     println!("      Revoke one agent public key.");
-    println!("    POST http://{}/v1/agents/disable", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/agents/disable",
+        handles.rest.local_addr()
+    );
     println!("      Disable one registered agent.");
+    println!(
+        "    GET  http://{}/mentisdb_skill_md",
+        handles.rest.local_addr()
+    );
+    println!("      Return the embedded official MentisDB skill Markdown.");
+    println!("    GET  http://{}/v1/skills", handles.rest.local_addr());
+    println!("      List uploaded skill summaries from the registry.");
+    println!(
+        "    GET  http://{}/v1/skills/manifest",
+        handles.rest.local_addr()
+    );
+    println!("      Describe searchable fields and supported skill formats.");
+    println!(
+        "    POST http://{}/v1/skills/upload",
+        handles.rest.local_addr()
+    );
+    println!("      Upload a new immutable skill version.");
+    println!(
+        "    POST http://{}/v1/skills/search",
+        handles.rest.local_addr()
+    );
+    println!("      Search skills by metadata, uploader identity, and time window.");
+    println!(
+        "    POST http://{}/v1/skills/read",
+        handles.rest.local_addr()
+    );
+    println!("      Read one stored skill as Markdown or JSON with safety warnings.");
+    println!(
+        "    POST http://{}/v1/skills/versions",
+        handles.rest.local_addr()
+    );
+    println!("      List immutable uploaded versions for one skill.");
+    println!(
+        "    POST http://{}/v1/skills/deprecate",
+        handles.rest.local_addr()
+    );
+    println!("      Mark one skill as deprecated.");
+    println!(
+        "    POST http://{}/v1/skills/revoke",
+        handles.rest.local_addr()
+    );
+    println!("      Mark one skill as revoked.");
     println!("    POST http://{}/v1/bootstrap", handles.rest.local_addr());
     println!("      Bootstrap an empty chain with an initial checkpoint.");
     println!("    POST http://{}/v1/thoughts", handles.rest.local_addr());
     println!("      Append a durable thought.");
-    println!("    POST http://{}/v1/retrospectives", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/retrospectives",
+        handles.rest.local_addr()
+    );
     println!("      Append a retrospective thought.");
     println!("    POST http://{}/v1/search", handles.rest.local_addr());
     println!("      Search thoughts by semantic and identity filters.");
-    println!("    POST http://{}/v1/recent-context", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/recent-context",
+        handles.rest.local_addr()
+    );
     println!("      Render a recent-context prompt snippet.");
-    println!("    POST http://{}/v1/memory-markdown", handles.rest.local_addr());
+    println!(
+        "    POST http://{}/v1/memory-markdown",
+        handles.rest.local_addr()
+    );
     println!("      Export a MEMORY.md-style markdown view.");
     println!("    POST http://{}/v1/head", handles.rest.local_addr());
     println!("      Return chain head and integrity metadata.");

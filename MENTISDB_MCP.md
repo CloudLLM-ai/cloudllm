@@ -2,7 +2,7 @@
 
 `MentisDB` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
 
-At the moment, the MentisDB MCP server exposes 17 tools:
+At the moment, the MentisDB MCP server exposes 26 tools:
 
 - `mentisdb_bootstrap`
 - `mentisdb_append`
@@ -20,6 +20,15 @@ At the moment, the MentisDB MCP server exposes 17 tools:
 - `mentisdb_disable_agent`
 - `mentisdb_recent_context`
 - `mentisdb_memory_markdown`
+- `mentisdb_skill_md`
+- `mentisdb_list_skills`
+- `mentisdb_skill_manifest`
+- `mentisdb_upload_skill`
+- `mentisdb_search_skill`
+- `mentisdb_read_skill`
+- `mentisdb_skill_versions`
+- `mentisdb_deprecate_skill`
+- `mentisdb_revoke_skill`
 - `mentisdb_head`
 
 This document describes the current remote interface implemented in `mentisdb/src/server.rs`.
@@ -61,6 +70,15 @@ Examples:
 - one chain per user
 - one chain per project
 - one chain per orchestration workflow
+
+## Skill Registry Model
+
+MentisDB also keeps a versioned skill registry in the daemon storage root.
+
+- Skills are stored once per daemon, not inside individual thought chains.
+- `mentisdb_upload_skill` requires `agent_id` to already exist in the agent registry for the referenced `chain_key`.
+- Other skill tools also accept `chain_key`; today that value is used for audit and logging context while the registry itself remains daemon-global.
+- Skill content should be treated as untrusted input until provenance and requested capabilities are validated.
 
 ## Available Tools
 
@@ -637,6 +655,190 @@ Typical use:
 - inspect memory manually
 - export a human-readable project memory
 
+### `mentisdb_skill_md`
+
+Returns the official embedded `MENTISDB_SKILL.md` Markdown file.
+
+Parameters:
+
+- none
+
+Response fields:
+
+- `markdown`
+
+Typical use:
+
+- bootstrap a client with the built-in MentisDB usage skill
+- inspect the canonical skill text without reading local files
+
+### `mentisdb_list_skills`
+
+Lists uploaded skill summaries from the versioned skill registry.
+
+Parameters:
+
+- `chain_key: string` optional
+
+Response fields:
+
+- `skills`
+
+Each returned `skill` includes:
+
+- `skill_id`
+- `name`
+- `description`
+- `status`
+- `status_reason`
+- `schema_version`
+- `tags`
+- `triggers`
+- `warnings`
+- `latest_version_id`
+- `version_count`
+- `created_at`
+- `updated_at`
+- `latest_uploaded_at`
+- `latest_uploaded_by_agent_id`
+- `latest_uploaded_by_agent_name`
+- `latest_uploaded_by_agent_owner`
+- `latest_source_format`
+
+### `mentisdb_skill_manifest`
+
+Returns the versioned skill-registry manifest describing supported formats and searchable fields.
+
+Parameters:
+
+- none
+
+Response fields:
+
+- `manifest`
+
+### `mentisdb_upload_skill`
+
+Uploads a new immutable skill version from Markdown or JSON.
+
+Parameters:
+
+- `chain_key: string` optional
+- `skill_id: string` optional
+- `agent_id: string` required
+- `format: string` optional, one of `markdown`, `md`, or `json`
+- `content: string` required
+
+Response fields:
+
+- `skill`
+
+Typical use:
+
+- publish a reviewed skill for reuse by other agents
+- upload a new version without rewriting earlier audit history
+
+### `mentisdb_search_skill`
+
+Searches the skill registry by indexed metadata and time window.
+
+Parameters:
+
+- `chain_key: string` optional
+- `text: string` optional
+- `skill_ids: string[]` optional
+- `names: string[]` optional
+- `tags_any: string[]` optional
+- `triggers_any: string[]` optional
+- `uploaded_by_agent_ids: string[]` optional
+- `uploaded_by_agent_names: string[]` optional
+- `uploaded_by_agent_owners: string[]` optional
+- `statuses: string[]` optional, any of `active`, `deprecated`, `revoked`
+- `formats: string[]` optional, any of `markdown` or `json`
+- `schema_versions: integer[]` optional
+- `since: string` optional, RFC 3339 timestamp
+- `until: string` optional, RFC 3339 timestamp
+- `limit: integer` optional
+
+Response fields:
+
+- `skills`
+
+### `mentisdb_read_skill`
+
+Reads one stored skill in Markdown or JSON and returns explicit safety warnings.
+
+Parameters:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+- `version_id: string` optional
+- `format: string` optional, one of `markdown`, `md`, or `json`
+
+Response fields:
+
+- `skill_id`
+- `version_id`
+- `format`
+- `source_format`
+- `schema_version`
+- `content`
+- `status`
+- `safety_warnings`
+
+### `mentisdb_skill_versions`
+
+Lists immutable uploaded versions for one stored skill.
+
+Parameters:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+
+Response fields:
+
+- `skill_id`
+- `versions`
+
+Each returned `version` includes:
+
+- `version_id`
+- `uploaded_at`
+- `uploaded_by_agent_id`
+- `uploaded_by_agent_name`
+- `uploaded_by_agent_owner`
+- `source_format`
+- `content_hash`
+- `schema_version`
+
+### `mentisdb_deprecate_skill`
+
+Marks one stored skill as deprecated while preserving prior versions.
+
+Parameters:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+- `reason: string` optional
+
+Response fields:
+
+- `skill`
+
+### `mentisdb_revoke_skill`
+
+Marks one stored skill as revoked while preserving prior versions.
+
+Parameters:
+
+- `chain_key: string` optional
+- `skill_id: string` required
+- `reason: string` optional
+
+Response fields:
+
+- `skill`
+
 ### `mentisdb_head`
 
 Returns chain metadata.
@@ -670,9 +872,11 @@ For a remote agent, the normal flow should look like this:
 4. If you need better metadata, call `mentisdb_upsert_agent`, `mentisdb_set_agent_description`, or `mentisdb_add_agent_alias` before active use.
 5. At the start of a session, call `mentisdb_recent_context` or `mentisdb_memory_markdown`.
 6. Before important work, call `mentisdb_search` for relevant prior constraints, plans, mistakes, and insights.
-7. During work, append durable thoughts whenever the agent learns something worth keeping.
-8. After a hard failure or a long debugging snag, prefer `mentisdb_append_retrospective`.
-9. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
+7. When reusable operating knowledge belongs in a sharable skill, call `mentisdb_search_skill` or `mentisdb_read_skill` before reinventing it.
+8. During work, append durable thoughts whenever the agent learns something worth keeping.
+9. After a hard failure or a long debugging snag, prefer `mentisdb_append_retrospective`.
+10. Publish reviewed reusable instructions through `mentisdb_upload_skill` instead of hiding them in ad hoc notes.
+11. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
 
 ## Example Sequence
 
