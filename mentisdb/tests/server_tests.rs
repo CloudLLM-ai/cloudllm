@@ -94,7 +94,7 @@ fn server_config_parses_mentisdb_verbose_env_values() {
     }
 
     std::env::remove_var("MENTISDB_VERBOSE");
-    assert!(!MentisDbServerConfig::from_env().service.verbose);
+    assert!(MentisDbServerConfig::from_env().service.verbose);
 
     if let Some(original) = original {
         std::env::set_var("MENTISDB_VERBOSE", original);

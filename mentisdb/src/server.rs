@@ -139,7 +139,7 @@ impl MentisDbServiceConfig {
 /// - `MENTISDB_DIR`
 /// - `MENTISDB_DEFAULT_KEY`
 /// - `MENTISDB_DEFAULT_STORAGE_ADAPTER`
-/// - `MENTISDB_VERBOSE`
+/// - `MENTISDB_VERBOSE` (defaults to `true` when unset)
 /// - `MENTISDB_BIND_HOST`
 /// - `MENTISDB_MCP_PORT`
 /// - `MENTISDB_REST_PORT`
@@ -176,7 +176,10 @@ impl MentisDbServerConfig {
         .ok()
         .map(|value| value.parse().unwrap_or(StorageAdapterKind::Binary))
         .unwrap_or(StorageAdapterKind::Binary);
-        let verbose = env_bool(&["MENTISDB_VERBOSE"]).unwrap_or(false);
+        let verbose = env_var(&["MENTISDB_VERBOSE"])
+            .ok()
+            .map(|value| parse_bool_flag(&value).unwrap_or(false))
+            .unwrap_or(true);
         let mcp_port = env_u16(&["MENTISDB_MCP_PORT"]).unwrap_or(9471);
         let rest_port = env_u16(&["MENTISDB_REST_PORT"]).unwrap_or(9472);
 
@@ -3281,10 +3284,6 @@ fn env_u16(keys: &[&str]) -> Option<u16> {
     env_var(keys)
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
-}
-
-fn env_bool(keys: &[&str]) -> Option<bool> {
-    env_var(keys).ok().and_then(|value| parse_bool_flag(&value))
 }
 
 fn parse_bool_flag(value: &str) -> Option<bool> {
