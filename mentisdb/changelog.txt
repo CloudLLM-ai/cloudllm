@@ -15,9 +15,20 @@
    - Updated the daemon endpoint catalog, crate README, MCP spec, and REST spec to include the skill registry APIs and built-in skill endpoint
    - Clarified the current skill registry model: daemon-global storage with uploader validation against a chain agent registry
    - Documented head-vs-genesis semantics and the distinction between append-order traversal and graph/context traversal
+ - feat: Default `MENTISDB_VERBOSE` to `true` when unset
+   - Daemon now logs interaction events to the console out of the box without requiring explicit env configuration
+   - `MENTISDB_VERBOSE=0` or `MENTISDB_VERBOSE=false` disables console interaction output
+ - feat: Add file-backed interaction logging via `MENTISDB_LOG_FILE`
+   - Set `MENTISDB_LOG_FILE=/path/to/mentisdb.log` to append all interaction events to a durable file
+   - File logging is independent of `MENTISDB_VERBOSE`: operators can run a silent console with a durable file log, verbose console with no file, or both simultaneously
+   - Log file path is displayed in daemon startup configuration output alongside other active env settings
+   - Added `log_file` field to `MentisDbServiceConfig` with a `with_log_file` builder method
+ - feat: Colorize daemon startup configuration output
+   - Env variable names and their resolved values are now color-coded in the startup banner for easier visual scanning
  - test: Expand coverage for the new registry and query behavior
    - Added crate tests for skill import/export, persistence, lifecycle operations, and query timestamp windows
    - Added server tests for live skill registry MCP/REST flows and embedded skill retrieval
+   - Moved skill parser tests into integration test files under `tests/` for consistency with crate standards
 
 0.3.0.4 MAR/12/2026
 Note: historical entries below use the original ThoughtChain / thoughtchaind
