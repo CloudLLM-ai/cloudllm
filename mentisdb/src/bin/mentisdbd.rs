@@ -39,6 +39,7 @@ const DB_BANNER: &str = r#"██████╗ ██████╗
 ██████╔╝██████╔╝
 ╚═════╝ ╚═════╝ "#;
 const GREEN: &str = "\x1b[38;5;82m";
+const YELLOW: &str = "\x1b[38;5;226m";
 const PINK: &str = "\x1b[38;5;213m";
 const RESET: &str = "\x1b[0m";
 
@@ -191,14 +192,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 fn print_env_var(name: &str, effective_value: Option<String>) {
     if let Ok(raw_value) = std::env::var(name) {
         println!(
-            "  {name}={raw_value} (effective: {})",
+            "  {YELLOW}{name}{RESET}={raw_value} (effective: {GREEN}{}{RESET})",
             display_value(effective_value)
         );
         return;
     }
 
     println!(
-        "  {name}=<unset> (effective default: {})",
+        "  {YELLOW}{name}{RESET}=<unset> (effective default: {GREEN}{}{RESET})",
         display_value(effective_value)
     );
 }
