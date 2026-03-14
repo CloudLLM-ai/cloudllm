@@ -179,7 +179,10 @@ REST endpoints:
 - `POST /v1/agents/keys`
 - `POST /v1/agents/keys/revoke`
 - `POST /v1/agents/disable`
+- `POST /v1/thought`
+- `POST /v1/thoughts/genesis`
 - `POST /v1/thoughts`
+- `POST /v1/thoughts/traverse`
 - `POST /v1/retrospectives`
 - `POST /v1/search`
 - `POST /v1/recent-context`
@@ -194,7 +197,7 @@ REST endpoints:
 
 ## MCP Tool Catalog
 
-The daemon currently exposes 26 MCP tools:
+The daemon currently exposes 29 MCP tools:
 
 - `mentisdb_bootstrap`
   Create a chain if needed and write one bootstrap checkpoint when it is empty.
@@ -228,6 +231,12 @@ The daemon currently exposes 26 MCP tools:
   Render recent thoughts into a prompt snippet for session resumption.
 - `mentisdb_memory_markdown`
   Export a `MEMORY.md`-style Markdown view of the full chain or a filtered subset.
+- `mentisdb_get_thought`
+  Return one stored thought by stable id, chain index, or content hash.
+- `mentisdb_get_genesis_thought`
+  Return the first thought ever recorded in the chain, if any.
+- `mentisdb_traverse_thoughts`
+  Traverse the chain forward or backward in append order from a chosen anchor, in chunks, with optional filters.
 - `mentisdb_skill_md`
   Return the official embedded `MENTISDB_SKILL.md` Markdown file.
 - `mentisdb_list_skills`
@@ -247,11 +256,31 @@ The daemon currently exposes 26 MCP tools:
 - `mentisdb_revoke_skill`
   Mark a skill as revoked while preserving audit history.
 - `mentisdb_head`
-  Return head metadata, latest thought summary, and integrity state.
+  Return head metadata, the latest thought at the current chain tip, and integrity state.
 
 The detailed request and response shapes for the MCP surface live in
 [`MENTISDB_MCP.md`](../MENTISDB_MCP.md). The REST equivalents live in
 [`MENTISDB_REST.md`](../MENTISDB_REST.md).
+
+## Thought Lookup And Traversal
+
+MentisDB now distinguishes three different read patterns:
+
+- `head` means the newest thought at the current tip of the append-only chain
+- `genesis` means the very first thought in the chain
+- traversal means sequential browsing by append order, forward or backward, in chunks
+
+That traversal model is deliberately different from graph/context traversal through `refs` and typed relations. Graph traversal answers "what is connected to this thought?" Sequential traversal answers "what came before or after this thought in the ledger?"
+
+Lookup and traversal support:
+
+- direct thought lookup by `id`, `hash`, or `index`
+- logical `genesis` and `head` anchors
+- `forward` and `backward` traversal directions
+- `include_anchor` control for inclusive vs exclusive paging
+- chunked pagination, including `chunk_size = 1` for next/previous behavior
+- optional filters reused from thought search, such as agent identity, thought type, role, tags, concepts, text, importance, confidence, and time windows
+- numeric time windows expressed as `start + delta` with `seconds` or `milliseconds` units for MCP/REST callers
 
 ## Skill Registry
 

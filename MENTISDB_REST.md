@@ -79,6 +79,13 @@ Examples:
 - one chain per project
 - one chain per workflow or orchestration pipeline
 
+Ordered chain traversal is separate from graph/context traversal.
+
+- `POST /v1/head` returns the newest thought at the current chain tip.
+- `POST /v1/thoughts/genesis` returns the first thought in append order.
+- `POST /v1/thoughts/traverse` walks the append-only ledger forward or backward in chunks.
+- graph/context traversal through `refs` and typed relations is a different conceptual operation.
+
 ## Skill Registry Model
 
 MentisDB also exposes a daemon-level versioned skill registry.
@@ -708,6 +715,87 @@ Concrete example:
 
 That gives future agents a direct path from failure to correction to durable lesson.
 
+### `POST /v1/thought`
+
+Returns one committed thought by stable id, chain index, or content hash.
+
+Request body:
+
+- `chain_key: string` optional
+- `thought_id: string` optional
+- `thought_hash: string` optional
+- `thought_index: integer` optional
+
+Exactly one locator should be provided.
+
+Response body:
+
+- `chain_key: string`
+- `thought: object`
+
+### `POST /v1/thoughts/genesis`
+
+Returns the first thought ever recorded in the chain, if any.
+
+Request body:
+
+- `chain_key: string` optional
+
+Response body:
+
+- `chain_key: string`
+- `thought: object | null`
+
+### `POST /v1/thoughts/traverse`
+
+Traverses the append-only chain in strict append order, forward or backward, in chunks.
+
+Request body:
+
+- `chain_key: string` optional
+- `anchor_id: string` optional
+- `anchor_hash: string` optional
+- `anchor_index: integer` optional
+- `anchor_boundary: string` optional, one of `genesis` or `head`
+- `direction: string` optional, one of `forward` or `backward`
+- `include_anchor: boolean` optional
+- `chunk_size: integer` optional
+- `text: string` optional
+- `thought_types: string[]` optional
+- `roles: string[]` optional
+- `tags_any: string[]` optional
+- `concepts_any: string[]` optional
+- `agent_ids: string[]` optional
+- `agent_names: string[]` optional
+- `agent_owners: string[]` optional
+- `min_importance: number` optional
+- `min_confidence: number` optional
+- `since: string` optional, RFC 3339 timestamp
+- `until: string` optional, RFC 3339 timestamp
+- `time_window: object` optional
+
+The optional `time_window` object uses:
+
+- `start: integer`
+- `delta: integer`
+- `unit: string`, one of `seconds` or `milliseconds`
+
+Use `since` and `until` instead when you want exact RFC 3339 timestamp bounds.
+
+Response body:
+
+- `chain_key: string`
+- `direction: string`
+- `include_anchor: boolean`
+- `chunk_size: integer`
+- `anchor: object | null`
+- `thoughts: object[]`
+- `has_more: boolean`
+- `next_cursor: object | null`
+- `previous_cursor: object | null`
+
+Second-based windows are intentionally coarser than millisecond windows.
+
 ### `POST /v1/search`
 
 Queries the chain for relevant memories.
@@ -741,6 +829,7 @@ Typical use:
 - search for all thoughts related to `rust`, `memory`, `rate limiting`, or `embeddings`
 - filter to thoughts produced by a specific agent, agent name, or owner/tenant
 - filter to a time window for one session or incident
+- narrow the set of thoughts you may later replay in strict append order
 
 Example:
 
@@ -851,7 +940,7 @@ curl -s http://127.0.0.1:9472/v1/memory-markdown \
 
 ### `POST /v1/head`
 
-Returns chain head metadata.
+Returns chain head metadata for the current tip of the chain.
 
 Request body:
 
@@ -869,7 +958,7 @@ Response body:
 Typical use:
 
 - check whether a chain exists
-- inspect the current head without doing a broader search
+- inspect the current latest thought without doing a broader search
 - verify integrity before starting a new agent session
 
 Example:
@@ -911,18 +1000,22 @@ For a long-running agent:
 2. `GET /v1/chains`
    Discover available durable chain keys on the daemon.
 3. `POST /v1/head`
-   Inspect whether there is prior memory.
+   Inspect whether there is prior memory and what the current latest thought is.
 4. `POST /v1/agents`
    Discover which agents are writing to a shared chain.
 5. `POST /v1/recent-context`
    Load a compact resume prompt into the next model session.
 6. `POST /v1/search`
    Pull relevant preferences, constraints, plans, mistakes, or summaries before acting.
-7. `POST /v1/thoughts`
+7. `POST /v1/thoughts/genesis`
+   Retrieve the first thought when you need the chain origin rather than the latest tip.
+8. `POST /v1/thoughts/traverse`
+   Walk forward or backward in append order, in chunks, optionally filtered by agent, thought type, role, or time window.
+9. `POST /v1/thoughts`
    Append durable thoughts during meaningful checkpoints.
-8. `POST /v1/retrospectives`
+10. `POST /v1/retrospectives`
    Append lessons learned after hard failures or long debugging snags.
-9. `POST /v1/memory-markdown`
+11. `POST /v1/memory-markdown`
    Export a human-readable summary when needed.
 
 For a multi-agent pipeline:
@@ -934,19 +1027,16 @@ For a multi-agent pipeline:
 
 ## What The REST API Does Not Yet Expose
 
-The core `mentisdb` crate supports richer internal structures than the REST append endpoint currently exposes.
+The REST surface now exposes direct thought lookup, genesis lookup, filtered time windows, and ordered traversal. The main crate capabilities still not exposed directly are:
 
-Today, the REST append API does not accept:
-
-- `session_id`
-- typed `relations`
-
-The stored `Thought` objects can still contain those fields, but remote callers currently append through the simpler `refs`-based interface.
+- `session_id` on append
+- typed `relations` on append
+- graph/context resolution by following `refs` and typed relations as a separate remote operation
 
 That means:
 
 - `refs` should be used today for causal or corrective links
-- typed relation submission can be added later without changing the basic chain model
+- append-order traversal and graph/context traversal should still be treated as separate client features
 
 ## Relationship Between REST And MCP
 

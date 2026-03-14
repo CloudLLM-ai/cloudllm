@@ -6,9 +6,15 @@
  - feat: Speed up durable memory queries with append-maintained indexes
    - Added indexes for agent id, thought type, and role to narrow candidate thoughts before full query filtering
    - Added timestamp-window position bounds so UTC `since` and `until` searches avoid scanning the full chain
+ - feat: Add direct thought lookup and append-order traversal APIs
+   - Added direct lookup by stable thought id, chain index, and content hash, plus explicit genesis vs head semantics
+   - Added forward and backward chunk traversal from thought anchors or logical `genesis`/`head` boundaries, with reusable search filters
+   - Added numeric traversal time windows using `start + delta` in `seconds` or `milliseconds` for MCP and REST callers
+   - Exposed the new lookup and traversal surface through MCP and REST, separate from graph/context traversal
  - docs: Sync daemon and protocol documentation with the shipped server surface
    - Updated the daemon endpoint catalog, crate README, MCP spec, and REST spec to include the skill registry APIs and built-in skill endpoint
    - Clarified the current skill registry model: daemon-global storage with uploader validation against a chain agent registry
+   - Documented head-vs-genesis semantics and the distinction between append-order traversal and graph/context traversal
  - test: Expand coverage for the new registry and query behavior
    - Added crate tests for skill import/export, persistence, lifecycle operations, and query timestamp windows
    - Added server tests for live skill registry MCP/REST flows and embedded skill retrieval

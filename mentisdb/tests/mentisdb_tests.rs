@@ -9,7 +9,9 @@ use mentisdb::{
     load_registered_chains, migrate_registered_chains, migrate_registered_chains_with_adapter,
     signable_thought_payload, AgentStatus, BinaryStorageAdapter, JsonlStorageAdapter, MentisDb,
     PublicKeyAlgorithm, StorageAdapter, StorageAdapterKind, Thought, ThoughtInput, ThoughtQuery,
-    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType, MENTISDB_CURRENT_VERSION,
+    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtTimeWindow, ThoughtTraversalAnchor,
+    ThoughtTraversalDirection, ThoughtTraversalRequest, ThoughtType, TimeWindowUnit,
+    MENTISDB_CURRENT_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -43,6 +45,24 @@ fn unique_chain_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("thoughtchain_test_{}_{}", std::process::id(), n));
     let _ = std::fs::remove_dir_all(&dir);
     dir
+}
+
+fn append_test_thought(
+    chain: &mut MentisDb,
+    agent_id: &str,
+    thought_type: ThoughtType,
+    role: ThoughtRole,
+    content: &str,
+) -> Thought {
+    chain
+        .append_thought(
+            agent_id,
+            ThoughtInput::new(thought_type, content)
+                .with_agent_name(agent_id)
+                .with_role(role),
+        )
+        .unwrap()
+        .clone()
 }
 
 #[test]
@@ -261,6 +281,625 @@ fn query_filters_by_timestamp_window() {
             .with_until(first_timestamp),
     );
     assert!(empty.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn get_thought_by_id_hash_and_index_returns_expected_records() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "lookup-demo").unwrap();
+
+    let first = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Insight,
+        ThoughtRole::Memory,
+        "First lookup thought.",
+    );
+    let second = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Decision,
+        ThoughtRole::Memory,
+        "Second lookup thought.",
+    );
+
+    assert_eq!(
+        chain.get_thought_by_id(first.id).unwrap().index,
+        first.index
+    );
+    assert_eq!(
+        chain.get_thought_by_hash(&second.hash).unwrap().id,
+        second.id
+    );
+    assert_eq!(chain.get_thought_by_index(1).unwrap().hash, second.hash);
+
+    assert!(chain.get_thought_by_id(Uuid::new_v4()).is_none());
+    assert!(chain.get_thought_by_hash("missing-hash").is_none());
+    assert!(chain.get_thought_by_index(99).is_none());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn genesis_and_head_thought_return_first_and_last_records() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "head-genesis").unwrap();
+    assert!(chain.genesis_thought().is_none());
+    assert!(chain.head_thought().is_none());
+
+    let first = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Insight,
+        ThoughtRole::Memory,
+        "Genesis thought.",
+    );
+    let last = append_test_thought(
+        &mut chain,
+        "apollo",
+        ThoughtType::Summary,
+        ThoughtRole::Checkpoint,
+        "Head thought.",
+    );
+
+    assert_eq!(chain.genesis_thought().unwrap().id, first.id);
+    assert_eq!(chain.head_thought().unwrap().id, last.id);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_moves_forward_from_anchor_in_chunks() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-forward").unwrap();
+    let thoughts = vec![
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Insight,
+            ThoughtRole::Memory,
+            "t0",
+        ),
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Insight,
+            ThoughtRole::Memory,
+            "t1",
+        ),
+        append_test_thought(
+            &mut chain,
+            "apollo",
+            ThoughtType::Decision,
+            ThoughtRole::Memory,
+            "t2",
+        ),
+        append_test_thought(
+            &mut chain,
+            "apollo",
+            ThoughtType::Decision,
+            ThoughtRole::Memory,
+            "t3",
+        ),
+    ];
+
+    let page = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(thoughts[1].id),
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: false,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+
+    let indexes: Vec<u64> = page.thoughts.iter().map(|thought| thought.index).collect();
+    assert_eq!(indexes, vec![2, 3]);
+    assert!(!page.has_more);
+    assert_eq!(
+        page.next_cursor.as_ref().map(|cursor| cursor.index),
+        Some(3)
+    );
+    assert_eq!(
+        page.previous_cursor.as_ref().map(|cursor| cursor.index),
+        Some(2)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_moves_backward_from_anchor_in_chunks() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-backward").unwrap();
+    let thoughts = vec![
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Insight,
+            ThoughtRole::Memory,
+            "t0",
+        ),
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Insight,
+            ThoughtRole::Memory,
+            "t1",
+        ),
+        append_test_thought(
+            &mut chain,
+            "apollo",
+            ThoughtType::Decision,
+            ThoughtRole::Memory,
+            "t2",
+        ),
+        append_test_thought(
+            &mut chain,
+            "apollo",
+            ThoughtType::Decision,
+            ThoughtRole::Memory,
+            "t3",
+        ),
+    ];
+
+    let page = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(thoughts[3].id),
+            direction: ThoughtTraversalDirection::Backward,
+            include_anchor: false,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+
+    let indexes: Vec<u64> = page.thoughts.iter().map(|thought| thought.index).collect();
+    assert_eq!(indexes, vec![2, 1]);
+    assert!(page.has_more);
+    assert_eq!(
+        page.next_cursor.as_ref().map(|cursor| cursor.index),
+        Some(1)
+    );
+    assert_eq!(
+        page.previous_cursor.as_ref().map(|cursor| cursor.index),
+        Some(2)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_can_include_anchor() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-anchor").unwrap();
+    let thoughts = vec![
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Insight,
+            ThoughtRole::Memory,
+            "t0",
+        ),
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Decision,
+            ThoughtRole::Checkpoint,
+            "t1",
+        ),
+        append_test_thought(
+            &mut chain,
+            "apollo",
+            ThoughtType::Summary,
+            ThoughtRole::Checkpoint,
+            "t2",
+        ),
+    ];
+
+    let forward = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(thoughts[1].id),
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: true,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert_eq!(forward.thoughts[0].index, 1);
+
+    let backward = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(thoughts[1].id),
+            direction: ThoughtTraversalDirection::Backward,
+            include_anchor: true,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert_eq!(backward.thoughts[0].index, 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_filters_by_agent_type_role_and_time_window() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-filtered").unwrap();
+
+    append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Decision,
+        ThoughtRole::Checkpoint,
+        "old astro checkpoint",
+    );
+    sleep(Duration::from_millis(5));
+    let start = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Decision,
+        ThoughtRole::Checkpoint,
+        "matching astro checkpoint",
+    )
+    .timestamp;
+    sleep(Duration::from_millis(5));
+    append_test_thought(
+        &mut chain,
+        "apollo",
+        ThoughtType::Decision,
+        ThoughtRole::Checkpoint,
+        "wrong agent checkpoint",
+    );
+    sleep(Duration::from_millis(5));
+    append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Insight,
+        ThoughtRole::Checkpoint,
+        "wrong type checkpoint",
+    );
+    sleep(Duration::from_millis(5));
+    let end = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Decision,
+        ThoughtRole::Checkpoint,
+        "second matching astro checkpoint",
+    )
+    .timestamp;
+
+    let page = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Genesis,
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: true,
+            chunk_size: 4,
+            filter: ThoughtQuery::new()
+                .with_agent_ids(["astro"])
+                .with_types(vec![ThoughtType::Decision])
+                .with_roles(vec![ThoughtRole::Checkpoint])
+                .with_since(start)
+                .with_until(end),
+        })
+        .unwrap();
+
+    let contents: Vec<&str> = page
+        .thoughts
+        .iter()
+        .map(|thought| thought.content.as_str())
+        .collect();
+    assert_eq!(
+        contents,
+        vec![
+            "matching astro checkpoint",
+            "second matching astro checkpoint"
+        ]
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_limit_one_supports_next_and_previous() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-single").unwrap();
+    let thoughts = vec![
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Insight,
+            ThoughtRole::Memory,
+            "t0",
+        ),
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Decision,
+            ThoughtRole::Memory,
+            "t1",
+        ),
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Summary,
+            ThoughtRole::Checkpoint,
+            "t2",
+        ),
+    ];
+
+    let next = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(thoughts[0].id),
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: false,
+            chunk_size: 1,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert_eq!(next.thoughts.len(), 1);
+    assert_eq!(next.thoughts[0].index, 1);
+
+    let previous = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(thoughts[2].id),
+            direction: ThoughtTraversalDirection::Backward,
+            include_anchor: false,
+            chunk_size: 1,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert_eq!(previous.thoughts.len(), 1);
+    assert_eq!(previous.thoughts[0].index, 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_from_genesis_and_head_anchors_work() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-boundaries").unwrap();
+
+    let empty_forward = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Genesis,
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: true,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert!(empty_forward.thoughts.is_empty());
+
+    let empty_backward = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Head,
+            direction: ThoughtTraversalDirection::Backward,
+            include_anchor: true,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert!(empty_backward.thoughts.is_empty());
+
+    append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Insight,
+        ThoughtRole::Memory,
+        "t0",
+    );
+    append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Decision,
+        ThoughtRole::Checkpoint,
+        "t1",
+    );
+
+    let from_genesis = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Genesis,
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: true,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert_eq!(from_genesis.thoughts[0].index, 0);
+
+    let from_head = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Head,
+            direction: ThoughtTraversalDirection::Backward,
+            include_anchor: true,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert_eq!(from_head.thoughts[0].index, 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_returns_empty_when_anchor_is_missing() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-missing-anchor").unwrap();
+    append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Insight,
+        ThoughtRole::Memory,
+        "t0",
+    );
+
+    let missing_id = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(Uuid::new_v4()),
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: false,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert!(missing_id.thoughts.is_empty());
+
+    let missing_hash = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Hash("missing-hash".to_string()),
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: false,
+            chunk_size: 2,
+            filter: ThoughtQuery::new(),
+        })
+        .unwrap();
+    assert!(missing_hash.thoughts.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_handles_filters_that_match_nothing() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "traverse-no-match").unwrap();
+    let anchor = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Insight,
+        ThoughtRole::Memory,
+        "t0",
+    );
+    append_test_thought(
+        &mut chain,
+        "apollo",
+        ThoughtType::Decision,
+        ThoughtRole::Checkpoint,
+        "t1",
+    );
+
+    let page = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Id(anchor.id),
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: false,
+            chunk_size: 2,
+            filter: ThoughtQuery::new().with_agent_ids(["nobody"]),
+        })
+        .unwrap();
+    assert!(page.thoughts.is_empty());
+    assert!(!page.has_more);
+    assert!(page.next_cursor.is_none());
+    assert!(page.previous_cursor.is_none());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn traverse_thoughts_respects_timestamp_window_helpers_for_seconds_and_milliseconds() {
+    let dir = unique_chain_dir();
+    let mut chain = MentisDb::open_with_key(&dir, "time-window-helper").unwrap();
+
+    let first = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Insight,
+        ThoughtRole::Memory,
+        "t0",
+    );
+    sleep(Duration::from_millis(5));
+    let second = append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Decision,
+        ThoughtRole::Checkpoint,
+        "t1",
+    );
+    sleep(Duration::from_millis(5));
+    append_test_thought(
+        &mut chain,
+        "astro",
+        ThoughtType::Summary,
+        ThoughtRole::Checkpoint,
+        "t2",
+    );
+
+    let start_ms = first.timestamp.timestamp_millis();
+    let delta_ms = (second.timestamp.timestamp_millis() - start_ms) as u64;
+    let ms_page = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Genesis,
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: true,
+            chunk_size: 8,
+            filter: ThoughtQuery::new()
+                .with_time_window(ThoughtTimeWindow {
+                    start: start_ms,
+                    delta: delta_ms,
+                    unit: TimeWindowUnit::Milliseconds,
+                })
+                .unwrap(),
+        })
+        .unwrap();
+
+    let start_s = first.timestamp.timestamp();
+    let delta_s = (second.timestamp.timestamp() - start_s) as u64;
+    let second_page = chain
+        .traverse_thoughts(&ThoughtTraversalRequest {
+            anchor: ThoughtTraversalAnchor::Genesis,
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: true,
+            chunk_size: 8,
+            filter: ThoughtQuery::new()
+                .with_time_window(ThoughtTimeWindow {
+                    start: start_s,
+                    delta: delta_s,
+                    unit: TimeWindowUnit::Seconds,
+                })
+                .unwrap(),
+        })
+        .unwrap();
+
+    let ms_indexes: Vec<u64> = ms_page
+        .thoughts
+        .iter()
+        .map(|thought| thought.index)
+        .collect();
+    let s_indexes: Vec<u64> = second_page
+        .thoughts
+        .iter()
+        .map(|thought| thought.index)
+        .collect();
+    assert_eq!(ms_indexes, vec![0, 1]);
+    assert!(s_indexes.starts_with(&ms_indexes));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn hash_lookup_survives_reload() {
+    let dir = unique_chain_dir();
+    let thought = {
+        let mut chain = MentisDb::open_with_key(&dir, "reload-hash").unwrap();
+        append_test_thought(
+            &mut chain,
+            "astro",
+            ThoughtType::Insight,
+            ThoughtRole::Memory,
+            "Persisted hash thought.",
+        )
+    };
+
+    let reloaded = MentisDb::open_with_key(&dir, "reload-hash").unwrap();
+    assert_eq!(
+        reloaded.get_thought_by_id(thought.id).unwrap().hash,
+        thought.hash
+    );
+    assert_eq!(
+        reloaded.get_thought_by_hash(&thought.hash).unwrap().id,
+        thought.id
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

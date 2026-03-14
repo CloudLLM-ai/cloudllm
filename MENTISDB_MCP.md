@@ -2,7 +2,7 @@
 
 `MentisDB` can be exposed as an MCP server so a remote agent can treat durable memory as a tool, not as a writable `MEMORY.md` file.
 
-At the moment, the MentisDB MCP server exposes 26 tools:
+At the moment, the MentisDB MCP server exposes 29 tools:
 
 - `mentisdb_bootstrap`
 - `mentisdb_append`
@@ -20,6 +20,9 @@ At the moment, the MentisDB MCP server exposes 26 tools:
 - `mentisdb_disable_agent`
 - `mentisdb_recent_context`
 - `mentisdb_memory_markdown`
+- `mentisdb_get_thought`
+- `mentisdb_get_genesis_thought`
+- `mentisdb_traverse_thoughts`
 - `mentisdb_skill_md`
 - `mentisdb_list_skills`
 - `mentisdb_skill_manifest`
@@ -70,6 +73,13 @@ Examples:
 - one chain per user
 - one chain per project
 - one chain per orchestration workflow
+
+Ordered chain traversal is distinct from graph/context traversal.
+
+- `mentisdb_head` returns the newest thought at the current tip.
+- `mentisdb_get_genesis_thought` returns the first thought in append order.
+- `mentisdb_traverse_thoughts` walks the append-only ledger forward or backward in chunks.
+- `resolve_context`-style graph traversal through `refs` and relations is a different operation with different semantics.
 
 ## Skill Registry Model
 
@@ -335,6 +345,7 @@ Typical use:
 - find old mistakes before attempting the same task again
 - retrieve memories written by a specific agent, agent name, or owner/tenant
 - search for thoughts about a concept such as `rust`, `memory`, `rate limiting`, or `embeddings`
+- narrow the set of thoughts worth traversing later in strict append order
 
 Example:
 
@@ -655,6 +666,104 @@ Typical use:
 - inspect memory manually
 - export a human-readable project memory
 
+### `mentisdb_get_thought`
+
+Returns one committed thought by stable id, chain index, or content hash.
+
+Parameters:
+
+- `chain_key: string` optional
+- `thought_id: string` optional
+- `thought_hash: string` optional
+- `thought_index: integer` optional
+
+Exactly one locator should be provided.
+
+Response fields:
+
+- `chain_key`
+- `thought`
+
+Typical use:
+
+- fetch the exact thought referenced by another tool response
+- verify that a hash or UUID still resolves after reload
+- inspect one known thought without broader search or pagination
+
+### `mentisdb_get_genesis_thought`
+
+Returns the first thought ever recorded in the chain, if any.
+
+Parameters:
+
+- `chain_key: string` optional
+
+Response fields:
+
+- `chain_key`
+- `thought`
+
+Typical use:
+
+- inspect the original bootstrap or first durable fact in a chain
+- start sequential replay from a stable logical beginning
+
+### `mentisdb_traverse_thoughts`
+
+Traverses the append-only chain in strict append order, forward or backward, in chunks.
+
+Parameters:
+
+- `chain_key: string` optional
+- `anchor_id: string` optional
+- `anchor_hash: string` optional
+- `anchor_index: integer` optional
+- `anchor_boundary: string` optional, one of `genesis` or `head`
+- `direction: string` optional, one of `forward` or `backward`
+- `include_anchor: boolean` optional, default `false`
+- `chunk_size: integer` optional, default implementation-defined positive chunk size
+- `text: string` optional
+- `thought_types: string[]` optional
+- `roles: string[]` optional
+- `tags_any: string[]` optional
+- `concepts_any: string[]` optional
+- `agent_ids: string[]` optional
+- `agent_names: string[]` optional
+- `agent_owners: string[]` optional
+- `min_importance: number` optional
+- `min_confidence: number` optional
+- `since: string` optional, RFC 3339 timestamp
+- `until: string` optional, RFC 3339 timestamp
+- `time_window: object` optional
+
+The optional `time_window` object uses:
+
+- `start: integer`
+- `delta: integer`
+- `unit: string`, one of `seconds` or `milliseconds`
+
+Use `since` and `until` instead when you want exact RFC 3339 timestamp bounds.
+
+Response fields:
+
+- `chain_key`
+- `direction`
+- `include_anchor`
+- `chunk_size`
+- `anchor`
+- `thoughts`
+- `has_more`
+- `next_cursor`
+- `previous_cursor`
+
+Traversal semantics:
+
+- results are sequential chain browsing, not semantic search ranking
+- filters are applied while walking the chain
+- `chunk_size = 1` gives next/previous behavior
+- logical anchors `genesis` and `head` let a caller begin from either end without first fetching a concrete thought id
+- second-based windows are intentionally coarser than millisecond windows
+
 ### `mentisdb_skill_md`
 
 Returns the official embedded `MENTISDB_SKILL.md` Markdown file.
@@ -841,7 +950,7 @@ Response fields:
 
 ### `mentisdb_head`
 
-Returns chain metadata.
+Returns chain metadata for the current tip of the chain.
 
 Parameters:
 
@@ -861,6 +970,7 @@ Typical use:
 - health checks
 - “did memory append succeed?”
 - quick introspection of the newest memory
+- verifying the latest thought without implying anything about genesis
 
 ## Recommended Agent Workflow
 
@@ -871,12 +981,14 @@ For a remote agent, the normal flow should look like this:
 3. For shared chains, call `mentisdb_list_agents` or `mentisdb_list_agent_registry` to discover which agents are already writing there.
 4. If you need better metadata, call `mentisdb_upsert_agent`, `mentisdb_set_agent_description`, or `mentisdb_add_agent_alias` before active use.
 5. At the start of a session, call `mentisdb_recent_context` or `mentisdb_memory_markdown`.
-6. Before important work, call `mentisdb_search` for relevant prior constraints, plans, mistakes, and insights.
-7. When reusable operating knowledge belongs in a sharable skill, call `mentisdb_search_skill` or `mentisdb_read_skill` before reinventing it.
-8. During work, append durable thoughts whenever the agent learns something worth keeping.
-9. After a hard failure or a long debugging snag, prefer `mentisdb_append_retrospective`.
-10. Publish reviewed reusable instructions through `mentisdb_upload_skill` instead of hiding them in ad hoc notes.
-11. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
+6. Use `mentisdb_head` when you want the current tip, and `mentisdb_get_genesis_thought` when you need the first recorded thought.
+7. Before important work, call `mentisdb_search` for relevant prior constraints, plans, mistakes, and insights.
+8. When you need ordered browsing rather than ranked retrieval, call `mentisdb_traverse_thoughts` with a chunk size and optional filters.
+9. When reusable operating knowledge belongs in a sharable skill, call `mentisdb_search_skill` or `mentisdb_read_skill` before reinventing it.
+10. During work, append durable thoughts whenever the agent learns something worth keeping.
+11. After a hard failure or a long debugging snag, prefer `mentisdb_append_retrospective`.
+12. Publish reviewed reusable instructions through `mentisdb_upload_skill` instead of hiding them in ad hoc notes.
+13. At the end of a session, append a `Summary`, `Checkpoint`, or `Handoff`.
 
 ## Example Sequence
 
@@ -925,6 +1037,21 @@ Search for relevant memories:
     "thought_types": ["Constraint", "Decision", "Mistake", "Correction"],
     "text": "deployment",
     "limit": 10
+  }
+}
+```
+
+If you need ordered replay after that search, traverse from the current head:
+
+```json
+{
+  "tool": "mentisdb_traverse_thoughts",
+  "arguments": {
+    "chain_key": "project-alpha",
+    "anchor_boundary": "head",
+    "direction": "backward",
+    "chunk_size": 5,
+    "thought_types": ["Constraint", "Decision"]
   }
 }
 ```
@@ -1082,15 +1209,13 @@ That makes the later lesson part of the same causal memory thread as the earlier
 
 ## What The Remote Interface Does Not Yet Expose
 
-The core `mentisdb` crate supports more than the current MCP surface. In particular, the current MCP server does not yet expose:
+The MCP surface now exposes direct thought lookup, genesis lookup, filtered timestamp windows, and ordered traversal. The main crate capabilities still not exposed directly are:
 
-- typed `relations`
-- `session_id`
-- direct filtering by `confidence`
-- direct `since` or `until` date-range filters
-- direct context resolution by thought id or index
+- typed `relations` on append
+- `session_id` on append
+- graph/context resolution by following `refs` and typed relations as a separate remote operation
 
-Those capabilities exist or can be added on the crate side, but they are not yet part of the current remote MCP tool API.
+That means sequential chain traversal and graph/context traversal should still be treated as separate concepts in client design.
 
 ## Remote-Agent Guidance
 

@@ -342,8 +342,20 @@ fn print_endpoint_catalog(handles: &MentisDbServerHandles) {
         handles.rest.local_addr()
     );
     println!("      Export a MEMORY.md-style markdown view.");
+    println!("    POST http://{}/v1/thought", handles.rest.local_addr());
+    println!("      Read one thought by id, hash, or append-order index.");
+    println!(
+        "    POST http://{}/v1/thoughts/genesis",
+        handles.rest.local_addr()
+    );
+    println!("      Return the first thought in append order.");
+    println!(
+        "    POST http://{}/v1/thoughts/traverse",
+        handles.rest.local_addr()
+    );
+    println!("      Traverse thoughts forward or backward in filtered chunks.");
     println!("    POST http://{}/v1/head", handles.rest.local_addr());
-    println!("      Return chain head and integrity metadata.");
+    println!("      Return the latest thought at the chain tip and head metadata.");
     println!();
 }
 

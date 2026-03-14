@@ -1374,6 +1374,14 @@ impl ThoughtQuery {
         self
     }
 
+    /// Apply an inclusive numeric time window expressed in Unix seconds or milliseconds.
+    pub fn with_time_window(mut self, window: ThoughtTimeWindow) -> io::Result<Self> {
+        let (since, until) = window.to_bounds()?;
+        self.since = Some(since);
+        self.until = Some(until);
+        Ok(self)
+    }
+
     /// Limit the number of returned thoughts.
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = Some(limit);
@@ -1462,6 +1470,191 @@ impl ThoughtQuery {
     }
 }
 
+/// Direction for append-order thought traversal.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThoughtTraversalDirection {
+    /// Move from older thoughts toward newer thoughts.
+    #[default]
+    Forward,
+    /// Move from newer thoughts toward older thoughts.
+    Backward,
+}
+
+/// Stable locator for one committed thought.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ThoughtTraversalAnchor {
+    /// Locate a thought by stable UUID.
+    Id(Uuid),
+    /// Locate a thought by stable chain hash.
+    Hash(String),
+    /// Locate a thought by append-order index.
+    Index(u64),
+    /// Locate the first thought in the chain.
+    Genesis,
+    /// Locate the newest thought at the chain tip.
+    Head,
+}
+
+/// Unit for numeric time-window traversal filters.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeWindowUnit {
+    /// Numeric values are interpreted as Unix seconds.
+    Seconds,
+    /// Numeric values are interpreted as Unix milliseconds.
+    Milliseconds,
+}
+
+/// Numeric time window used to derive inclusive `since`/`until` bounds.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ThoughtTimeWindow {
+    /// Inclusive window start in Unix seconds or milliseconds.
+    pub start: i64,
+    /// Non-negative window length in the same unit as `start`.
+    pub delta: u64,
+    /// Unit for `start` and `delta`.
+    pub unit: TimeWindowUnit,
+}
+
+impl ThoughtTimeWindow {
+    /// Convert this numeric window into inclusive UTC timestamp bounds.
+    pub fn to_bounds(self) -> io::Result<(DateTime<Utc>, DateTime<Utc>)> {
+        fn datetime_from_parts(seconds: i64, nanos: u32) -> io::Result<DateTime<Utc>> {
+            DateTime::<Utc>::from_timestamp(seconds, nanos).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "time window falls outside the supported UTC timestamp range",
+                )
+            })
+        }
+
+        match self.unit {
+            TimeWindowUnit::Seconds => {
+                let until_seconds = self.start.checked_add(self.delta as i64).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "second-based time window overflows i64",
+                    )
+                })?;
+                Ok((
+                    datetime_from_parts(self.start, 0)?,
+                    datetime_from_parts(until_seconds, 999_999_999)?,
+                ))
+            }
+            TimeWindowUnit::Milliseconds => {
+                let until_millis = self.start.checked_add(self.delta as i64).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "millisecond-based time window overflows i64",
+                    )
+                })?;
+                let start_seconds = self.start.div_euclid(1_000);
+                let start_nanos = (self.start.rem_euclid(1_000) as u32) * 1_000_000;
+                let until_seconds = until_millis.div_euclid(1_000);
+                let until_nanos = (until_millis.rem_euclid(1_000) as u32) * 1_000_000 + 999_999;
+                Ok((
+                    datetime_from_parts(start_seconds, start_nanos)?,
+                    datetime_from_parts(until_seconds, until_nanos)?,
+                ))
+            }
+        }
+    }
+}
+
+/// Stable cursor for continuing append-order traversal.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ThoughtTraversalCursor {
+    /// Stable UUID of the referenced thought.
+    pub id: Uuid,
+    /// Append-order index of the referenced thought.
+    pub index: u64,
+    /// Stable content hash of the referenced thought.
+    pub hash: String,
+}
+
+impl From<&Thought> for ThoughtTraversalCursor {
+    fn from(thought: &Thought) -> Self {
+        Self {
+            id: thought.id,
+            index: thought.index,
+            hash: thought.hash.clone(),
+        }
+    }
+}
+
+/// Request for append-order traversal over committed thoughts.
+#[derive(Debug, Clone)]
+pub struct ThoughtTraversalRequest {
+    /// Starting anchor for append-order traversal.
+    pub anchor: ThoughtTraversalAnchor,
+    /// Direction of sequential traversal.
+    pub direction: ThoughtTraversalDirection,
+    /// Whether to include the anchor thought when it matches the filter.
+    pub include_anchor: bool,
+    /// Maximum number of matching thoughts to return.
+    pub chunk_size: usize,
+    /// Semantic filters applied while traversing in append order.
+    pub filter: ThoughtQuery,
+}
+
+impl ThoughtTraversalRequest {
+    /// Create a traversal request with a chunk size and anchor.
+    pub fn new(
+        anchor: ThoughtTraversalAnchor,
+        direction: ThoughtTraversalDirection,
+        chunk_size: usize,
+    ) -> Self {
+        Self {
+            anchor,
+            direction,
+            include_anchor: false,
+            chunk_size,
+            filter: ThoughtQuery::new(),
+        }
+    }
+
+    /// Include the anchor thought in the returned chunk when it matches.
+    pub fn with_include_anchor(mut self, include_anchor: bool) -> Self {
+        self.include_anchor = include_anchor;
+        self
+    }
+
+    /// Apply semantic filters while preserving traversal-specific chunking.
+    pub fn with_filter(mut self, filter: ThoughtQuery) -> Self {
+        self.filter = filter;
+        self
+    }
+}
+
+impl Default for ThoughtTraversalRequest {
+    fn default() -> Self {
+        Self {
+            anchor: ThoughtTraversalAnchor::Genesis,
+            direction: ThoughtTraversalDirection::Forward,
+            include_anchor: false,
+            chunk_size: 50,
+            filter: ThoughtQuery::new(),
+        }
+    }
+}
+
+/// One page of append-order traversal results.
+#[derive(Debug, Clone)]
+pub struct ThoughtTraversalPage<'a> {
+    /// Resolved anchor thought, if the chain was non-empty.
+    pub anchor: Option<ThoughtTraversalCursor>,
+    /// Matching thoughts in traversal order.
+    pub thoughts: Vec<&'a Thought>,
+    /// Whether additional matches exist in the requested traversal direction.
+    pub has_more: bool,
+    /// Cursor for continuing toward newer thoughts, if more matches exist.
+    pub next_cursor: Option<ThoughtTraversalCursor>,
+    /// Cursor for continuing toward older thoughts, if more matches exist.
+    pub previous_cursor: Option<ThoughtTraversalCursor>,
+}
+
 #[derive(Default)]
 struct QueryIndexes {
     by_agent_id: HashMap<String, Vec<usize>>,
@@ -1548,6 +1741,7 @@ struct LegacyThoughtV0 {
 pub struct MentisDb {
     thoughts: Vec<Thought>,
     id_to_index: HashMap<Uuid, usize>,
+    hash_to_index: HashMap<String, usize>,
     agent_registry: AgentRegistry,
     query_indexes: QueryIndexes,
     storage: Box<dyn StorageAdapter>,
@@ -1613,6 +1807,7 @@ impl MentisDb {
         };
 
         let mut id_to_index = HashMap::new();
+        let mut hash_to_index = HashMap::new();
         for (position, thought) in thoughts.iter().enumerate() {
             if thought.index != position as u64 {
                 return Err(io::Error::new(
@@ -1624,6 +1819,7 @@ impl MentisDb {
                 ));
             }
             id_to_index.insert(thought.id, position);
+            hash_to_index.insert(thought.hash.clone(), position);
             agent_registry.observe(
                 &thought.agent_id,
                 None,
@@ -1637,6 +1833,7 @@ impl MentisDb {
             query_indexes: QueryIndexes::from_thoughts(&thoughts),
             thoughts,
             id_to_index,
+            hash_to_index,
             agent_registry,
             storage,
             auto_flush: true,
@@ -1841,6 +2038,8 @@ impl MentisDb {
         );
         self.persist_registries()?;
         self.id_to_index.insert(thought.id, self.thoughts.len());
+        self.hash_to_index
+            .insert(thought.hash.clone(), self.thoughts.len());
         self.query_indexes.observe(self.thoughts.len(), &thought);
         self.thoughts.push(thought.clone());
         Ok(self.thoughts.last().unwrap())
@@ -1913,6 +2112,128 @@ impl MentisDb {
             .collect();
         resolved.sort_by_key(|thought| thought.index);
         resolved
+    }
+
+    /// Return the first thought in append order, if any.
+    pub fn genesis_thought(&self) -> Option<&Thought> {
+        self.thoughts.first()
+    }
+
+    /// Return the newest thought at the current chain tip, if any.
+    pub fn head_thought(&self) -> Option<&Thought> {
+        self.thoughts.last()
+    }
+
+    /// Return one thought by append-order index.
+    pub fn get_thought_by_index(&self, index: u64) -> Option<&Thought> {
+        self.thoughts.get(index as usize)
+    }
+
+    /// Return one thought by stable UUID.
+    pub fn get_thought_by_id(&self, thought_id: Uuid) -> Option<&Thought> {
+        self.id_to_index
+            .get(&thought_id)
+            .copied()
+            .map(|position| &self.thoughts[position])
+    }
+
+    /// Return one thought by stable chain hash.
+    pub fn get_thought_by_hash(&self, hash: &str) -> Option<&Thought> {
+        self.hash_to_index
+            .get(hash)
+            .copied()
+            .map(|position| &self.thoughts[position])
+    }
+
+    /// Resolve one thought locator to a committed thought.
+    pub fn get_thought(&self, anchor: &ThoughtTraversalAnchor) -> Option<&Thought> {
+        match anchor {
+            ThoughtTraversalAnchor::Id(thought_id) => self.get_thought_by_id(*thought_id),
+            ThoughtTraversalAnchor::Hash(hash) => self.get_thought_by_hash(hash),
+            ThoughtTraversalAnchor::Index(index) => self.get_thought_by_index(*index),
+            ThoughtTraversalAnchor::Genesis => self.genesis_thought(),
+            ThoughtTraversalAnchor::Head => self.head_thought(),
+        }
+    }
+
+    /// Traverse thoughts in append order from an anchor with optional filters.
+    ///
+    /// Results are returned in traversal order: forward traversal yields
+    /// increasing append-order indexes, while backward traversal yields
+    /// decreasing indexes.
+    pub fn traverse_thoughts(
+        &self,
+        request: &ThoughtTraversalRequest,
+    ) -> io::Result<ThoughtTraversalPage<'_>> {
+        if request.chunk_size == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "chunk_size must be greater than zero",
+            ));
+        }
+
+        let anchor_position = self.resolve_traversal_anchor_position(request);
+        let anchor =
+            anchor_position.map(|position| ThoughtTraversalCursor::from(&self.thoughts[position]));
+        let Some(anchor_position) = anchor_position else {
+            return Ok(ThoughtTraversalPage {
+                anchor,
+                thoughts: Vec::new(),
+                has_more: false,
+                next_cursor: None,
+                previous_cursor: None,
+            });
+        };
+
+        let mut filter = request.filter.clone();
+        filter.limit = None;
+
+        let mut positions = Vec::new();
+        let mut current = if request.include_anchor {
+            Some(anchor_position)
+        } else {
+            self.step_position(anchor_position, request.direction)
+        };
+
+        while let Some(position) = current {
+            let thought = &self.thoughts[position];
+            if self.thought_matches_query(thought, &filter) {
+                positions.push(position);
+                if positions.len() == request.chunk_size {
+                    break;
+                }
+            }
+            current = self.step_position(position, request.direction);
+        }
+
+        let thoughts = positions
+            .iter()
+            .map(|&position| &self.thoughts[position])
+            .collect::<Vec<_>>();
+
+        let (has_more, next_cursor, previous_cursor) =
+            if let (Some(first_position), Some(last_position)) =
+                (positions.first().copied(), positions.last().copied())
+            {
+                let has_more = self
+                    .find_matching_position_from(last_position, request.direction, false, &filter)
+                    .is_some();
+                (
+                    has_more,
+                    Some(ThoughtTraversalCursor::from(&self.thoughts[last_position])),
+                    Some(ThoughtTraversalCursor::from(&self.thoughts[first_position])),
+                )
+            } else {
+                (false, None, None)
+            };
+
+        Ok(ThoughtTraversalPage {
+            anchor,
+            thoughts,
+            has_more,
+            next_cursor,
+            previous_cursor,
+        })
     }
 
     /// Return the per-chain registry of known agents.
@@ -2152,6 +2473,71 @@ impl MentisDb {
         }
 
         true
+    }
+
+    fn thought_matches_query(&self, thought: &Thought, query: &ThoughtQuery) -> bool {
+        query.matches(thought) && self.query_matches_registry(thought, query)
+    }
+
+    fn resolve_traversal_anchor_position(
+        &self,
+        request: &ThoughtTraversalRequest,
+    ) -> Option<usize> {
+        if self.thoughts.is_empty() {
+            return None;
+        }
+
+        self.locate_thought_position(&request.anchor)
+    }
+
+    fn locate_thought_position(&self, anchor: &ThoughtTraversalAnchor) -> Option<usize> {
+        match anchor {
+            ThoughtTraversalAnchor::Id(thought_id) => self.id_to_index.get(thought_id).copied(),
+            ThoughtTraversalAnchor::Hash(hash) => self.hash_to_index.get(hash).copied(),
+            ThoughtTraversalAnchor::Index(index) => {
+                self.thoughts.get(*index as usize).map(|_| *index as usize)
+            }
+            ThoughtTraversalAnchor::Genesis => self.thoughts.first().map(|_| 0),
+            ThoughtTraversalAnchor::Head => self.thoughts.len().checked_sub(1),
+        }
+    }
+
+    fn step_position(
+        &self,
+        position: usize,
+        direction: ThoughtTraversalDirection,
+    ) -> Option<usize> {
+        match direction {
+            ThoughtTraversalDirection::Forward => {
+                let next = position + 1;
+                (next < self.thoughts.len()).then_some(next)
+            }
+            ThoughtTraversalDirection::Backward => position.checked_sub(1),
+        }
+    }
+
+    fn find_matching_position_from(
+        &self,
+        position: usize,
+        direction: ThoughtTraversalDirection,
+        include_anchor: bool,
+        query: &ThoughtQuery,
+    ) -> Option<usize> {
+        let mut current = if include_anchor {
+            Some(position)
+        } else {
+            self.step_position(position, direction)
+        };
+
+        while let Some(candidate) = current {
+            let thought = &self.thoughts[candidate];
+            if self.thought_matches_query(thought, query) {
+                return Some(candidate);
+            }
+            current = self.step_position(candidate, direction);
+        }
+
+        None
     }
 
     /// Render a JSON representation of a thought with resolved agent metadata.
@@ -2495,7 +2881,7 @@ impl MentisDb {
 
     /// Return the current head hash of the chain, if any.
     pub fn head_hash(&self) -> Option<&str> {
-        self.thoughts.last().map(|thought| thought.hash.as_str())
+        self.head_thought().map(|thought| thought.hash.as_str())
     }
 
     /// Return a human-readable description of the underlying storage location.

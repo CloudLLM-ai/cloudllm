@@ -8,6 +8,7 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
+use chrono::DateTime;
 use mentisdb::server::{
     adopt_legacy_default_mentisdb_dir, mcp_router, rest_router, standard_mcp_router,
     MentisDbServerConfig, MentisDbServiceConfig,
@@ -30,6 +31,44 @@ fn unique_chain_dir() -> PathBuf {
 
 fn env_mutex() -> &'static Mutex<()> {
     ENV_MUTEX.get_or_init(|| Mutex::new(()))
+}
+
+async fn append_thought_via_rest(
+    router: axum::Router,
+    chain_key: &str,
+    agent_id: &str,
+    thought_type: &str,
+    role: Option<&str>,
+    content: &str,
+) -> serde_json::Value {
+    let mut payload = json!({
+        "chain_key": chain_key,
+        "agent_id": agent_id,
+        "thought_type": thought_type,
+        "content": content
+    });
+    if let Some(role) = role {
+        payload["role"] = json!(role);
+    }
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts")
+                .header("content-type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -196,6 +235,15 @@ async fn mcp_router_lists_mentisdb_tools() {
         .iter()
         .any(|tool| tool["name"] == "mentisdb_revoke_skill"));
     assert!(tools.iter().any(|tool| tool["name"] == "mentisdb_skill_md"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "mentisdb_get_thought"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "mentisdb_get_genesis_thought"));
+    assert!(tools
+        .iter()
+        .any(|tool| tool["name"] == "mentisdb_traverse_thoughts"));
     assert!(tools.iter().any(|tool| tool["name"] == "mentisdb_head"));
 
     let search_skill = tools
@@ -237,6 +285,39 @@ async fn mcp_router_lists_mentisdb_tools() {
             .iter()
             .any(|parameter| parameter["name"] == "chain_key"));
     }
+
+    let get_thought = tools
+        .iter()
+        .find(|tool| tool["name"] == "mentisdb_get_thought")
+        .unwrap();
+    let get_thought_parameters = get_thought["parameters"].as_array().unwrap();
+    assert!(get_thought_parameters
+        .iter()
+        .any(|parameter| parameter["name"] == "thought_id"));
+    assert!(get_thought_parameters
+        .iter()
+        .any(|parameter| parameter["name"] == "thought_hash"));
+    assert!(get_thought_parameters
+        .iter()
+        .any(|parameter| parameter["name"] == "thought_index"));
+
+    let traverse = tools
+        .iter()
+        .find(|tool| tool["name"] == "mentisdb_traverse_thoughts")
+        .unwrap();
+    let traverse_parameters = traverse["parameters"].as_array().unwrap();
+    assert!(traverse_parameters
+        .iter()
+        .any(|parameter| parameter["name"] == "anchor_boundary"));
+    assert!(traverse_parameters
+        .iter()
+        .any(|parameter| parameter["name"] == "direction"));
+    assert!(traverse_parameters
+        .iter()
+        .any(|parameter| parameter["name"] == "chunk_size"));
+    assert!(traverse_parameters
+        .iter()
+        .any(|parameter| parameter["name"] == "time_window"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -540,6 +621,190 @@ async fn rest_router_bootstraps_and_reports_head() {
 }
 
 #[tokio::test]
+async fn mcp_router_gets_thought_by_id_and_hash() {
+    let dir = unique_chain_dir();
+    let router = mcp_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "lookup-mcp",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    let appended = append_thought_via_rest(
+        rest_router(MentisDbServiceConfig::new(
+            dir.clone(),
+            "lookup-mcp",
+            StorageAdapterKind::Jsonl,
+        )),
+        "lookup-mcp",
+        "astro",
+        "Insight",
+        None,
+        "Lookup me through MCP.",
+    )
+    .await;
+    let thought_id = appended["thought"]["id"].as_str().unwrap().to_string();
+    let thought_hash = appended["thought"]["hash"].as_str().unwrap().to_string();
+
+    for parameters in [
+        json!({ "chain_key": "lookup-mcp", "thought_id": thought_id }),
+        json!({ "chain_key": "lookup-mcp", "thought_hash": thought_hash }),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/tools/execute")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "tool": "mentisdb_get_thought",
+                            "parameters": parameters
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            json["result"]["output"]["thought"]["content"],
+            "Lookup me through MCP."
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn mcp_router_traverses_thoughts_forward_and_backward() {
+    let dir = unique_chain_dir();
+    let mcp = mcp_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "traverse-mcp",
+        StorageAdapterKind::Jsonl,
+    ));
+    let rest = rest_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "traverse-mcp",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    append_thought_via_rest(rest.clone(), "traverse-mcp", "astro", "Insight", None, "t0").await;
+    let anchor = append_thought_via_rest(
+        rest.clone(),
+        "traverse-mcp",
+        "astro",
+        "Decision",
+        Some("Checkpoint"),
+        "t1",
+    )
+    .await;
+    append_thought_via_rest(
+        rest.clone(),
+        "traverse-mcp",
+        "apollo",
+        "Decision",
+        Some("Checkpoint"),
+        "t2",
+    )
+    .await;
+    append_thought_via_rest(
+        rest,
+        "traverse-mcp",
+        "astro",
+        "Decision",
+        Some("Checkpoint"),
+        "t3",
+    )
+    .await;
+
+    let forward = mcp
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/tools/execute")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "tool": "mentisdb_traverse_thoughts",
+                        "parameters": {
+                            "chain_key": "traverse-mcp",
+                            "anchor_id": anchor["thought"]["id"],
+                            "direction": "forward",
+                            "include_anchor": false,
+                            "chunk_size": 2,
+                            "agent_ids": ["astro"],
+                            "thought_types": ["Decision"],
+                            "roles": ["Checkpoint"]
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forward.status(), StatusCode::OK);
+    let forward_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(forward.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let forward_thoughts = forward_json["result"]["output"]["thoughts"]
+        .as_array()
+        .unwrap();
+    assert_eq!(forward_thoughts.len(), 1);
+    assert_eq!(forward_thoughts[0]["content"], "t3");
+
+    let backward = mcp
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/tools/execute")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "tool": "mentisdb_traverse_thoughts",
+                        "parameters": {
+                            "chain_key": "traverse-mcp",
+                            "anchor_boundary": "head",
+                            "direction": "backward",
+                            "include_anchor": true,
+                            "chunk_size": 1
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(backward.status(), StatusCode::OK);
+    let backward_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(backward.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        backward_json["result"]["output"]["thoughts"][0]["content"],
+        "t3"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn rest_router_returns_embedded_skill_markdown() {
     let dir = unique_chain_dir();
     let router = rest_router(MentisDbServiceConfig::new(
@@ -572,6 +837,428 @@ async fn rest_router_returns_embedded_skill_markdown() {
         .unwrap();
     let markdown = String::from_utf8(body.to_vec()).unwrap();
     assert_eq!(markdown, EMBEDDED_SKILL_MD);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn rest_router_gets_genesis_and_specific_thought() {
+    let dir = unique_chain_dir();
+    let router = rest_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "lookup-rest",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    let first = append_thought_via_rest(
+        router.clone(),
+        "lookup-rest",
+        "astro",
+        "Insight",
+        None,
+        "first thought",
+    )
+    .await;
+    append_thought_via_rest(
+        router.clone(),
+        "lookup-rest",
+        "astro",
+        "Decision",
+        Some("Checkpoint"),
+        "second thought",
+    )
+    .await;
+
+    let genesis = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts/genesis")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "lookup-rest"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(genesis.status(), StatusCode::OK);
+    let genesis_json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(genesis.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(genesis_json["thought"]["content"], "first thought");
+
+    let by_id = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thought")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "lookup-rest",
+                        "thought_id": first["thought"]["id"]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(by_id.status(), StatusCode::OK);
+
+    let by_hash = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thought")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "lookup-rest",
+                        "thought_hash": first["thought"]["hash"]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(by_hash.status(), StatusCode::OK);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn rest_router_traverses_thoughts_with_filters_and_chunk_size() {
+    let dir = unique_chain_dir();
+    let router = rest_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "traverse-rest",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    let first = append_thought_via_rest(
+        router.clone(),
+        "traverse-rest",
+        "astro",
+        "Decision",
+        Some("Checkpoint"),
+        "first match",
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let second = append_thought_via_rest(
+        router.clone(),
+        "traverse-rest",
+        "apollo",
+        "Decision",
+        Some("Checkpoint"),
+        "wrong agent",
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let third = append_thought_via_rest(
+        router.clone(),
+        "traverse-rest",
+        "astro",
+        "Decision",
+        Some("Checkpoint"),
+        "second match",
+    )
+    .await;
+
+    let start = first["thought"]["timestamp"].as_str().unwrap().to_string();
+    let end = third["thought"]["timestamp"].as_str().unwrap().to_string();
+
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts/traverse")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "traverse-rest",
+                        "anchor_index": 0,
+                        "direction": "forward",
+                        "include_anchor": true,
+                        "chunk_size": 1,
+                        "agent_ids": ["astro"],
+                        "thought_types": ["Decision"],
+                        "roles": ["Checkpoint"],
+                        "since": start,
+                        "until": end
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json["thoughts"].as_array().unwrap().len(), 1);
+    assert_eq!(json["thoughts"][0]["content"], "first match");
+    assert_eq!(json["next_cursor"]["index"], 0);
+    let time_window_start =
+        DateTime::parse_from_rfc3339(second["thought"]["timestamp"].as_str().unwrap())
+            .unwrap()
+            .timestamp_millis();
+
+    let backward = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts/traverse")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "traverse-rest",
+                        "anchor_hash": third["thought"]["hash"],
+                        "direction": "backward",
+                        "include_anchor": false,
+                        "chunk_size": 1,
+                        "agent_ids": ["astro"],
+                        "thought_types": ["Decision"],
+                        "roles": ["Checkpoint"],
+                        "time_window": {
+                            "start": time_window_start,
+                            "delta": 60000,
+                            "unit": "milliseconds"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(backward.status(), StatusCode::OK);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn rest_router_traversal_rejects_invalid_direction_or_locator_payloads() {
+    let dir = unique_chain_dir();
+    let router = rest_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "traverse-invalid",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    let invalid_direction = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts/traverse")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "traverse-invalid",
+                        "anchor_boundary": "genesis",
+                        "direction": "sideways",
+                        "chunk_size": 1
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid_direction.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let conflicting_locator = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thought")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "traverse-invalid",
+                        "thought_id": "00000000-0000-0000-0000-000000000000",
+                        "thought_index": 1
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(conflicting_locator.status(), StatusCode::BAD_REQUEST);
+
+    let zero_chunk = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts/traverse")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "traverse-invalid",
+                        "anchor_boundary": "genesis",
+                        "direction": "forward",
+                        "chunk_size": 0
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(zero_chunk.status(), StatusCode::BAD_REQUEST);
+
+    let bad_time_window = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thoughts/traverse")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "traverse-invalid",
+                        "anchor_boundary": "genesis",
+                        "direction": "forward",
+                        "chunk_size": 1,
+                        "time_window": {
+                            "start": 0,
+                            "delta": 1,
+                            "unit": "minutes"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bad_time_window.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn rest_router_head_still_returns_latest_thought_not_genesis() {
+    let dir = unique_chain_dir();
+    let router = rest_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "head-latest",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    append_thought_via_rest(
+        router.clone(),
+        "head-latest",
+        "astro",
+        "Insight",
+        None,
+        "genesis thought",
+    )
+    .await;
+    append_thought_via_rest(
+        router.clone(),
+        "head-latest",
+        "astro",
+        "Decision",
+        Some("Checkpoint"),
+        "latest thought",
+    )
+    .await;
+
+    let head = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/head")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "head-latest"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+    let json: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(head.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json["latest_thought"]["content"], "latest thought");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn rest_router_single_thought_lookup_returns_not_found_for_unknown_id_hash() {
+    let dir = unique_chain_dir();
+    let router = rest_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "missing-thought",
+        StorageAdapterKind::Jsonl,
+    ));
+
+    let missing_id = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thought")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "missing-thought",
+                        "thought_id": "00000000-0000-0000-0000-000000000000"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_id.status(), StatusCode::NOT_FOUND);
+
+    let missing_hash = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/thought")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "missing-thought",
+                        "thought_hash": "missing-hash"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_hash.status(), StatusCode::NOT_FOUND);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

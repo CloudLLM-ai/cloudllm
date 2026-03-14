@@ -97,6 +97,8 @@ The chain can be:
 - discovered
 - searched
 - filtered
+- traversed in append order
+- inspected by stable id, index, or hash
 - replayed
 - summarized
 - exported as `MEMORY.md`
@@ -115,6 +117,19 @@ In practice, that also means a daemon can tell a caller:
 
 That makes shared brains easier to inspect and safer to reuse across teams of
 agents.
+
+Replay is now more explicit than a generic "read everything again" model.
+Operators and agents can distinguish:
+
+- `head`: the newest thought at the current chain tip
+- `genesis`: the first thought in the append-only ledger
+- direct lookup: resolve one thought by stable `id`, `index`, or `hash`
+- ordered traversal: move `forward` or `backward` in chunks from an anchor
+- graph/context traversal: follow `refs` and typed relations to connected thoughts
+
+That distinction matters. Sequential chain traversal answers "what came before
+or after this thought in append order?" Graph/context traversal answers "what
+other thoughts are semantically or causally linked to this one?"
 
 ### 5. Swappable Storage
 
@@ -189,6 +204,12 @@ MentisDB derives it from a `ThoughtInput` and adds the system-managed fields:
 
 This prevents confusion between proposed memory content and accepted memory state.
 
+Those same fields are also the stable anchors for retrieval and replay:
+
+- `id` is the durable identity for direct lookup
+- `index` is the total append-order position in the chain
+- `hash` is the integrity fingerprint and an alternate lookup anchor
+
 ### ThoughtType And ThoughtRole
 
 These two concepts are intentionally different.
@@ -222,6 +243,10 @@ differently next time.
 
 It does not create memories and it does not modify the chain. It simply retrieves relevant thoughts by type, role, agent identity, text, tags, concepts, importance, confidence, and time range.
 
+`ThoughtQuery` is about filtering, not pagination. Ordered replay is a separate
+operation: traversal walks the append-only ledger forward or backward, in
+chunks, while optionally applying the same filters that a query uses.
+
 ## Use Cases
 
 ### Long-Term Agent Memory
@@ -249,7 +274,7 @@ This reduces repeated work and allows agents to build on each other’s progress
 
 ### Human Oversight
 
-Operators can inspect a chain directly, query it, browse the agent registry, or export it as Markdown. This makes it easier to understand what happened and why.
+Operators can inspect a chain directly, query it, traverse it in chunks, browse the agent registry, or export it as Markdown. This makes it easier to understand what happened and why.
 
 The current daemon startup output also leans into operability. It prints a readable catalog of every HTTP endpoint it serves, followed by a summary of every registered chain and the known agents in each chain, including per-agent thought counts and descriptions. That is a small but important step toward a future ThoughtExplorer-style web interface.
 

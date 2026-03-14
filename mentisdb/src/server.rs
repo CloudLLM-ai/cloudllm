@@ -20,6 +20,9 @@
 //! - `POST /v1/search`
 //! - `POST /v1/recent-context`
 //! - `POST /v1/memory-markdown`
+//! - `POST /v1/thought`
+//! - `POST /v1/thoughts/genesis`
+//! - `POST /v1/thoughts/traverse`
 //! - `POST /v1/head`
 //! - `GET /v1/chains`
 //! - `POST /v1/agents`
@@ -37,7 +40,8 @@ use crate::{
     load_registered_chains, AgentRecord, AgentStatus, MentisDb, PublicKeyAlgorithm, SkillFormat,
     SkillQuery, SkillRegistry, SkillRegistryManifest, SkillStatus, SkillSummary,
     SkillVersionSummary, StorageAdapterKind, Thought, ThoughtInput, ThoughtQuery, ThoughtRole,
-    ThoughtType, MENTISDB_CURRENT_VERSION,
+    ThoughtTimeWindow, ThoughtTraversalAnchor, ThoughtTraversalCursor, ThoughtTraversalDirection,
+    ThoughtTraversalRequest, ThoughtType, TimeWindowUnit, MENTISDB_CURRENT_VERSION,
 };
 use async_trait::async_trait;
 use axum::extract::{Query, State};
@@ -518,6 +522,12 @@ pub fn rest_router(config: MentisDbServiceConfig) -> Router {
         .route("/v1/search", post(rest_search_handler))
         .route("/v1/recent-context", post(rest_recent_context_handler))
         .route("/v1/memory-markdown", post(rest_memory_markdown_handler))
+        .route("/v1/thought", post(rest_get_thought_handler))
+        .route("/v1/thoughts/genesis", post(rest_genesis_thought_handler))
+        .route(
+            "/v1/thoughts/traverse",
+            post(rest_traverse_thoughts_handler),
+        )
         .route("/v1/head", post(rest_head_handler))
         .route("/v1/chains", get(rest_list_chains_handler))
         .route("/v1/agents", post(rest_list_agents_handler))
@@ -649,6 +659,18 @@ impl ToolProtocol for MentisDbMcpProtocol {
             }
             "mentisdb_memory_markdown" => {
                 parse_and_call(parameters, |request| self.service.memory_markdown(request)).await
+            }
+            "mentisdb_get_thought" => {
+                parse_and_call(parameters, |request| self.service.get_thought(request)).await
+            }
+            "mentisdb_get_genesis_thought" => {
+                parse_and_call(parameters, |request| self.service.genesis_thought(request)).await
+            }
+            "mentisdb_traverse_thoughts" => {
+                parse_and_call(parameters, |request| {
+                    self.service.traverse_thoughts(request)
+                })
+                .await
             }
             "mentisdb_skill_md" => self.service.skill_markdown_json().await,
             "mentisdb_list_skills" => self.service.list_skills_json().await,
@@ -1284,6 +1306,119 @@ impl MentisDbService {
         Ok(MemoryMarkdownResponse { markdown })
     }
 
+    async fn get_thought(
+        &self,
+        request: GetThoughtRequest,
+    ) -> Result<ThoughtResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let chain = chain.read().await;
+        let locator = build_required_anchor(
+            request.thought_id,
+            request.thought_hash,
+            request.thought_index,
+            None,
+        )?;
+        let thought = chain.get_thought(&locator).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "No thought matched the requested locator",
+            )
+        })?;
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "get_thought",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::from_chain_thought(&chain, thought),
+            result_count: Some(1),
+            note: Some(format!("locator={locator:?}")),
+        });
+        Ok(ThoughtResponse {
+            chain_key,
+            thought: Some(thought_to_json(&chain, thought)),
+        })
+    }
+
+    async fn genesis_thought(
+        &self,
+        request: GenesisThoughtRequest,
+    ) -> Result<ThoughtResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let chain = chain.read().await;
+        let thought = chain.genesis_thought();
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "get_genesis_thought",
+            chain_key: chain_key.clone(),
+            metadata: thought
+                .map(|thought| InteractionMetadata::from_chain_thought(&chain, thought))
+                .unwrap_or_default(),
+            result_count: Some(thought.is_some() as usize),
+            note: None,
+        });
+        Ok(ThoughtResponse {
+            chain_key,
+            thought: thought.map(|thought| thought_to_json(&chain, thought)),
+        })
+    }
+
+    async fn traverse_thoughts(
+        &self,
+        request: TraverseThoughtsRequest,
+    ) -> Result<TraverseThoughtsResponse, Box<dyn Error + Send + Sync>> {
+        let chain_key = self.resolve_chain_key(request.chain_key.as_deref());
+        let chain = self.get_chain(Some(&chain_key), None).await?;
+        let chain = chain.read().await;
+        let query = build_traversal_query(&request)?;
+        let direction = request.direction.unwrap_or_default();
+        let anchor = build_optional_anchor(
+            request.anchor_id,
+            request.anchor_hash.clone(),
+            request.anchor_index,
+            request.anchor_boundary,
+        )?
+        .unwrap_or(match direction {
+            ThoughtTraversalDirection::Forward => ThoughtTraversalAnchor::Genesis,
+            ThoughtTraversalDirection::Backward => ThoughtTraversalAnchor::Head,
+        });
+        let include_anchor = request.include_anchor.unwrap_or(false);
+        let chunk_size = request.chunk_size.unwrap_or(50);
+        let page = chain.traverse_thoughts(&ThoughtTraversalRequest {
+            anchor,
+            direction,
+            include_anchor,
+            chunk_size,
+            filter: query,
+        })?;
+        self.log_interaction(InteractionLogEntry {
+            access: "read",
+            operation: "traverse_thoughts",
+            chain_key: chain_key.clone(),
+            metadata: InteractionMetadata::from_chain_thoughts(
+                &chain,
+                page.thoughts.iter().copied(),
+            ),
+            result_count: Some(page.thoughts.len()),
+            note: Some(format!("direction={direction:?} chunk_size={chunk_size}")),
+        });
+        Ok(TraverseThoughtsResponse {
+            chain_key,
+            direction,
+            include_anchor,
+            chunk_size,
+            anchor: page.anchor,
+            thoughts: page
+                .thoughts
+                .into_iter()
+                .map(|thought| thought_to_json(&chain, thought))
+                .collect(),
+            has_more: page.has_more,
+            next_cursor: page.next_cursor,
+            previous_cursor: page.previous_cursor,
+        })
+    }
+
     async fn skill_markdown(&self) -> Result<SkillMarkdownResponse, Box<dyn Error + Send + Sync>> {
         self.log_interaction(InteractionLogEntry {
             access: "read",
@@ -1786,6 +1921,44 @@ struct SearchResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct GetThoughtRequest {
+    chain_key: Option<String>,
+    thought_id: Option<Uuid>,
+    thought_hash: Option<String>,
+    thought_index: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct GenesisThoughtRequest {
+    chain_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct TraverseThoughtsRequest {
+    chain_key: Option<String>,
+    anchor_id: Option<Uuid>,
+    anchor_hash: Option<String>,
+    anchor_index: Option<u64>,
+    anchor_boundary: Option<ThoughtTraversalBoundary>,
+    direction: Option<ThoughtTraversalDirection>,
+    include_anchor: Option<bool>,
+    chunk_size: Option<usize>,
+    text: Option<String>,
+    thought_types: Option<Vec<ThoughtType>>,
+    roles: Option<Vec<ThoughtRole>>,
+    tags_any: Option<Vec<String>>,
+    concepts_any: Option<Vec<String>>,
+    agent_ids: Option<Vec<String>>,
+    agent_names: Option<Vec<String>>,
+    agent_owners: Option<Vec<String>>,
+    min_importance: Option<f32>,
+    min_confidence: Option<f32>,
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+    time_window: Option<TransportThoughtTimeWindow>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UploadSkillRequest {
     chain_key: Option<String>,
     skill_id: Option<String>,
@@ -1870,6 +2043,50 @@ struct SkillVersionsResponse {
 #[derive(Debug, Serialize)]
 struct SkillSummaryResponse {
     skill: SkillSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct ThoughtResponse {
+    chain_key: String,
+    thought: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+struct TraverseThoughtsResponse {
+    chain_key: String,
+    direction: ThoughtTraversalDirection,
+    include_anchor: bool,
+    chunk_size: usize,
+    anchor: Option<ThoughtTraversalCursor>,
+    thoughts: Vec<Value>,
+    has_more: bool,
+    next_cursor: Option<ThoughtTraversalCursor>,
+    previous_cursor: Option<ThoughtTraversalCursor>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ThoughtTraversalBoundary {
+    Genesis,
+    Head,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TransportThoughtTimeWindow {
+    start: i64,
+    delta: u64,
+    unit: TimeWindowUnit,
+}
+
+impl TransportThoughtTimeWindow {
+    fn to_bounds(&self) -> io::Result<(DateTime<Utc>, DateTime<Utc>)> {
+        ThoughtTimeWindow {
+            start: self.start,
+            delta: self.delta,
+            unit: self.unit,
+        }
+        .to_bounds()
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -2189,6 +2406,27 @@ async fn rest_memory_markdown_handler(
     service_call(service.memory_markdown(request).await)
 }
 
+async fn rest_get_thought_handler(
+    State(service): State<Arc<MentisDbService>>,
+    Json(request): Json<GetThoughtRequest>,
+) -> Result<Json<ThoughtResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.get_thought(request).await)
+}
+
+async fn rest_genesis_thought_handler(
+    State(service): State<Arc<MentisDbService>>,
+    Json(request): Json<GenesisThoughtRequest>,
+) -> Result<Json<ThoughtResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.genesis_thought(request).await)
+}
+
+async fn rest_traverse_thoughts_handler(
+    State(service): State<Arc<MentisDbService>>,
+    Json(request): Json<TraverseThoughtsRequest>,
+) -> Result<Json<TraverseThoughtsResponse>, (StatusCode, Json<Value>)> {
+    service_call(service.traverse_thoughts(request).await)
+}
+
 async fn rest_skill_markdown_handler(
     State(service): State<Arc<MentisDbService>>,
 ) -> impl IntoResponse {
@@ -2288,10 +2526,15 @@ fn service_call<T: Serialize>(
     result: Result<T, Box<dyn Error + Send + Sync>>,
 ) -> Result<Json<T>, (StatusCode, Json<Value>)> {
     result.map(Json).map_err(|error| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": error.to_string() })),
-        )
+        let status = error
+            .downcast_ref::<io::Error>()
+            .map(|error| match error.kind() {
+                io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+                io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
+                _ => StatusCode::BAD_REQUEST,
+            })
+            .unwrap_or(StatusCode::BAD_REQUEST);
+        (status, Json(json!({ "error": error.to_string() })))
     })
 }
 
@@ -2480,6 +2723,44 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("until", ToolParameterType::String).with_description("Optional RFC 3339 upper timestamp bound."))
         .with_parameter(ToolParameter::new("limit", ToolParameterType::Integer).with_description("Optional maximum number of thoughts.")),
         ToolMetadata::new(
+            "mentisdb_get_thought",
+            "Return one committed thought by stable UUID, hash, or append-order index.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
+        .with_parameter(ToolParameter::new("thought_id", ToolParameterType::String).with_description("Stable UUID of the thought to read."))
+        .with_parameter(ToolParameter::new("thought_hash", ToolParameterType::String).with_description("Stable chain hash of the thought to read."))
+        .with_parameter(ToolParameter::new("thought_index", ToolParameterType::Integer).with_description("Append-order index of the thought to read.")),
+        ToolMetadata::new(
+            "mentisdb_get_genesis_thought",
+            "Return the first committed thought in append order, if the chain is non-empty.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key.")),
+        ToolMetadata::new(
+            "mentisdb_traverse_thoughts",
+            "Traverse thoughts in append order from an anchor, moving forward or backward in filtered chunks.",
+        )
+        .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key."))
+        .with_parameter(ToolParameter::new("anchor_id", ToolParameterType::String).with_description("Optional UUID anchor for traversal."))
+        .with_parameter(ToolParameter::new("anchor_hash", ToolParameterType::String).with_description("Optional hash anchor for traversal."))
+        .with_parameter(ToolParameter::new("anchor_index", ToolParameterType::Integer).with_description("Optional append-order index anchor for traversal."))
+        .with_parameter(ToolParameter::new("anchor_boundary", ToolParameterType::String).with_description("Optional logical anchor boundary. Supported values: genesis, head."))
+        .with_parameter(ToolParameter::new("direction", ToolParameterType::String).with_description("Traversal direction. Supported values: forward, backward."))
+        .with_parameter(ToolParameter::new("include_anchor", ToolParameterType::Boolean).with_description("When true, include the anchor thought if it matches the filter."))
+        .with_parameter(ToolParameter::new("chunk_size", ToolParameterType::Integer).with_description("Maximum number of matching thoughts to return. Defaults to 50."))
+        .with_parameter(ToolParameter::new("text", ToolParameterType::String).with_description("Optional text filter applied to content, tags, concepts, and resolved agent metadata."))
+        .with_parameter(ToolParameter::new("thought_types", ToolParameterType::Array).with_description("Optional list of ThoughtType names.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("roles", ToolParameterType::Array).with_description("Optional list of ThoughtRole names.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("tags_any", ToolParameterType::Array).with_description("Optional tags to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("concepts_any", ToolParameterType::Array).with_description("Optional concepts to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_ids", ToolParameterType::Array).with_description("Optional producing agent ids to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_names", ToolParameterType::Array).with_description("Optional producing agent names or aliases to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("agent_owners", ToolParameterType::Array).with_description("Optional producing agent owners to match.").with_items(ToolParameterType::String))
+        .with_parameter(ToolParameter::new("min_importance", ToolParameterType::Number).with_description("Optional minimum importance threshold."))
+        .with_parameter(ToolParameter::new("min_confidence", ToolParameterType::Number).with_description("Optional minimum confidence threshold."))
+        .with_parameter(ToolParameter::new("since", ToolParameterType::String).with_description("Optional RFC 3339 lower timestamp bound."))
+        .with_parameter(ToolParameter::new("until", ToolParameterType::String).with_description("Optional RFC 3339 upper timestamp bound."))
+        .with_parameter(ToolParameter::new("time_window", ToolParameterType::Object).with_description("Optional numeric time window object with start, delta, and unit fields. Use since/until for RFC 3339 timestamps.")),
+        ToolMetadata::new(
             "mentisdb_skill_md",
             "Return the official embedded MentisDB skill Markdown file.",
         ),
@@ -2550,7 +2831,7 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("reason", ToolParameterType::String).with_description("Optional revocation reason.")),
         ToolMetadata::new(
             "mentisdb_head",
-            "Return head metadata for a MentisDb including length, latest thought, and head hash.",
+            "Return head metadata for a MentisDb including chain length, latest thought at the tip, and head hash.",
         )
         .with_parameter(ToolParameter::new("chain_key", ToolParameterType::String).with_description("Optional durable chain key.")),
     ]
@@ -2634,6 +2915,64 @@ fn build_markdown_query(
     })
 }
 
+fn build_traversal_query(
+    request: &TraverseThoughtsRequest,
+) -> Result<ThoughtQuery, Box<dyn Error + Send + Sync>> {
+    let mut query = ThoughtQuery::new();
+
+    if let Some(text) = &request.text {
+        query = query.with_text(text.clone());
+    }
+    if let Some(min_importance) = request.min_importance {
+        query = query.with_min_importance(min_importance);
+    }
+    if let Some(min_confidence) = request.min_confidence {
+        query = query.with_min_confidence(min_confidence);
+    }
+    if let Some(thought_types) = &request.thought_types {
+        query = query.with_types(thought_types.clone());
+    }
+    if let Some(roles) = &request.roles {
+        query = query.with_roles(roles.clone());
+    }
+    if let Some(tags_any) = &request.tags_any {
+        query = query.with_tags_any(tags_any.clone());
+    }
+    if let Some(concepts_any) = &request.concepts_any {
+        query = query.with_concepts_any(concepts_any.clone());
+    }
+    if let Some(agent_ids) = &request.agent_ids {
+        query = query.with_agent_ids(agent_ids.clone());
+    }
+    if let Some(agent_names) = &request.agent_names {
+        query = query.with_agent_names(agent_names.clone());
+    }
+    if let Some(agent_owners) = &request.agent_owners {
+        query = query.with_agent_owners(agent_owners.clone());
+    }
+
+    if request.time_window.is_some() && (request.since.is_some() || request.until.is_some()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Provide either since/until or time_window, not both",
+        )
+        .into());
+    }
+    if let Some(window) = &request.time_window {
+        let (since, until) = window.to_bounds()?;
+        query = query.with_since(since).with_until(until);
+    } else {
+        if let Some(since) = request.since {
+            query = query.with_since(since);
+        }
+        if let Some(until) = request.until {
+            query = query.with_until(until);
+        }
+    }
+
+    Ok(query)
+}
+
 fn build_skill_query(
     request: &SearchSkillRequest,
 ) -> Result<SkillQuery, Box<dyn Error + Send + Sync>> {
@@ -2673,6 +3012,69 @@ fn build_skill_query(
         since: request.since,
         until: request.until,
         limit: request.limit,
+    })
+}
+
+fn build_optional_anchor(
+    thought_id: Option<Uuid>,
+    thought_hash: Option<String>,
+    thought_index: Option<u64>,
+    boundary: Option<ThoughtTraversalBoundary>,
+) -> Result<Option<ThoughtTraversalAnchor>, Box<dyn Error + Send + Sync>> {
+    let mut anchor = None;
+
+    if let Some(thought_id) = thought_id {
+        anchor = Some(ThoughtTraversalAnchor::Id(thought_id));
+    }
+    if let Some(thought_hash) = thought_hash {
+        if anchor.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Only one thought locator may be provided at a time",
+            )
+            .into());
+        }
+        anchor = Some(ThoughtTraversalAnchor::Hash(thought_hash));
+    }
+    if let Some(thought_index) = thought_index {
+        if anchor.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Only one thought locator may be provided at a time",
+            )
+            .into());
+        }
+        anchor = Some(ThoughtTraversalAnchor::Index(thought_index));
+    }
+    if let Some(boundary) = boundary {
+        if anchor.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Only one thought locator may be provided at a time",
+            )
+            .into());
+        }
+        anchor = Some(match boundary {
+            ThoughtTraversalBoundary::Genesis => ThoughtTraversalAnchor::Genesis,
+            ThoughtTraversalBoundary::Head => ThoughtTraversalAnchor::Head,
+        });
+    }
+
+    Ok(anchor)
+}
+
+fn build_required_anchor(
+    thought_id: Option<Uuid>,
+    thought_hash: Option<String>,
+    thought_index: Option<u64>,
+    boundary: Option<ThoughtTraversalBoundary>,
+) -> Result<ThoughtTraversalAnchor, Box<dyn Error + Send + Sync>> {
+    build_optional_anchor(thought_id, thought_hash, thought_index, boundary)?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "One of thought_id, thought_hash, thought_index, or boundary is required",
+        )
+        .into()
     })
 }
 
@@ -2911,6 +3313,9 @@ fn canonical_tool_name(tool_name: &str) -> &str {
         "thoughtchain_disable_agent" => "mentisdb_disable_agent",
         "thoughtchain_recent_context" => "mentisdb_recent_context",
         "thoughtchain_memory_markdown" => "mentisdb_memory_markdown",
+        "thoughtchain_get_thought" => "mentisdb_get_thought",
+        "thoughtchain_get_genesis_thought" => "mentisdb_get_genesis_thought",
+        "thoughtchain_traverse_thoughts" => "mentisdb_traverse_thoughts",
         "thoughtchain_skill_md" => "mentisdb_skill_md",
         "thoughtchain_list_skills" => "mentisdb_list_skills",
         "thoughtchain_skill_manifest" => "mentisdb_skill_manifest",
