@@ -46,6 +46,13 @@ Environment variables:
 - `MENTISDB_DEFAULT_STORAGE_ADAPTER`
   Default storage backend for newly created chains. Supported values: `binary`, `jsonl`.
   Default: `binary`
+- `MENTISDB_VERBOSE`
+  Verbose interaction logging flag. When unset, defaults to `true`. Supported explicit values:
+  `1`, `0`, `true`, `false`.
+- `MENTISDB_LOG_FILE`
+  Optional path for interaction logs. When set, interaction logs are appended to that file even if
+  console verbosity is disabled. If `MENTISDB_VERBOSE=true`, the same lines are also mirrored to
+  the console logger.
 - `MENTISDB_BIND_HOST`
   Bind host for both HTTP servers. Default: `127.0.0.1`
 - `MENTISDB_MCP_PORT`
