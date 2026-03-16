@@ -57,9 +57,10 @@ use mcp::{
     streamable_http_router, HttpServerConfig, IpFilter, StreamableHttpConfig, ToolError,
     ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolResult,
 };
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -570,10 +571,20 @@ pub fn rest_router(config: MentisDbServiceConfig) -> Router {
         .with_state(service)
 }
 
+/// Core service state shared by the MCP and REST servers.
+///
+/// `chains` uses a [`DashMap`] so concurrent read requests for *different*
+/// chain keys can proceed in parallel without contending on a single global
+/// lock.  Each chain is still individually guarded by its own `RwLock`.
+///
+/// `skills` remains a single `RwLock<SkillRegistry>` because skill writes are
+/// infrequent; a future improvement could shard by skill-id prefix if write
+/// contention becomes measurable.
 #[derive(Clone)]
 struct MentisDbService {
     config: MentisDbServiceConfig,
-    chains: Arc<RwLock<HashMap<String, Arc<RwLock<MentisDb>>>>>,
+    /// Concurrent chain map: lock-free lookup, per-chain `RwLock` for writes.
+    chains: Arc<DashMap<String, Arc<RwLock<MentisDb>>>>,
     skills: Arc<RwLock<SkillRegistry>>,
     interaction_log: Arc<InteractionLogSink>,
 }
@@ -822,10 +833,16 @@ impl MentisDbService {
             )),
             interaction_log,
             config,
-            chains: Arc::new(RwLock::new(HashMap::new())),
+            chains: Arc::new(DashMap::new()),
         }
     }
 
+    /// Return (or lazily open) the chain for `chain_key`.
+    ///
+    /// DashMap's shard-level locking means concurrent callers for *different*
+    /// chain keys do not block each other.  The `or_try_insert_with` call is
+    /// atomic at the shard level, so at most one caller opens a given chain
+    /// even under high concurrency.
     async fn get_chain(
         &self,
         chain_key: Option<&str>,
@@ -835,18 +852,21 @@ impl MentisDbService {
             .unwrap_or(&self.config.default_chain_key)
             .to_string();
 
-        if let Some(existing) = self.chains.read().await.get(&chain_key).cloned() {
-            return Ok(existing);
+        // Fast path: chain already open — no write lock, no I/O.
+        if let Some(existing) = self.chains.get(&chain_key) {
+            return Ok(existing.clone());
         }
 
-        let chain = Arc::new(RwLock::new(MentisDb::open_with_key_and_storage_kind(
-            &self.config.chain_dir,
-            &chain_key,
-            storage_adapter.unwrap_or(self.config.default_storage_adapter),
-        )?));
-
-        let mut chains = self.chains.write().await;
-        let entry = chains.entry(chain_key).or_insert_with(|| chain.clone());
+        // Slow path: open the chain from disk and insert it.
+        // `or_try_insert_with` is shard-level atomic, preventing duplicate opens.
+        let storage_kind = storage_adapter.unwrap_or(self.config.default_storage_adapter);
+        let chain_dir = self.config.chain_dir.clone();
+        let chain_key_clone = chain_key.clone();
+        let entry = self.chains.entry(chain_key).or_try_insert_with(|| {
+            MentisDb::open_with_key_and_storage_kind(&chain_dir, &chain_key_clone, storage_kind)
+                .map(|db| Arc::new(RwLock::new(db)))
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        })?;
         Ok(entry.clone())
     }
 
@@ -1081,12 +1101,12 @@ impl MentisDbService {
             })
             .collect();
 
+        // Collect open chains without holding any async lock — DashMap iteration
+        // takes a short-lived shard read lock per entry.
         let open_chains: Vec<(String, Arc<RwLock<MentisDb>>)> = self
             .chains
-            .read()
-            .await
             .iter()
-            .map(|(chain_key, chain)| (chain_key.clone(), Arc::clone(chain)))
+            .map(|entry| (entry.key().clone(), Arc::clone(entry.value())))
             .collect();
 
         for (chain_key, chain) in open_chains {

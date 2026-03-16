@@ -18,6 +18,7 @@ server = ["dep:axum", "dep:env_logger", "dep:log", "dep:tokio", "mcp/server"]
 [dependencies]
 async-trait = "0.1.89"
 bincode = { version = "2.0.1", features = ["serde"] }
+dashmap = "6"
 chrono = { version = "0.4.44", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -49,6 +50,10 @@ harness = false
 
 [[bench]]
 name = "skill_registry"
+harness = false
+
+[[bench]]
+name = "http_concurrency"
 harness = false
 
 [[bin]]
