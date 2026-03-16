@@ -37,11 +37,13 @@
 //! - `POST /v1/skills/revoke`
 
 use crate::{
-    load_registered_chains, AgentRecord, AgentStatus, MentisDb, PublicKeyAlgorithm, SkillFormat,
+    load_registered_chains, AgentPublicKey, AgentRecord, AgentStatus, MentisDb, PublicKeyAlgorithm,
+    SkillFormat,
     SkillQuery, SkillRegistry, SkillRegistryManifest, SkillStatus, SkillSummary,
     SkillVersionSummary, StorageAdapterKind, Thought, ThoughtInput, ThoughtQuery, ThoughtRole,
     ThoughtTimeWindow, ThoughtTraversalAnchor, ThoughtTraversalCursor, ThoughtTraversalDirection,
     ThoughtTraversalRequest, ThoughtType, TimeWindowUnit, MENTISDB_CURRENT_VERSION,
+    MENTISDB_SKILL_CURRENT_SCHEMA_VERSION,
 };
 use async_trait::async_trait;
 use axum::extract::{Query, State};
@@ -1580,6 +1582,41 @@ impl MentisDbService {
             .resolve_registered_skill_agent(&chain_key, &request.agent_id)
             .await?;
         let format = parse_skill_format(request.format.as_deref())?;
+
+        // --- Signature verification ---
+        // Collect all non-revoked public keys for this agent.
+        let active_keys: Vec<&AgentPublicKey> = agent
+            .public_keys
+            .iter()
+            .filter(|k| k.revoked_at.is_none())
+            .collect();
+
+        if !active_keys.is_empty() {
+            // Agent has registered public keys — a valid signature is mandatory.
+            let key_id = request.signing_key_id.as_deref().ok_or_else(|| {
+                Box::<dyn Error + Send + Sync>::from(
+                    "agent has registered public keys; `signing_key_id` is required for skill upload",
+                )
+            })?;
+            let sig_bytes = request.skill_signature.as_deref().ok_or_else(|| {
+                Box::<dyn Error + Send + Sync>::from(
+                    "agent has registered public keys; `skill_signature` is required for skill upload",
+                )
+            })?;
+            let key = active_keys
+                .iter()
+                .find(|k| k.key_id == key_id)
+                .ok_or_else(|| {
+                    Box::<dyn Error + Send + Sync>::from(format!(
+                        "signing key '{key_id}' not found or has been revoked for agent '{}'",
+                        agent.agent_id
+                    ))
+                })?;
+            verify_ed25519_signature(&key.public_key_bytes, request.content.as_bytes(), sig_bytes)
+                .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
+        }
+        // --- End signature verification ---
+
         let mut registry = self.skills.write().await;
         let skill = registry.upload_skill(
             request.skill_id.as_deref(),
@@ -1588,6 +1625,8 @@ impl MentisDbService {
             agent.owner.as_deref(),
             format,
             &request.content,
+            request.signing_key_id.clone(),
+            request.skill_signature.clone(),
         )?;
         self.log_interaction(InteractionLogEntry {
             access: "write",
@@ -1642,6 +1681,11 @@ impl MentisDbService {
         let skill = registry.skill_summary(&request.skill_id)?;
         let version = registry.skill_version(&request.skill_id, request.version_id)?;
         let content = registry.read_skill(&request.skill_id, Some(version.version_id), format)?;
+        // Derive schema_version from the reconstructed document (version.document no longer stored).
+        let schema_version = registry
+            .skill_document(&request.skill_id, Some(version.version_id))
+            .map(|doc| doc.schema_version)
+            .unwrap_or(MENTISDB_SKILL_CURRENT_SCHEMA_VERSION);
         self.log_interaction(InteractionLogEntry {
             access: "read",
             operation: "read_skill",
@@ -1658,7 +1702,7 @@ impl MentisDbService {
             version_id: version.version_id,
             format,
             source_format: version.source_format,
-            schema_version: version.document.schema_version,
+            schema_version,
             content,
             status: skill.status,
             safety_warnings: skill_read_warnings(&skill),
@@ -2043,6 +2087,11 @@ struct TraverseThoughtsRequest {
     time_window: Option<TransportThoughtTimeWindow>,
 }
 
+/// Request body for the `mentisdb_upload_skill` MCP tool and `POST /v1/skills/upload` REST endpoint.
+///
+/// When the uploading agent has one or more active registered public keys, both
+/// `signing_key_id` and `skill_signature` are mandatory and the server will reject
+/// the request if either is missing or the signature does not verify.
 #[derive(Debug, Deserialize)]
 struct UploadSkillRequest {
     chain_key: Option<String>,
@@ -2050,6 +2099,17 @@ struct UploadSkillRequest {
     agent_id: String,
     format: Option<String>,
     content: String,
+    /// The `key_id` of the agent's registered public key used to sign this upload.
+    ///
+    /// Required when the uploading agent has one or more active registered public keys.
+    #[serde(default)]
+    signing_key_id: Option<String>,
+    /// Raw Ed25519 signature bytes over the raw skill `content`.
+    ///
+    /// Required when the uploading agent has one or more active registered public keys.
+    /// Must be exactly 64 bytes.
+    #[serde(default)]
+    skill_signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -2623,6 +2683,52 @@ fn service_call<T: Serialize>(
     })
 }
 
+/// Verifies an Ed25519 signature over `message` using the provided raw public key bytes.
+///
+/// # Errors
+///
+/// Returns an error string if:
+/// - `public_key_bytes` is not exactly 32 bytes or contains an invalid key
+/// - `signature_bytes` is not exactly 64 bytes
+/// - The signature does not verify against `message` under the provided key
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// // A correct signature verifies without error
+/// let result = verify_ed25519_signature(&pub_key_bytes, b"hello", &sig_bytes);
+/// assert!(result.is_ok());
+///
+/// // A tampered message causes verification failure
+/// let result = verify_ed25519_signature(&pub_key_bytes, b"tampered", &sig_bytes);
+/// assert!(result.is_err());
+/// ```
+fn verify_ed25519_signature(
+    public_key_bytes: &[u8],
+    message: &[u8],
+    signature_bytes: &[u8],
+) -> Result<(), String> {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let key_arr: [u8; 32] = public_key_bytes.try_into().map_err(|_| {
+        format!(
+            "invalid Ed25519 public key length: expected 32 bytes, got {}",
+            public_key_bytes.len()
+        )
+    })?;
+    let verifying_key =
+        VerifyingKey::from_bytes(&key_arr).map_err(|e| format!("invalid Ed25519 public key: {e}"))?;
+    let sig_arr: [u8; 64] = signature_bytes.try_into().map_err(|_| {
+        format!(
+            "invalid Ed25519 signature length: expected 64 bytes, got {}",
+            signature_bytes.len()
+        )
+    })?;
+    let signature = Signature::from_bytes(&sig_arr);
+    verifying_key
+        .verify(message, &signature)
+        .map_err(|_| "Ed25519 signature verification failed".to_string())
+}
+
 fn mcp_tool_metadata() -> Vec<ToolMetadata> {
     vec![
         ToolMetadata::new(
@@ -2866,7 +2972,9 @@ fn mcp_tool_metadata() -> Vec<ToolMetadata> {
         .with_parameter(ToolParameter::new("skill_id", ToolParameterType::String).with_description("Optional stable skill id. When omitted, MentisDB derives one from the uploaded skill name."))
         .with_parameter(ToolParameter::new("agent_id", ToolParameterType::String).with_description("Stable agent id responsible for the upload. Query the agent registry first if needed.").required())
         .with_parameter(ToolParameter::new("format", ToolParameterType::String).with_description("Optional import format. Supported values: markdown, md, json. Defaults to markdown."))
-        .with_parameter(ToolParameter::new("content", ToolParameterType::String).with_description("Raw skill file content to import.").required()),
+        .with_parameter(ToolParameter::new("content", ToolParameterType::String).with_description("Raw skill file content to import.").required())
+        .with_parameter(ToolParameter::new("signing_key_id", ToolParameterType::String).with_description("The key_id of the agent's registered public key used to sign this upload. Required if the agent has registered public keys."))
+        .with_parameter(ToolParameter::new("skill_signature", ToolParameterType::Array).with_description("Raw Ed25519 signature bytes (exactly 64 bytes) over the skill content. Required if the agent has registered public keys.").with_items(ToolParameterType::Integer)),
         ToolMetadata::new(
             "mentisdb_search_skill",
             "Search the versioned skill registry by indexed fields such as skill id, name, tag, trigger, uploader, status, format, schema version, and time window.",
