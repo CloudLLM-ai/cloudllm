@@ -114,6 +114,14 @@ pub struct MentisDbServiceConfig {
     pub verbose: bool,
     /// Optional file path that receives interaction logs regardless of console verbosity.
     pub log_file: Option<PathBuf>,
+    /// When `false`, newly opened [`BinaryStorageAdapter`] chains flush to disk every
+    /// [`mentisdb::FLUSH_THRESHOLD`] appends instead of on every single write.
+    ///
+    /// Set to `false` (via `MENTISDB_AUTO_FLUSH=false`) for higher write throughput when
+    /// operating as a multi-agent hub.  The trade-off is that up to
+    /// `FLUSH_THRESHOLD - 1` thoughts may be lost on a hard crash or power failure.
+    /// Defaults to `true` (full per-write durability).
+    pub auto_flush: bool,
 }
 
 impl MentisDbServiceConfig {
@@ -129,6 +137,7 @@ impl MentisDbServiceConfig {
             default_storage_adapter,
             verbose: false,
             log_file: None,
+            auto_flush: true,
         }
     }
 
@@ -141,6 +150,16 @@ impl MentisDbServiceConfig {
     /// Configure an optional interaction log file for daemon read/write logs.
     pub fn with_log_file(mut self, log_file: Option<PathBuf>) -> Self {
         self.log_file = log_file;
+        self
+    }
+
+    /// Override the `auto_flush` setting for chain storage adapters.
+    ///
+    /// When `false`, the [`BinaryStorageAdapter`] batches writes and flushes every
+    /// [`mentisdb::FLUSH_THRESHOLD`] appends — trading per-write durability for
+    /// significantly higher concurrent write throughput.
+    pub fn with_auto_flush(mut self, auto_flush: bool) -> Self {
+        self.auto_flush = auto_flush;
         self
     }
 }
@@ -157,6 +176,9 @@ impl MentisDbServiceConfig {
 /// - `MENTISDB_BIND_HOST`
 /// - `MENTISDB_MCP_PORT`
 /// - `MENTISDB_REST_PORT`
+/// - `MENTISDB_AUTO_FLUSH` (defaults to `true`; set to `false` to enable write
+///   buffering in [`BinaryStorageAdapter`] for higher append throughput at the
+///   cost of potentially losing the last `<16` thoughts on a hard crash)
 ///
 /// # Example
 ///
@@ -194,6 +216,10 @@ impl MentisDbServerConfig {
             .ok()
             .map(|value| parse_bool_flag(&value).unwrap_or(false))
             .unwrap_or(true);
+        let auto_flush = env_var(&["MENTISDB_AUTO_FLUSH"])
+            .ok()
+            .map(|value| parse_bool_flag(&value).unwrap_or(true))
+            .unwrap_or(true);
         let log_file = env_var(&["MENTISDB_LOG_FILE"])
             .ok()
             .map(|value| value.trim().to_string())
@@ -212,7 +238,8 @@ impl MentisDbServerConfig {
                 storage_adapter,
             )
             .with_verbose(verbose)
-            .with_log_file(log_file),
+            .with_log_file(log_file)
+            .with_auto_flush(auto_flush),
             mcp_addr: SocketAddr::new(bind_host, mcp_port),
             rest_addr: SocketAddr::new(bind_host, rest_port),
         }
@@ -862,9 +889,13 @@ impl MentisDbService {
         let storage_kind = storage_adapter.unwrap_or(self.config.default_storage_adapter);
         let chain_dir = self.config.chain_dir.clone();
         let chain_key_clone = chain_key.clone();
+        let auto_flush = self.config.auto_flush;
         let entry = self.chains.entry(chain_key).or_try_insert_with(|| {
             MentisDb::open_with_key_and_storage_kind(&chain_dir, &chain_key_clone, storage_kind)
-                .map(|db| Arc::new(RwLock::new(db)))
+                .map(|mut db| {
+                    db.set_auto_flush(auto_flush);
+                    Arc::new(RwLock::new(db))
+                })
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
         })?;
         Ok(entry.clone())
