@@ -713,7 +713,7 @@ MentisDB is the shared brain for a fleet of parallel agents. This section descri
 One agent takes the role of **project manager** (PM). The PM is typically the longest-running agent in the session — the one talking directly to the human. Its responsibilities are:
 
 - Decompose work into independent todos (maximize parallelism, minimize dependencies)
-- Dispatch sub-agents in parallel via a fleet execution mechanism (e.g. `/fleet` mode with a task tool)
+- Dispatch sub-agents in parallel using the CLI tool's agent-spawning mechanism (see **Spawning Sub-Agents by CLI** below)
 - Monitor completions and synthesize results
 - Write durable checkpoints, decisions, and lessons to MentisDB after each wave
 - Re-brief agents that resume after a context reset
@@ -763,6 +763,118 @@ for i in 1..=10:
         prompt="Call mentisdb_recent_context(last_n=50). Summarize loaded state. Await task assignment."
     )
 ```
+
+### Spawning Sub-Agents by CLI
+
+Every major AI coding CLI has a mechanism for spawning parallel sub-agents. The pattern is the same across all of them — the PM calls the tool, the sub-agent runs in a separate context window, and results are returned when it completes.
+
+#### GitHub Copilot CLI (`gh copilot` / `ghcs`)
+
+Uses the `task` tool with `mode="background"` to run agents in parallel. Multiple background calls in a single response all run simultaneously.
+
+```
+# Spawn a specialist sub-agent in the background
+task(
+  agent_type="rust-backend-engineer",
+  description="Implement delta versioning",
+  mode="background",
+  prompt="""
+    You are working on mentisdb at /path/to/repo.
+    Before starting: call mentisdb_recent_context(last_n=30).
+    Task: implement SkillVersionContent enum in src/skills.rs ...
+    After finishing: write a Summary thought to MentisDB, then return.
+  """
+)
+
+# All background task() calls in one response run in parallel.
+# You are notified on completion and read results with read_agent(agent_id=...).
+```
+
+Available `agent_type` values in Copilot CLI: `explore`, `task`, `general-purpose`, `code-review`, and any custom agents registered in the environment (e.g. `rust-backend-engineer`, `leptos-frontend-engineer`).
+
+#### Claude Code (`claude`)
+
+Claude Code supports subagents via the `Task` tool (also called `dispatch_agent` in some versions). Parallel dispatch is achieved by calling `Task` multiple times in the same response turn.
+
+```
+# In a Claude Code session, the PM calls Task in parallel:
+Task(
+  description="Implement delta versioning in skills.rs",
+  prompt="""
+    Working directory: /path/to/mentisdb
+    Step 1: Read mentisdb MCP skill via mentisdb_skill_md tool.
+    Step 2: Read mentisdb_recent_context(last_n=30).
+    Step 3: Implement SkillVersionContent (Full/Delta) in src/skills.rs.
+    Step 4: Write a LessonLearned thought to MentisDB before exiting.
+  """
+)
+
+Task(
+  description="Write server-side signature verification",
+  prompt="""
+    Working directory: /path/to/mentisdb
+    Step 1: Read mentisdb_recent_context(last_n=30).
+    Step 2: Add Ed25519 verify_signature helper in src/server.rs ...
+    Step 3: Write a Summary thought to MentisDB before exiting.
+  """
+)
+# Both Task calls in the same response turn run in parallel.
+```
+
+Claude Code's `Task` tool spawns a full subagent with access to all tools. Results are returned to the PM when the subagent finishes. See the [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code) for the current tool name — it may be `Task`, `dispatch_agent`, or `use_mcp_tool` depending on version.
+
+#### OpenAI Codex CLI (`codex`)
+
+Codex CLI supports parallel subagents via its `run` subcommand in `--dangerously-auto-approve-everything` or supervised mode, and natively via the Responses API `computer_use_preview` tool for multi-turn agentic tasks. For fleet orchestration, use the `--parallel` flag or spawn multiple `codex` processes:
+
+```bash
+# Spawn parallel codex sub-agents from a shell script (PM role)
+codex --dangerously-auto-approve-everything \
+  "Read the mentisdb MCP tool mentisdb_recent_context. Then implement delta versioning in src/skills.rs. Write a LessonLearned to MentisDB when done." &
+
+codex --dangerously-auto-approve-everything \
+  "Read mentisdb_recent_context. Add Ed25519 signing to src/server.rs. Write Summary to MentisDB when done." &
+
+wait   # block until all background agents finish
+```
+
+Within a Codex agentic session the PM can also call the `computer_use_preview` tool or chain `run_in_background` actions. Check the [Codex CLI repo](https://github.com/openai/codex) for the current parallel dispatch API as it evolves rapidly.
+
+#### Qwen Code (`qwen-code` / Qwen-Coder)
+
+Qwen Code (based on Qwen2.5-Coder) follows a similar pattern to Claude Code. It supports tool-use including a `spawn_agent` or `run_task` tool for sub-agent dispatch. The PM pattern is identical:
+
+```
+# Qwen Code PM dispatches sub-agents in parallel tool calls:
+spawn_agent(
+  role="code-editor",
+  context="Read mentisdb_recent_context(last_n=30) first.",
+  task="Implement SkillVersionContent enum in src/skills.rs with rustdoc."
+)
+
+spawn_agent(
+  role="code-editor",
+  context="Read mentisdb_recent_context(last_n=30) first.",
+  task="Add migrate_skill_registry() function in src/skills.rs."
+)
+```
+
+Multiple `spawn_agent` calls in one response turn execute in parallel. Results are aggregated by the PM. Refer to the [Qwen-Coder documentation](https://github.com/QwenLM/Qwen2.5-Coder) for the exact tool name and schema in your version.
+
+#### The Pattern Is Universal
+
+Regardless of CLI, the fleet pattern is the same:
+
+| Step | What the PM does |
+|---|---|
+| 1 | Load `mentisdb_recent_context` to orient itself |
+| 2 | Decompose work into independent leaf tasks |
+| 3 | Spawn all independent tasks **in one response turn** (parallel) |
+| 4 | Wait for completions (notifications or `wait`) |
+| 5 | Read results, write wave Summary to MentisDB |
+| 6 | Dispatch next wave based on dependency graph |
+
+The only CLI-specific detail is the tool name (`task`, `Task`, `spawn_agent`, shell `&`) and how results are retrieved. The MentisDB protocol — context loading, thought writes, skill uploads — is identical across all of them.
 
 ### Dispatching Sub-Agents In Parallel
 
