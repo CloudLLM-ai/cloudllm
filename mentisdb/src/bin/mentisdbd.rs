@@ -22,8 +22,8 @@ use mentisdb::server::{
     adopt_legacy_default_mentisdb_dir, start_servers, MentisDbServerConfig, MentisDbServerHandles,
 };
 use mentisdb::{
-    load_registered_chains, migrate_registered_chains_with_adapter, MentisDb,
-    MentisDbMigrationEvent,
+    load_registered_chains, migrate_registered_chains_with_adapter, migrate_skill_registry,
+    MentisDb, MentisDbMigrationEvent,
 };
 
 const MENTIS_BANNER: &str = r#"███╗   ███╗███████╗███╗   ██╗████████╗██╗███████╗
@@ -167,6 +167,20 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )?;
     if migration_reports.is_empty() {
         println!("No chain migrations required.");
+    }
+
+    // Skill registry migration — must run before start_servers opens the registry.
+    match migrate_skill_registry(&config.service.chain_dir) {
+        Ok(None) => println!("Skill registry: up to date, no migration required."),
+        Ok(Some(report)) => println!(
+            "Skill registry migrated: {} skill(s), {} version(s) converted (v{} → v{}) at {}",
+            report.skills_migrated,
+            report.versions_migrated,
+            report.from_version,
+            report.to_version,
+            report.path.display()
+        ),
+        Err(e) => panic!("Skill registry migration failed — cannot start server: {e}"),
     }
 
     let handles = start_servers(config.clone()).await?;
