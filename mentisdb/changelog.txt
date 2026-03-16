@@ -1,4 +1,10 @@
 0.4.1.6 MAR/16/2026
+ - feat: Agent registry public key support
+   - Added `AgentPublicKey { key_id, algorithm, public_key_bytes, revoked }` to the per-chain agent registry
+   - Added `mentisdb_add_agent_key` MCP tool and `POST /v1/agents/{id}/keys` REST endpoint for key registration
+   - Added `mentisdb_revoke_agent_key` MCP tool and `DELETE /v1/agents/{id}/keys/{key_id}` REST endpoint for key revocation
+   - Public keys are serialized and persisted alongside the agent registry record
+   - Ed25519 (`ed25519-dalek 2`) is the first supported algorithm; algorithm field is open for future extension
  - feat: Skill registry delta/diff versioning
    - First version of each skill is stored as full raw content; subsequent versions store only unified diff patches via `diffy`
    - Added `SkillVersionContent` enum (`Full { raw }` / `Delta { patch }`) replacing the embedded `SkillDocument` in `SkillVersion`
@@ -17,7 +23,32 @@
    - `mentisdbd` runs skill registry migration at startup, after chain migration and before opening the skill registry
    - Panics on unrecoverable migration failure to prevent serving stale data
  - feat: Add `SkillRegistryMigrationReport` public type reporting migration outcome
+ - perf: Replace outer `RwLock<HashMap>` with `DashMap` for concurrent chain lookup
+   - Hot path for `get_chain` now acquires only a per-shard read lock instead of a global write lock
+   - New chains are inserted using `entry().or_try_insert_with()` for shard-level atomicity; no global async lock held during chain open
+   - Benchmark: `DashMap` delivers 750–930 read req/s at 10k concurrent tasks vs previous sequential bottleneck
+ - perf: Add write buffering to `BinaryStorageAdapter`
+   - Replaced per-append `File::open` with a lazily-initialized `Mutex<BufWriter<File>>`
+   - `auto_flush = false` batches writes and flushes every `FLUSH_THRESHOLD = 16` appends or on `Drop`
+   - `auto_flush = true` (default) flushes immediately after each append, preserving full crash durability
+ - feat: Add `MENTISDB_AUTO_FLUSH` env var and `MentisDbServiceConfig::auto_flush` builder
+   - Set `MENTISDB_AUTO_FLUSH=false` (or `0`) for high-throughput write workloads at reduced durability
+   - Defaults to `true` for backward-compatible crash-safe behavior
+   - Config field exposed via `with_auto_flush(bool)` builder method on `MentisDbServiceConfig`
+ - bench: Add Criterion benchmark suite (22 benchmarks)
+   - `benches/thought_chain.rs`: 10 benchmarks covering append throughput, query latency, and traversal patterns
+   - `benches/skill_registry.rs`: 12 benchmarks covering skill upload, search, delta reconstruction, and lifecycle operations
+   - Baselines committed; run with `cargo bench`
+ - bench: Add harness-free HTTP concurrency benchmark
+   - `benches/http_concurrency.rs`: starts `mentisdbd` in-process on a random port, measures write and read throughput at 100 / 1k / 10k concurrent Tokio tasks with p50/p95/p99 latency reporting
  - test: Expand skill registry coverage for delta versioning and signing
+ - docs: Update MENTISDB_SKILL.md with Fleet Orchestration and multi-CLI sub-agent guide
+   - Added 9-subsection Fleet Orchestration section: PM pattern, agent registration, parallel dispatch, context window protocol, anti-patterns, and self-improving fleet guidance
+   - Added concrete spawning examples for GitHub Copilot CLI (`task` tool + `mode="background"`), Claude Code (parallel `Task()` calls), OpenAI Codex CLI (`--dangerously-auto-approve-everything` + shell backgrounding), and Qwen Code (`spawn_agent`)
+   - Added universal 6-step PM pattern table applicable to any CLI
+ - docs: Document `MENTISDB_AUTO_FLUSH` in README daemon configuration section
+   - Added durability vs. throughput trade-off explanation and two example launch commands
+ - docs: Update WHITEPAPER with delta versioning and cryptographic authorship sections
 
 0.4.0.5 MAR/13/2026
  - feat: Complete the MentisDB skill registry release
