@@ -1,24 +1,16 @@
 # Makefile
-.PHONY: build release clean fmt check test install doc help tasks clippy publish publish-dry-run build-mentisdbd
+.PHONY: build release clean fmt check test doc help tasks clippy publish publish-dry-run
 
 default: help
 CARGO_CMD=/usr/bin/env cargo
-
-# ----------------------------------------------------------------------------------------------------------------------
-# Configuration
-# ----------------------------------------------------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------------------------------------------------
 # Targets
 # ----------------------------------------------------------------------------------------------------------------------
 
 # Default target (ensures formatting before building)
-build: fmt build-mentisdbd ## Build the full workspace in release mode (runs fmt first)
+build: fmt ## Build the workspace in release mode (runs fmt first)
 	${CARGO_CMD} build --workspace --release
-
-# Explicit daemon build so the MentisDB binary is always validated too
-build-mentisdbd: ## Build the mentisdbd binary in release mode
-	${CARGO_CMD} build -p mentisdb --bin mentisdbd --release
 
 # Full release process (ensures everything runs in the correct order)
 release: fmt check clippy build test doc ## Perform a full release (fmt, check, clippy, build, test, doc)
@@ -30,9 +22,8 @@ fmt: ## Format the code using cargo fmt
 # Check for errors without building
 check: ## Run cargo check to analyze the code without compiling
 	${CARGO_CMD} check --workspace
-	${CARGO_CMD} check -p mentisdb --bin mentisdbd
 
-# Strict linter, fails on warning and suggests fixes
+# Strict linter, fails on warnings and suggests fixes
 clippy: ## Run clippy across the workspace and fail on warnings
 	${CARGO_CMD} fmt
 	${CARGO_CMD} clippy --workspace --all-targets --all-features -- -D warnings
@@ -40,22 +31,19 @@ clippy: ## Run clippy across the workspace and fail on warnings
 # Run tests
 test: ## Run tests using cargo test
 	${CARGO_CMD} test --workspace
-	${CARGO_CMD} test -p mentisdb
 
 # Generate documentation
 doc: ## Generate project documentation using cargo doc
 	${CARGO_CMD} doc --workspace --all-features
 
 # Publish workspace crates to crates.io in dependency order
-publish: ## Publish cloudllm_mcp, mentisdb, then cloudllm to crates.io
+publish: ## Publish cloudllm_mcp then cloudllm to crates.io
 	${CARGO_CMD} publish -p cloudllm_mcp
-	${CARGO_CMD} publish -p mentisdb
 	${CARGO_CMD} publish -p cloudllm
 
 # Dry-run workspace publish in dependency order
-publish-dry-run: ## Dry-run publish for cloudllm_mcp, mentisdb, then cloudllm
+publish-dry-run: ## Dry-run publish for cloudllm_mcp then cloudllm
 	${CARGO_CMD} publish -p cloudllm_mcp --dry-run
-	${CARGO_CMD} publish -p mentisdb --dry-run
 	${CARGO_CMD} publish -p cloudllm --dry-run
 
 # Clean build artifacts
