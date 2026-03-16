@@ -11,8 +11,8 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
   multi-protocol tool system (local, remote MCP, Memory, custom protocols) with runtime hot-swapping,
 * **Multi-Agent Orchestration**: An [`orchestration`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/orchestration/index.html) engine
   supporting Parallel, RoundRobin, Moderated, Hierarchical, Debate, AnthropicAgentTeams, and Ralph collaboration patterns,
-* **MentisDB**: An effectively unbounded semantic memory primitive for agents, with SHA-256
-  hash-chained persistence, graph-based context resolution, and tamper-evident integrity verification,
+* **[MentisDB](https://github.com/cloudllm-ai/mentisdb)**: An effectively unbounded semantic memory primitive for agents, with SHA-256
+  hash-chained persistence, graph-based context resolution, and tamper-evident integrity verification, with a git-like skills registry repository.
 * **Context Strategies**: Pluggable strategies for handling context window exhaustion — Trim,
   SelfCompression (LLM writes its own save file), and NoveltyAware (entropy-based trigger),
 * **Image Generation**: Unified image generation across OpenAI (DALL-E), Grok, and Google Gemini with the
