@@ -148,8 +148,15 @@ Once startup completes, it prints:
   MCP server port. Default: `9471`
 - `MENTISDB_REST_PORT`
   REST server port. Default: `9472`
+- `MENTISDB_AUTO_FLUSH`
+  Controls per-write durability of the `binary` storage adapter.
+  - `true` (default): every `append_thought` flushes to disk immediately. Full durability.
+  - `false`: writes are batched and flushed every 16 appends (`FLUSH_THRESHOLD`). Up to 15
+    thoughts may be lost on a hard crash or power failure, but write throughput increases
+    significantly for multi-agent hubs with many concurrent writers.
+  Supported values: `1`, `0`, `true`, `false`. Has no effect on the `jsonl` adapter.
 
-Example:
+Example — full durability (production default):
 
 ```bash
 MENTISDB_DIR=/tmp/mentisdb \
@@ -160,7 +167,17 @@ MENTISDB_LOG_FILE=/tmp/mentisdb/mentisdbd.log \
 MENTISDB_BIND_HOST=127.0.0.1 \
 MENTISDB_MCP_PORT=9471 \
 MENTISDB_REST_PORT=9472 \
+MENTISDB_AUTO_FLUSH=true \
 cargo run --bin mentisdbd
+```
+
+Example — high-throughput write mode (multi-agent hub):
+
+```bash
+MENTISDB_DIR=/var/lib/mentisdb \
+MENTISDB_AUTO_FLUSH=false \
+MENTISDB_BIND_HOST=0.0.0.0 \
+mentisdbd
 ```
 
 ## Server Surfaces
