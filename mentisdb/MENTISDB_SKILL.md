@@ -702,6 +702,185 @@ Store:
 - project-wide preferences and constraints
 - cross-agent lessons that multiple specialists should reuse
 
+---
+
+## Fleet Orchestration
+
+MentisDB is the shared brain for a fleet of parallel agents. This section describes how to run a coordinated, self-improving multi-agent system using MentisDB as the coordination layer.
+
+### The Project Manager Pattern
+
+One agent takes the role of **project manager** (PM). The PM is typically the longest-running agent in the session — the one talking directly to the human. Its responsibilities are:
+
+- Decompose work into independent todos (maximize parallelism, minimize dependencies)
+- Dispatch sub-agents in parallel via a fleet execution mechanism (e.g. `/fleet` mode with a task tool)
+- Monitor completions and synthesize results
+- Write durable checkpoints, decisions, and lessons to MentisDB after each wave
+- Re-brief agents that resume after a context reset
+
+The PM should **register itself in the agent registry** so its thoughts are attributable:
+
+```
+mentisdb_upsert_agent(
+  agent_id="orion",
+  display_name="Orion",
+  description="Project manager and fleet coordinator. Orchestrates parallel sub-agent fleets..."
+)
+```
+
+The PM writes `Summary`, `Decision`, `Constraint`, `Mistake`, and `Wonder` thoughts throughout the session. These are not just logs — they are the PM's persistent identity across sessions.
+
+### Loading Agents With Fresh Context
+
+Before assigning work, initialize each sub-agent with the shared brain state:
+
+```
+mentisdb_recent_context(last_n=30)
+```
+
+This gives every agent the same recent decisions, active constraints, and lessons learned. Each agent then works from a consistent baseline without needing to be briefed in the prompt.
+
+For large fleets (10+ agents), consider assigning **different memory slices** to different agents rather than identical context to all — diversity of context produces more varied and complementary output than redundancy.
+
+### Fleet Pre-Warming
+
+Before a large parallel work session, **pre-warm a pool of agents** by loading them with MentisDB context ahead of time. This is especially useful when the work queue isn't fully defined yet and you want agents ready to receive tasks immediately.
+
+Pre-warm pattern:
+1. Dispatch N agents (e.g. 10 instances of the same specialist role)
+2. Each agent calls `mentisdb_recent_context` and `mentisdb_skill_md` in its first turn
+3. Each agent summarizes its loaded state and signals readiness
+4. PM assigns tasks to ready agents as the work queue crystallizes
+
+Pre-warming N agents with the **same context** is useful when tasks are homogeneous (all agents will work on the same codebase, same constraints). Pre-warming with **different memory slices** (e.g. agent-1 loads thoughts #0–50, agent-2 loads #50–100) is useful when you need broad coverage of a long history.
+
+Example: load 10 specialist agents for a refactor sprint:
+```
+// All 10 dispatched in one turn, all run in parallel
+for i in 1..=10:
+    dispatch_background_agent(
+        role="rust-backend-engineer",
+        prompt="Call mentisdb_recent_context(last_n=50). Summarize loaded state. Await task assignment."
+    )
+```
+
+### Dispatching Sub-Agents In Parallel
+
+Structure todos to maximize parallelism:
+
+1. Identify which tasks have true dependencies (A must complete before B)
+2. Identify which tasks are independent (can run simultaneously)
+3. Dispatch all independent tasks in a single turn as background agents
+4. Wait for completions, read results, then dispatch the next wave
+
+Example dependency chain for a feature release:
+```
+[skills-core] ──► [integrate-signing]
+[server-signing]       │
+                       ▼
+                  [skill-tests]
+                       │
+                       ▼
+                  [version-bump]
+                  /     |     \
+          [changelog] [readme] [whitepaper]  ← all three in parallel
+                  \     |     /
+                   [bench-setup]
+                        │
+                   [bench-http]
+                        │
+                  [perf-tuning]
+```
+
+### Sub-Agent Prompt Template
+
+Every sub-agent prompt should begin with:
+
+```
+You are [role] for [project].
+
+Before starting work:
+1. Call mentisdb_recent_context(last_n=30) to load recent decisions and lessons
+2. Call mentisdb_skill_md to read the MentisDB skill document
+
+After completing work:
+1. Write a LessonLearned or Summary thought to MentisDB (agent_id=[your-id])
+2. Update the todo status: UPDATE todos SET status = 'done' WHERE id = '[todo-id]'
+3. Return a summary of what was completed and any blockers
+```
+
+Concrete example of the post-work write:
+```
+mentisdb_append(
+  agent_id="apollo",
+  thought_type="LessonLearned",
+  content="Bincode 2.x encodes structs as ordered sequences — field names are ignored, field order is everything. Mirror structs for migration must match the original field order exactly.",
+  tags=["bincode", "migration", "serialization"],
+  concepts=["binary-serialization", "struct-ordering"],
+  importance=0.85
+)
+```
+
+The lesson should be written **before** returning the result summary, not left only in the return value. Return values are ephemeral; MentisDB thoughts are durable.
+
+### Context Window Protocol
+
+When an agent's context window approaches 50% capacity:
+
+1. **Flush to MentisDB** — write a `Summary` thought with `context-checkpoint` tag capturing:
+   - What has been completed (exact file, function, line if relevant)
+   - What is in progress
+   - What remains
+   - Any open questions or blockers
+2. **Write pending lessons** — flush any `LessonLearned`, `Mistake`, or `Decision` thoughts before clearing
+3. **Clear context** — use `/compact` or equivalent
+4. **Reload** — call `mentisdb_recent_context(last_n=30)` to restore working memory
+5. **Signal the PM** — the PM detects the `context-checkpoint` tag and re-briefs the agent on current task and any updates
+
+This ensures **zero knowledge loss** across context boundaries.
+
+### MentisDB As The Source Of Truth For Agent State
+
+Treat the chain as the single source of truth for what agents know, decided, and learned. Chat history is ephemeral; MentisDB is durable. Write to it aggressively during long sessions:
+
+- Before a risky operation: write a `Summary` checkpoint
+- After discovering a non-obvious constraint: write a `Constraint`
+- After any tool call produces a surprise: write a `LessonLearned`
+- At the end of every task wave: write a `Summary` of outcomes
+
+A well-maintained chain lets any new agent spin up, call `mentisdb_recent_context`, and immediately know exactly where the project stands — without needing to re-read code, re-run exploration agents, or ask the human.
+
+### Fleet Anti-Patterns
+
+- Dispatching a single background agent when multiple independent tasks exist.
+- Loading all agents with identical context when diverse slices would be more valuable.
+- Leaving lessons in agent output summaries instead of writing them to MentisDB.
+- Not registering the PM as an agent — its thoughts become unattributable noise.
+- Waiting for all agents to finish before dispatching the next wave — dispatch as soon as dependencies clear.
+- Treating context window exhaustion as a hard stop rather than a checkpoint trigger.
+- Dispatching two agents to modify the **same call site** in the same file without agreeing on the final API signature first — one agent will leave its changes commented-out waiting for the other. Fix: define the agreed interface contract explicitly in both prompts before dispatching; instruct agents they may reference the agreed target API even if it doesn't compile yet.
+- Pre-warming N agents with identical context and then giving them all the same task — this produces N redundant outputs. Pre-warm with identical context only when you plan to give each agent a **different** task.
+
+### World-Class Release Checklist
+
+Before tagging a release as shippable, verify all of the following via fleet agents:
+
+1. **Build clean** — `cargo build` (or equivalent) with zero errors and zero warnings
+2. **All tests pass** — full test suite green, no skipped tests hiding failures
+3. **New behavior has tests** — every new function/feature has at least one integration test covering the happy path and at least one covering a failure mode
+4. **Docs updated** — README, WHITEPAPER/design doc, and changelog all reflect the new behavior
+5. **Migration wired** — if the release changes a persistent format, the migration runs at startup before traffic is accepted, is idempotent, and panics on failure (not silently serves stale data)
+6. **Benchmarks baseline** — at least one benchmark run recorded so future regressions are detectable
+7. **Memory written** — PM has written a final `Summary` checkpoint to MentisDB capturing the release state, so the next session can resume without re-reading code
+
+A release is not world-class until a new agent can call `mentisdb_recent_context`, read the chain, and immediately understand what shipped and why.
+
+### Self-Improving Fleet
+
+The fleet improves itself when agents upload updated skill files after learning something new. A skill file checked in at the start of a project will be better by the end of it — if agents actually use `mentisdb_upload_skill` to record improvements. Combine this with Ed25519 signing to create a verifiable record of which agent authored each skill version.
+
+---
+
 ## Anti-Patterns
 
 - Writing everything that happened instead of what matters.
