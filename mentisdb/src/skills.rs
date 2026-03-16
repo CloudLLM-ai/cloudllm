@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fs;
@@ -11,8 +10,10 @@ use uuid::Uuid;
 
 /// First supported version of the persisted skill registry file.
 pub const MENTISDB_SKILL_REGISTRY_V1: u32 = 1;
+/// Second version of the persisted skill registry file — introduces delta/diff content storage and optional signing.
+pub const MENTISDB_SKILL_REGISTRY_V2: u32 = 2;
 /// Alias for the current persisted skill registry file version.
-pub const MENTISDB_SKILL_REGISTRY_CURRENT_VERSION: u32 = MENTISDB_SKILL_REGISTRY_V1;
+pub const MENTISDB_SKILL_REGISTRY_CURRENT_VERSION: u32 = MENTISDB_SKILL_REGISTRY_V2;
 /// First supported version of the structured skill schema.
 pub const MENTISDB_SKILL_SCHEMA_V1: u32 = 1;
 /// Alias for the current structured skill schema version.
@@ -53,7 +54,7 @@ impl FromStr for SkillFormat {
             "markdown" | "md" => Ok(Self::Markdown),
             "json" => Ok(Self::Json),
             other => Err(format!(
-                "Unsupported skill format '{other}'. Expected 'markdown' or 'json'"
+                "Unsupported skill format \'{other}\'. Expected \'markdown\' or \'json\'"
             )),
         }
     }
@@ -97,7 +98,7 @@ impl FromStr for SkillStatus {
             "deprecated" => Ok(Self::Deprecated),
             "revoked" | "disabled" => Ok(Self::Revoked),
             other => Err(format!(
-                "Unsupported skill status '{other}'. Expected 'active', 'deprecated', or 'revoked'"
+                "Unsupported skill status \'{other}\'. Expected \'active\', \'deprecated\', or \'revoked\'"
             )),
         }
     }
@@ -157,11 +158,32 @@ impl SkillDocument {
     }
 }
 
+/// The stored content form for a single skill version.
+///
+/// The first version of a skill is always stored in [`SkillVersionContent::Full`] form.
+/// Subsequent versions store only the unified diff [`SkillVersionContent::Delta`] against
+/// the immediately preceding version, saving storage for iterative improvements.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SkillVersionContent {
+    /// Complete raw source text; used for the first version of every skill.
+    Full {
+        /// The complete raw skill source (Markdown or JSON).
+        raw: String,
+    },
+    /// Unified diff patch against the immediately preceding version.
+    Delta {
+        /// A unified diff patch string produced by `diffy::create_patch`.
+        patch: String,
+    },
+}
+
 /// One immutable uploaded skill version.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillVersion {
     /// Stable unique version identifier.
     pub version_id: Uuid,
+    /// Zero-based monotone version number within this skill\'s history.
+    pub version_number: u32,
     /// UTC timestamp when this version was uploaded.
     pub uploaded_at: DateTime<Utc>,
     /// Stable agent identifier responsible for the upload.
@@ -172,10 +194,14 @@ pub struct SkillVersion {
     pub uploaded_by_agent_owner: Option<String>,
     /// Original input format used during upload.
     pub source_format: SkillFormat,
-    /// SHA-256 hash of the canonical structured version payload.
+    /// SHA-256 hex digest of the full reconstructed raw content for this version.
     pub content_hash: String,
-    /// Structured skill content.
-    pub document: SkillDocument,
+    /// Stored content — either the full raw text or a delta patch.
+    pub content: SkillVersionContent,
+    /// The `key_id` of the agent key used to sign this upload, if any.
+    pub signing_key_id: Option<String>,
+    /// Ed25519 signature bytes over the raw content, if any.
+    pub skill_signature: Option<Vec<u8>>,
 }
 
 /// One skill entry containing immutable uploaded versions plus lifecycle status.
@@ -251,6 +277,8 @@ pub struct SkillVersionSummary {
     pub skill_id: String,
     /// Stable unique version identifier.
     pub version_id: Uuid,
+    /// Zero-based monotone version number within this skill\'s history.
+    pub version_number: u32,
     /// UTC timestamp when this version was uploaded.
     pub uploaded_at: DateTime<Utc>,
     /// Responsible agent id.
@@ -265,6 +293,8 @@ pub struct SkillVersionSummary {
     pub schema_version: u32,
     /// Content hash of this version.
     pub content_hash: String,
+    /// The `key_id` of the agent key used to sign this version, if any.
+    pub signing_key_id: Option<String>,
 }
 
 /// Query parameters for skill-registry search.
@@ -315,11 +345,68 @@ pub struct SkillRegistryManifest {
     pub read_parameters: Vec<String>,
 }
 
+/// Report produced by a skill registry migration pass.
+#[derive(Debug, Clone)]
+pub struct SkillRegistryMigrationReport {
+    /// Path of the skill registry file that was migrated.
+    pub path: PathBuf,
+    /// Number of skills whose versions were migrated.
+    pub skills_migrated: usize,
+    /// Total number of skill versions converted from V1 to V2 format.
+    pub versions_migrated: usize,
+    /// Source registry version.
+    pub from_version: u32,
+    /// Target registry version.
+    pub to_version: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Persisted types (V2 current)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedSkillRegistry {
     version: u32,
     skills: BTreeMap<String, SkillEntry>,
 }
+
+// ---------------------------------------------------------------------------
+// V1 legacy shapes — used only for migration deserialization
+// ---------------------------------------------------------------------------
+
+/// Legacy V1 skill version shape — stores the full parsed document directly.
+/// Used only for V1→V2 migration deserialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkillVersionV1 {
+    version_id: Uuid,
+    uploaded_at: DateTime<Utc>,
+    uploaded_by_agent_id: String,
+    uploaded_by_agent_name: Option<String>,
+    uploaded_by_agent_owner: Option<String>,
+    source_format: SkillFormat,
+    content_hash: String,
+    document: SkillDocument,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkillEntryV1 {
+    skill_id: String,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    status: SkillStatus,
+    status_reason: Option<String>,
+    versions: Vec<SkillVersionV1>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedSkillRegistryV1 {
+    version: u32,
+    skills: BTreeMap<String, SkillEntryV1>,
+}
+
+// ---------------------------------------------------------------------------
+// In-memory index
+// ---------------------------------------------------------------------------
 
 #[derive(Default)]
 struct SkillIndexes {
@@ -345,7 +432,10 @@ impl SkillIndexes {
     }
 
     fn observe(&mut self, skill_id: &str, entry: &SkillEntry) {
-        let summary = summarize_entry(entry);
+        // Summarize may fail for corrupt entries; skip silently (integrity check runs on open).
+        let Ok(summary) = summarize_entry(entry) else {
+            return;
+        };
         push_skill_index(
             &mut self.by_skill_id,
             skill_id.to_string(),
@@ -373,7 +463,7 @@ impl SkillIndexes {
         let mut agent_owners = HashSet::new();
         let mut formats = HashSet::new();
         let mut schema_versions = HashSet::new();
-        for version in &entry.versions {
+        for (idx, version) in entry.versions.iter().enumerate() {
             agent_ids.insert(version.uploaded_by_agent_id.clone());
             if let Some(agent_name) = normalize_optional(version.uploaded_by_agent_name.as_deref())
             {
@@ -385,7 +475,12 @@ impl SkillIndexes {
                 agent_owners.insert(agent_owner);
             }
             formats.insert(version.source_format);
-            schema_versions.insert(version.document.schema_version);
+            // Reconstruct document to get schema_version for indexing.
+            if let Ok(raw) = reconstruct_raw_content(entry, idx) {
+                if let Ok(doc) = import_skill(&raw, version.source_format) {
+                    schema_versions.insert(doc.schema_version);
+                }
+            }
         }
         for agent_id in agent_ids {
             push_skill_index(&mut self.by_agent_id, agent_id, skill_id.to_string());
@@ -417,6 +512,10 @@ impl SkillIndexes {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SkillRegistry
+// ---------------------------------------------------------------------------
+
 /// Durable skill registry backed by a versioned binary storage file.
 pub struct SkillRegistry {
     version: u32,
@@ -431,12 +530,24 @@ impl SkillRegistry {
     /// The skill registry is independent from the thought-chain files but shares
     /// the same storage root so daemons and libraries can carry both durable
     /// memory and reusable skills together.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the registry file exists but cannot be decoded, if the
+    /// registry version is too new, or if integrity verification fails.
+    /// If the file is at V1, returns an error directing the caller to run
+    /// [`migrate_skill_registry`] first.
     pub fn open<P: AsRef<Path>>(chain_dir: P) -> io::Result<Self> {
         let path = skill_registry_path(chain_dir.as_ref());
         Self::open_at_path(path)
     }
 
     /// Open or create the skill registry at an explicit binary file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidData` if the file is at V1 (migration required),
+    /// too new, or fails integrity checks.
     pub fn open_at_path<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let path = path.as_ref().to_path_buf();
         if !path.exists() {
@@ -449,15 +560,37 @@ impl SkillRegistry {
         }
 
         let bytes = fs::read(&path)?;
+
+        // Attempt to decode as current (V2) format first.
         let persisted: PersistedSkillRegistry =
             bincode::serde::decode_from_slice(&bytes, bincode::config::standard())
                 .map(|(registry, _)| registry)
                 .map_err(|error| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Failed to deserialize skill registry: {error}"),
+                    // If V2 decode fails, check whether it looks like a V1 registry.
+                    if bincode::serde::decode_from_slice::<PersistedSkillRegistryV1, _>(
+                        &bytes,
+                        bincode::config::standard(),
                     )
+                    .is_ok()
+                    {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "skill registry is at V1; run migrate_skill_registry() before opening",
+                        )
+                    } else {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Failed to deserialize skill registry: {error}"),
+                        )
+                    }
                 })?;
+
+        if persisted.version == MENTISDB_SKILL_REGISTRY_V1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "skill registry is at V1; run migrate_skill_registry() before opening",
+            ));
+        }
 
         if persisted.version > MENTISDB_SKILL_REGISTRY_CURRENT_VERSION {
             return Err(io::Error::new(
@@ -515,7 +648,25 @@ impl SkillRegistry {
     ///
     /// If `skill_id` is omitted, the registry derives one from the normalized
     /// skill name. Reusing an existing `skill_id` creates a new immutable
-    /// version for that skill entry.
+    /// version for that skill entry. The second and later versions are stored
+    /// as unified-diff deltas against the immediately preceding version to
+    /// save storage space.
+    ///
+    /// # Parameters
+    ///
+    /// - `skill_id`: Optional stable id; derived from skill name when `None`.
+    /// - `uploaded_by_agent_id`: Non-empty agent identifier performing the upload.
+    /// - `uploaded_by_agent_name`: Optional human-readable agent display name.
+    /// - `uploaded_by_agent_owner`: Optional agent owner or tenant label.
+    /// - `format`: Source format of the `content` string.
+    /// - `content`: Raw skill source text (Markdown or JSON).
+    /// - `signing_key_id`: Optional key id used to sign this version.
+    /// - `skill_signature`: Optional Ed25519 signature bytes over `content`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `content` cannot be parsed, validation fails,
+    /// or the registry cannot be persisted.
     pub fn upload_skill(
         &mut self,
         skill_id: Option<&str>,
@@ -524,6 +675,8 @@ impl SkillRegistry {
         uploaded_by_agent_owner: Option<&str>,
         format: SkillFormat,
         content: &str,
+        signing_key_id: Option<String>,
+        skill_signature: Option<Vec<u8>>,
     ) -> io::Result<SkillSummary> {
         let document = import_skill(content, format)?;
         document.validate()?;
@@ -532,24 +685,30 @@ impl SkillRegistry {
             .transpose()?
             .unwrap_or_else(|| derive_skill_id(&document.name));
         let now = Utc::now();
-        let version = SkillVersion {
-            version_id: Uuid::new_v4(),
-            uploaded_at: now,
-            uploaded_by_agent_id: normalize_non_empty(
-                uploaded_by_agent_id,
-                "uploaded_by_agent_id",
-            )?,
-            uploaded_by_agent_name: normalize_optional(uploaded_by_agent_name),
-            uploaded_by_agent_owner: normalize_optional(uploaded_by_agent_owner),
-            source_format: format,
-            content_hash: String::new(),
-            document,
+
+        // Resolve prev_raw before taking a mutable borrow on self.skills.
+        let prev_raw: Option<String> = if let Some(existing) = self.skills.get(&normalized_skill_id) {
+            let prev_index = existing.versions.len().saturating_sub(1);
+            if existing.versions.is_empty() {
+                None
+            } else {
+                Some(reconstruct_raw_content(existing, prev_index)?)
+            }
+        } else {
+            None
         };
-        let content_hash = compute_skill_version_hash(&normalized_skill_id, &version);
-        let version = SkillVersion {
-            content_hash,
-            ..version
+
+        let version_content = match &prev_raw {
+            Some(prev) => {
+                let patch = diffy::create_patch(prev.as_str(), content).to_string();
+                SkillVersionContent::Delta { patch }
+            }
+            None => SkillVersionContent::Full {
+                raw: content.to_string(),
+            },
         };
+
+        let content_hash = compute_content_hash(content);
 
         let entry = self
             .skills
@@ -562,13 +721,29 @@ impl SkillRegistry {
                 status_reason: None,
                 versions: Vec::new(),
             });
+        let version_number = entry.versions.len() as u32;
         entry.updated_at = now;
         if entry.status != SkillStatus::Revoked {
             entry.status = SkillStatus::Active;
             entry.status_reason = None;
         }
-        entry.versions.push(version);
-        let summary = summarize_entry(entry);
+        entry.versions.push(SkillVersion {
+            version_id: Uuid::new_v4(),
+            version_number,
+            uploaded_at: now,
+            uploaded_by_agent_id: normalize_non_empty(
+                uploaded_by_agent_id,
+                "uploaded_by_agent_id",
+            )?,
+            uploaded_by_agent_name: normalize_optional(uploaded_by_agent_name),
+            uploaded_by_agent_owner: normalize_optional(uploaded_by_agent_owner),
+            source_format: format,
+            content_hash,
+            content: version_content,
+            signing_key_id,
+            skill_signature,
+        });
+        let summary = summarize_entry(entry)?;
         self.rebuild_indexes();
         self.persist()?;
         Ok(summary)
@@ -576,7 +751,11 @@ impl SkillRegistry {
 
     /// Return all stored skills as summaries ordered by most recent update first.
     pub fn list_skills(&self) -> Vec<SkillSummary> {
-        let mut summaries: Vec<_> = self.skills.values().map(summarize_entry).collect();
+        let mut summaries: Vec<_> = self
+            .skills
+            .values()
+            .filter_map(|e| summarize_entry(e).ok())
+            .collect();
         summaries.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
         summaries
     }
@@ -595,7 +774,7 @@ impl SkillRegistry {
         let mut summaries: Vec<SkillSummary> = candidate_entries
             .into_iter()
             .filter_map(|entry| {
-                let summary = summarize_entry(entry);
+                let summary = summarize_entry(entry).ok()?;
                 matches_skill_entry(entry, &summary, query).then_some(summary)
             })
             .collect();
@@ -607,42 +786,64 @@ impl SkillRegistry {
     }
 
     /// Return all immutable versions for one stored skill.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` if the skill does not exist.
+    /// Returns `InvalidData` if any version\'s content cannot be reconstructed.
     pub fn skill_versions(&self, skill_id: &str) -> io::Result<Vec<SkillVersionSummary>> {
         let entry = self.skills.get(skill_id).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("No skill '{skill_id}' found"),
+                format!("No skill \'{skill_id}\' found"),
             )
         })?;
-        Ok(entry
-            .versions
-            .iter()
-            .map(|version| SkillVersionSummary {
+        let mut summaries = Vec::with_capacity(entry.versions.len());
+        for (idx, version) in entry.versions.iter().enumerate() {
+            let raw = reconstruct_raw_content(entry, idx)?;
+            let doc = import_skill(&raw, version.source_format)?;
+            summaries.push(SkillVersionSummary {
                 skill_id: entry.skill_id.clone(),
                 version_id: version.version_id,
+                version_number: version.version_number,
                 uploaded_at: version.uploaded_at,
                 uploaded_by_agent_id: version.uploaded_by_agent_id.clone(),
                 uploaded_by_agent_name: version.uploaded_by_agent_name.clone(),
                 uploaded_by_agent_owner: version.uploaded_by_agent_owner.clone(),
                 source_format: version.source_format,
-                schema_version: version.document.schema_version,
+                schema_version: doc.schema_version,
                 content_hash: version.content_hash.clone(),
-            })
-            .collect())
+                signing_key_id: version.signing_key_id.clone(),
+            });
+        }
+        Ok(summaries)
     }
 
     /// Return the current summary for one stored skill.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` if the skill does not exist, or `InvalidData` if the
+    /// latest version cannot be reconstructed.
     pub fn skill_summary(&self, skill_id: &str) -> io::Result<SkillSummary> {
         let entry = self.skills.get(skill_id).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("No skill '{skill_id}' found"),
+                format!("No skill \'{skill_id}\' found"),
             )
         })?;
-        Ok(summarize_entry(entry))
+        summarize_entry(entry)
     }
 
     /// Return one stored skill version, or the latest version when omitted.
+    ///
+    /// The returned [`SkillVersion`] carries the raw stored content (either
+    /// [`SkillVersionContent::Full`] or [`SkillVersionContent::Delta`]). Use
+    /// [`SkillRegistry::read_skill`] to obtain the rendered text.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` if the skill or version does not exist.
     pub fn skill_version(
         &self,
         skill_id: &str,
@@ -651,7 +852,7 @@ impl SkillRegistry {
         let entry = self.skills.get(skill_id).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("No skill '{skill_id}' found"),
+                format!("No skill \'{skill_id}\' found"),
             )
         })?;
         let version = match version_id {
@@ -662,7 +863,7 @@ impl SkillRegistry {
                 .ok_or_else(|| {
                     io::Error::new(
                         io::ErrorKind::NotFound,
-                        format!("No version '{version_id}' found for skill '{skill_id}'"),
+                        format!("No version \'{version_id}\' found for skill \'{skill_id}\'"),
                     )
                 })?,
             None => entry.latest_version(),
@@ -670,18 +871,87 @@ impl SkillRegistry {
         Ok(version.clone())
     }
 
+    /// Reconstruct the full document for a specific skill version, applying any
+    /// delta patches from the base version forward.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` if the skill or version does not exist, or `InvalidData`
+    /// if reconstruction or document parsing fails.
+    pub fn skill_document(
+        &self,
+        skill_id: &str,
+        version_id: Option<Uuid>,
+    ) -> io::Result<SkillDocument> {
+        let entry = self.skills.get(skill_id).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("No skill \'{skill_id}\' found"),
+            )
+        })?;
+        let version_index = match version_id {
+            Some(vid) => entry
+                .versions
+                .iter()
+                .position(|v| v.version_id == vid)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("No version \'{vid}\' found for skill \'{skill_id}\'"),
+                    )
+                })?,
+            None => entry.versions.len().saturating_sub(1),
+        };
+        let version = &entry.versions[version_index];
+        let raw = reconstruct_raw_content(entry, version_index)?;
+        import_skill(&raw, version.source_format)
+    }
+
     /// Read one stored skill through the requested export adapter.
+    ///
+    /// The raw content is reconstructed by applying any stored delta patches,
+    /// then parsed and re-exported in the requested `format`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` if the skill or version does not exist, or `InvalidData`
+    /// if reconstruction, parsing, or re-export fails.
     pub fn read_skill(
         &self,
         skill_id: &str,
         version_id: Option<Uuid>,
         format: SkillFormat,
     ) -> io::Result<String> {
-        let version = self.skill_version(skill_id, version_id)?;
-        export_skill(&version.document, format)
+        let entry = self.skills.get(skill_id).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("No skill \'{skill_id}\' found"),
+            )
+        })?;
+        let version_index = match version_id {
+            Some(vid) => entry
+                .versions
+                .iter()
+                .position(|v| v.version_id == vid)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("No version \'{vid}\' found for skill \'{skill_id}\'"),
+                    )
+                })?,
+            None => entry.versions.len().saturating_sub(1),
+        };
+        let version = &entry.versions[version_index];
+        let raw = reconstruct_raw_content(entry, version_index)?;
+        let document = import_skill(&raw, version.source_format)?;
+        export_skill(&document, format)
     }
 
     /// Mark one skill as deprecated while preserving all prior versions.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` if the skill does not exist.
     pub fn deprecate_skill(
         &mut self,
         skill_id: &str,
@@ -690,19 +960,23 @@ impl SkillRegistry {
         let entry = self.skills.get_mut(skill_id).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("No skill '{skill_id}' found"),
+                format!("No skill \'{skill_id}\' found"),
             )
         })?;
         entry.status = SkillStatus::Deprecated;
         entry.status_reason = normalize_optional(reason);
         entry.updated_at = Utc::now();
-        let summary = summarize_entry(entry);
+        let summary = summarize_entry(entry)?;
         self.rebuild_indexes();
         self.persist()?;
         Ok(summary)
     }
 
     /// Mark one skill as revoked while preserving all prior versions for auditability.
+    ///
+    /// # Errors
+    ///
+    /// Returns `NotFound` if the skill does not exist.
     pub fn revoke_skill(
         &mut self,
         skill_id: &str,
@@ -711,13 +985,13 @@ impl SkillRegistry {
         let entry = self.skills.get_mut(skill_id).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("No skill '{skill_id}' found"),
+                format!("No skill \'{skill_id}\' found"),
             )
         })?;
         entry.status = SkillStatus::Revoked;
         entry.status_reason = normalize_optional(reason);
         entry.updated_at = Utc::now();
-        let summary = summarize_entry(entry);
+        let summary = summarize_entry(entry)?;
         self.rebuild_indexes();
         self.persist()?;
         Ok(summary)
@@ -825,7 +1099,115 @@ impl SkillRegistry {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Migration
+// ---------------------------------------------------------------------------
+
+/// Migrates the skill registry file at `chain_dir` from V1 to the current V2 format, if needed.
+///
+/// - If the file does not exist or is already at the current version, returns `Ok(None)`.
+/// - If the file is at V1 (full `SkillDocument` per version), each version is converted to
+///   [`SkillVersionContent::Full`] by re-exporting the document to its source format.
+///   All versions are stored as `Full` (not delta) during migration; delta storage applies
+///   only to uploads made after migration.
+/// - Saves the migrated registry in place and returns a [`SkillRegistryMigrationReport`].
+///
+/// This function is idempotent: running it on an already-migrated registry is a no-op.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read, decoded, encoded, or written.
+pub fn migrate_skill_registry<P: AsRef<Path>>(
+    chain_dir: P,
+) -> io::Result<Option<SkillRegistryMigrationReport>> {
+    let path = skill_registry_path(chain_dir.as_ref());
+    if !path.exists() {
+        return Ok(None);
+    }
+    let bytes = fs::read(&path)?;
+
+    // Try current version first — if it loads cleanly, no migration needed.
+    if let Ok((persisted, _)) = bincode::serde::decode_from_slice::<PersistedSkillRegistry, _>(
+        &bytes,
+        bincode::config::standard(),
+    ) {
+        if persisted.version >= MENTISDB_SKILL_REGISTRY_CURRENT_VERSION {
+            return Ok(None);
+        }
+    }
+
+    // Fall back to V1 shape.
+    let (v1, _): (PersistedSkillRegistryV1, _) =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::standard()).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("skill registry is neither V1 nor current version: {e}"),
+            )
+        })?;
+
+    let mut skills_migrated = 0usize;
+    let mut versions_migrated = 0usize;
+    let mut migrated_skills: BTreeMap<String, SkillEntry> = BTreeMap::new();
+
+    for (skill_id, entry_v1) in &v1.skills {
+        let mut versions_v2: Vec<SkillVersion> = Vec::with_capacity(entry_v1.versions.len());
+        for (idx, ver_v1) in entry_v1.versions.iter().enumerate() {
+            let raw = export_skill(&ver_v1.document, ver_v1.source_format)?;
+            let content_hash = compute_content_hash(&raw);
+            versions_v2.push(SkillVersion {
+                version_id: ver_v1.version_id,
+                version_number: idx as u32,
+                uploaded_at: ver_v1.uploaded_at,
+                uploaded_by_agent_id: ver_v1.uploaded_by_agent_id.clone(),
+                uploaded_by_agent_name: ver_v1.uploaded_by_agent_name.clone(),
+                uploaded_by_agent_owner: ver_v1.uploaded_by_agent_owner.clone(),
+                source_format: ver_v1.source_format,
+                content_hash,
+                content: SkillVersionContent::Full { raw },
+                signing_key_id: None,
+                skill_signature: None,
+            });
+            versions_migrated += 1;
+        }
+        migrated_skills.insert(
+            skill_id.clone(),
+            SkillEntry {
+                skill_id: skill_id.clone(),
+                created_at: entry_v1.created_at,
+                updated_at: entry_v1.updated_at,
+                status: entry_v1.status,
+                status_reason: entry_v1.status_reason.clone(),
+                versions: versions_v2,
+            },
+        );
+        skills_migrated += 1;
+    }
+
+    let new_persisted = PersistedSkillRegistry {
+        version: MENTISDB_SKILL_REGISTRY_CURRENT_VERSION,
+        skills: migrated_skills,
+    };
+    let encoded = bincode::serde::encode_to_vec(&new_persisted, bincode::config::standard())
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("encode error: {e}")))?;
+    fs::write(&path, &encoded)?;
+    Ok(Some(SkillRegistryMigrationReport {
+        path,
+        skills_migrated,
+        versions_migrated,
+        from_version: v1.version,
+        to_version: MENTISDB_SKILL_REGISTRY_CURRENT_VERSION,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Public skill import/export adapters
+// ---------------------------------------------------------------------------
+
 /// Import a skill file through the requested adapter into the structured object model.
+///
+/// # Errors
+///
+/// Returns `InvalidData` if the content cannot be parsed.
 pub fn import_skill(content: &str, format: SkillFormat) -> io::Result<SkillDocument> {
     match format {
         SkillFormat::Markdown => parse_markdown_skill(content),
@@ -839,6 +1221,11 @@ pub fn import_skill(content: &str, format: SkillFormat) -> io::Result<SkillDocum
 }
 
 /// Export a structured skill document through the requested adapter.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` if the document fails validation, or an error if
+/// JSON serialization fails.
 pub fn export_skill(skill: &SkillDocument, format: SkillFormat) -> io::Result<String> {
     skill.validate()?;
     match format {
@@ -846,6 +1233,66 @@ pub fn export_skill(skill: &SkillDocument, format: SkillFormat) -> io::Result<St
         SkillFormat::Json => serde_json::to_string_pretty(skill)
             .map_err(|error| io::Error::other(format!("Failed to serialize skill JSON: {error}"))),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/// Reconstructs the full raw content string for the skill version at `version_index`
+/// by applying delta patches from the base version forward.
+///
+/// The base version (index 0) must be stored as [`SkillVersionContent::Full`].
+/// Intermediate versions may be either `Full` or `Delta`.
+fn reconstruct_raw_content(entry: &SkillEntry, version_index: usize) -> io::Result<String> {
+    if entry.versions.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "skill has no versions",
+        ));
+    }
+    // Base must be Full
+    let base = match &entry.versions[0].content {
+        SkillVersionContent::Full { raw } => raw.clone(),
+        SkillVersionContent::Delta { .. } => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "version 0 must be Full content",
+            ))
+        }
+    };
+    let mut current = base;
+    for i in 1..=version_index {
+        match &entry.versions[i].content {
+            SkillVersionContent::Full { raw } => {
+                current = raw.clone();
+            }
+            SkillVersionContent::Delta { patch } => {
+                let parsed_patch =
+                    diffy::Patch::from_str(patch).map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("invalid patch at v{i}: {e}"),
+                        )
+                    })?;
+                current = diffy::apply(&current, &parsed_patch).map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("failed to apply patch at v{i}: {e}"),
+                    )
+                })?;
+            }
+        }
+    }
+    Ok(current)
+}
+
+/// Computes the SHA-256 hex digest of the given raw skill content string.
+fn compute_content_hash(raw: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(raw.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn parse_markdown_skill(content: &str) -> io::Result<SkillDocument> {
@@ -871,7 +1318,7 @@ fn parse_markdown_skill(content: &str) -> io::Result<SkillDocument> {
                         schema_version = value.parse::<u32>().map_err(|error| {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
-                                format!("Invalid skill schema_version '{value}': {error}"),
+                                format!("Invalid skill schema_version \'{value}\': {error}"),
                             )
                         })?;
                     }
@@ -1083,18 +1530,27 @@ fn normalize_skill_id(value: &str) -> io::Result<String> {
     Ok(normalized)
 }
 
-fn summarize_entry(entry: &SkillEntry) -> SkillSummary {
+/// Build a [`SkillSummary`] from a [`SkillEntry`] by reconstructing the latest
+/// version\'s raw content and parsing the document.
+///
+/// # Errors
+///
+/// Returns `InvalidData` if the latest version cannot be reconstructed or parsed.
+fn summarize_entry(entry: &SkillEntry) -> io::Result<SkillSummary> {
     let latest = entry.latest_version();
-    SkillSummary {
+    let latest_index = entry.versions.len() - 1;
+    let raw = reconstruct_raw_content(entry, latest_index)?;
+    let doc = import_skill(&raw, latest.source_format)?;
+    Ok(SkillSummary {
         skill_id: entry.skill_id.clone(),
-        name: latest.document.name.clone(),
-        description: latest.document.description.clone(),
+        name: doc.name,
+        description: doc.description,
         status: entry.status,
         status_reason: entry.status_reason.clone(),
-        schema_version: latest.document.schema_version,
-        tags: latest.document.tags.clone(),
-        triggers: latest.document.triggers.clone(),
-        warnings: latest.document.warnings.clone(),
+        schema_version: doc.schema_version,
+        tags: doc.tags,
+        triggers: doc.triggers,
+        warnings: doc.warnings,
         latest_version_id: latest.version_id,
         version_count: entry.versions.len(),
         created_at: entry.created_at,
@@ -1104,7 +1560,7 @@ fn summarize_entry(entry: &SkillEntry) -> SkillSummary {
         latest_uploaded_by_agent_name: latest.uploaded_by_agent_name.clone(),
         latest_uploaded_by_agent_owner: latest.uploaded_by_agent_owner.clone(),
         latest_source_format: latest.source_format,
-    }
+    })
 }
 
 fn matches_skill_entry(entry: &SkillEntry, summary: &SkillSummary, query: &SkillQuery) -> bool {
@@ -1130,21 +1586,15 @@ fn matches_skill_entry(entry: &SkillEntry, summary: &SkillSummary, query: &Skill
                 .iter()
                 .map(|warning| warning.to_lowercase()),
         );
-        let latest = entry.latest_version();
-        haystacks.extend(
-            latest
-                .document
-                .sections
-                .iter()
-                .map(|section| section.heading.to_lowercase()),
-        );
-        haystacks.extend(
-            latest
-                .document
-                .sections
-                .iter()
-                .map(|section| section.body.to_lowercase()),
-        );
+        // Reconstruct the latest version document for section-body text search.
+        let latest_index = entry.versions.len().saturating_sub(1);
+        if let Ok(raw) = reconstruct_raw_content(entry, latest_index) {
+            let format = entry.latest_version().source_format;
+            if let Ok(doc) = import_skill(&raw, format) {
+                haystacks.extend(doc.sections.iter().map(|s| s.heading.to_lowercase()));
+                haystacks.extend(doc.sections.iter().map(|s| s.body.to_lowercase()));
+            }
+        }
         if !haystacks.iter().any(|value| value.contains(&needle)) {
             return false;
         }
@@ -1188,51 +1638,22 @@ fn intersect_skill_ids(left: &[String], right: &[String]) -> Vec<String> {
     result
 }
 
-fn compute_skill_version_hash(skill_id: &str, version: &SkillVersion) -> String {
-    #[derive(Serialize)]
-    struct CanonicalSkillVersion<'a> {
-        skill_id: &'a str,
-        version_id: Uuid,
-        uploaded_at: &'a DateTime<Utc>,
-        uploaded_by_agent_id: &'a str,
-        uploaded_by_agent_name: Option<&'a str>,
-        uploaded_by_agent_owner: Option<&'a str>,
-        source_format: SkillFormat,
-        document: &'a SkillDocument,
-    }
-
-    let canonical = CanonicalSkillVersion {
-        skill_id,
-        version_id: version.version_id,
-        uploaded_at: &version.uploaded_at,
-        uploaded_by_agent_id: &version.uploaded_by_agent_id,
-        uploaded_by_agent_name: version.uploaded_by_agent_name.as_deref(),
-        uploaded_by_agent_owner: version.uploaded_by_agent_owner.as_deref(),
-        source_format: version.source_format,
-        document: &version.document,
-    };
-    let bytes = serde_json::to_vec(&canonical).unwrap_or_default();
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
-}
-
 fn verify_skill_registry_integrity(skills: &BTreeMap<String, SkillEntry>) -> io::Result<()> {
     for (skill_id, entry) in skills {
         if entry.versions.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Skill '{skill_id}' has no versions"),
+                format!("Skill \'{skill_id}\' has no versions"),
             ));
         }
-        for version in &entry.versions {
-            version.document.validate()?;
-            let expected_hash = compute_skill_version_hash(skill_id, version);
-            if version.content_hash != expected_hash {
+        for (idx, version) in entry.versions.iter().enumerate() {
+            let raw = reconstruct_raw_content(entry, idx)?;
+            let expected = compute_content_hash(&raw);
+            if version.content_hash != expected {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
-                        "Skill version '{}' for skill '{}' failed integrity verification",
+                        "Skill version \'{}\' for skill \'{}\' failed integrity verification",
                         version.version_id, skill_id
                     ),
                 ));

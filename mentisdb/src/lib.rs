@@ -23,10 +23,11 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 pub use skills::{
-    export_skill, import_skill, SkillDocument, SkillEntry, SkillFormat, SkillQuery, SkillRegistry,
-    SkillRegistryManifest, SkillSection, SkillStatus, SkillSummary, SkillVersion,
-    SkillVersionSummary, MENTISDB_SKILL_CURRENT_SCHEMA_VERSION,
-    MENTISDB_SKILL_REGISTRY_CURRENT_VERSION,
+    export_skill, import_skill, migrate_skill_registry, SkillDocument, SkillEntry, SkillFormat,
+    SkillQuery, SkillRegistry, SkillRegistryManifest, SkillRegistryMigrationReport, SkillSection,
+    SkillStatus, SkillSummary, SkillVersion, SkillVersionContent, SkillVersionSummary,
+    MENTISDB_SKILL_CURRENT_SCHEMA_VERSION, MENTISDB_SKILL_REGISTRY_CURRENT_VERSION,
+    MENTISDB_SKILL_REGISTRY_V1, MENTISDB_SKILL_REGISTRY_V2,
 };
 
 /// Persistence interface for MentisDb storage backends.
