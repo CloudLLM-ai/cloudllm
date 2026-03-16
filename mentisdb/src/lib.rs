@@ -16,10 +16,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Mutex;
 use uuid::Uuid;
 
 pub use skills::{
@@ -246,8 +247,28 @@ impl StorageAdapter for JsonlStorageAdapter {
 
 /// Append-only binary storage adapter for MentisDb.
 ///
-/// Each record is stored as a length-prefixed serialized [`Thought`], which
-/// keeps append operations simple while avoiding JSON parse overhead on reload.
+/// Each record is stored as a length-prefixed bincode-serialized [`Thought`],
+/// keeping append operations simple while avoiding JSON parse overhead on
+/// reload.
+///
+/// ## Write buffering
+///
+/// When `auto_flush = true` (the default), the adapter keeps the backing file
+/// open between writes using a [`BufWriter`] and flushes to the OS after every
+/// individual append.  This preserves full durability while eliminating the
+/// file-open/close overhead that previously dominated single-append latency.
+///
+/// When `auto_flush = false`, serialized thought bytes are accumulated in an
+/// in-memory write buffer and flushed to disk only when the buffer reaches
+/// [`FLUSH_THRESHOLD`] entries (or when the adapter is dropped).  This mode
+/// dramatically increases batch-append throughput at the cost of potentially
+/// losing the last `< FLUSH_THRESHOLD` thoughts on a hard crash.
+///
+/// ## Clone behaviour
+///
+/// Cloning creates a *new* adapter for the same file path with a fresh, empty
+/// write state (no open file handle, empty buffer, zero dirty count).  The
+/// clone is suitable for use by a second independent reader/writer.
 ///
 /// # Example
 ///
@@ -258,15 +279,115 @@ impl StorageAdapter for JsonlStorageAdapter {
 /// let adapter = BinaryStorageAdapter::for_chain_key(PathBuf::from("/tmp/tc_bin"), "agent-memory");
 /// assert!(adapter.storage_location().ends_with(".tcbin"));
 /// ```
-#[derive(Debug, Clone)]
 pub struct BinaryStorageAdapter {
     file_path: PathBuf,
+    /// When `true` (default), every `append_thought` call flushes to the OS.
+    /// When `false`, writes are batched and flushed every [`FLUSH_THRESHOLD`]
+    /// appends (or on `Drop`).
+    auto_flush: bool,
+    /// Interior-mutable write state.  The `Mutex` allows `&self` calls in the
+    /// [`StorageAdapter`] trait to mutate the file handle and buffer.
+    state: Mutex<WriterState>,
+}
+
+impl std::fmt::Debug for BinaryStorageAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinaryStorageAdapter")
+            .field("file_path", &self.file_path)
+            .field("auto_flush", &self.auto_flush)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Manual `Clone`: produces a fresh adapter for the same path.
+///
+/// The clone does **not** share the open file handle or any buffered bytes —
+/// it starts with a clean [`WriterState`], identical to a newly constructed
+/// adapter.
+impl Clone for BinaryStorageAdapter {
+    fn clone(&self) -> Self {
+        Self::with_auto_flush(self.file_path.clone(), self.auto_flush)
+    }
+}
+
+/// Number of deferred appends before the write buffer is flushed to disk.
+///
+/// Only relevant when `BinaryStorageAdapter::auto_flush = false`.
+pub const FLUSH_THRESHOLD: usize = 16;
+
+/// Mutable write state held inside [`BinaryStorageAdapter`].
+struct WriterState {
+    /// Lazily opened, persistent file handle.  `None` until the first write.
+    file: Option<BufWriter<File>>,
+    /// Serialized thought bytes accumulated when `auto_flush = false`.
+    write_buffer: Vec<u8>,
+    /// Number of appended thoughts not yet flushed to the OS.
+    dirty_count: usize,
+}
+
+impl WriterState {
+    fn new() -> Self {
+        Self {
+            file: None,
+            write_buffer: Vec::new(),
+            dirty_count: 0,
+        }
+    }
+
+    /// Open the backing file in create+append mode if not already open.
+    fn open_file(&mut self, file_path: &Path) -> io::Result<&mut BufWriter<File>> {
+        if self.file.is_none() {
+            if let Some(parent) = file_path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent)?;
+                }
+            }
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(file_path)?;
+            self.file = Some(BufWriter::new(file));
+        }
+        Ok(self.file.as_mut().unwrap())
+    }
+
+    /// Write all buffered bytes to the file and flush to the OS.
+    ///
+    /// Clears `write_buffer` and resets `dirty_count` on success.
+    fn flush_buffer(&mut self, file_path: &Path) -> io::Result<()> {
+        if self.write_buffer.is_empty() {
+            return Ok(());
+        }
+        // Take the buffer before calling `open_file` to avoid holding an
+        // immutable borrow on `self.write_buffer` while `open_file` takes a
+        // mutable borrow on `self.file`.
+        let to_write = std::mem::take(&mut self.write_buffer);
+        let file = self.open_file(file_path)?;
+        file.write_all(&to_write)?;
+        file.flush()?;
+        // write_buffer is already empty after `mem::take`; just reset the counter.
+        self.dirty_count = 0;
+        Ok(())
+    }
 }
 
 impl BinaryStorageAdapter {
-    /// Create a binary adapter for an explicit file path.
+    /// Create a binary adapter for an explicit file path with `auto_flush = true`.
     pub fn new(file_path: PathBuf) -> Self {
-        Self { file_path }
+        Self::with_auto_flush(file_path, true)
+    }
+
+    /// Create a binary adapter with an explicit `auto_flush` setting.
+    ///
+    /// Pass `auto_flush = false` to enable write buffering for higher batch
+    /// throughput; call [`flush`][Self::flush] or rely on the `Drop` impl
+    /// to persist the final batch.
+    pub fn with_auto_flush(file_path: PathBuf, auto_flush: bool) -> Self {
+        Self {
+            file_path,
+            auto_flush,
+            state: Mutex::new(WriterState::new()),
+        }
     }
 
     /// Create a binary adapter using the stable MentisDb filename for a chain key.
@@ -282,15 +403,75 @@ impl BinaryStorageAdapter {
     pub fn file_path(&self) -> &PathBuf {
         &self.file_path
     }
+
+    /// Return whether this adapter flushes to the OS after every append.
+    pub fn is_auto_flush(&self) -> bool {
+        self.auto_flush
+    }
+
+    /// Flush any buffered bytes to disk immediately.
+    ///
+    /// This is a no-op when `auto_flush = true` (the adapter always flushes
+    /// immediately in that mode).  When `auto_flush = false`, this writes all
+    /// pending bytes and calls `fsync`-equivalent on the OS buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if the underlying write or flush fails.
+    pub fn flush(&self) -> io::Result<()> {
+        let mut state = self.state.lock().expect("BinaryStorageAdapter state mutex poisoned");
+        state.flush_buffer(&self.file_path)
+    }
+}
+
+impl Drop for BinaryStorageAdapter {
+    /// Flush any remaining buffered bytes to disk on drop.
+    ///
+    /// Errors are silently ignored here (we cannot propagate them from `Drop`).
+    /// Callers that require guaranteed durability should call [`flush`][BinaryStorageAdapter::flush]
+    /// explicitly before dropping.
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            let _ = state.flush_buffer(&self.file_path);
+        }
+    }
 }
 
 impl StorageAdapter for BinaryStorageAdapter {
     fn load_thoughts(&self) -> io::Result<Vec<Thought>> {
+        // Flush any buffered writes so the file reflects the full chain state
+        // before we re-read it.
+        self.flush()?;
         load_binary_thoughts(&self.file_path)
     }
 
     fn append_thought(&self, thought: &Thought) -> io::Result<()> {
-        persist_binary_thought(&self.file_path, thought)
+        // Serialize the thought to its length-prefixed wire format.
+        let payload = bincode::serde::encode_to_vec(thought, bincode::config::standard())
+            .map_err(|e| io::Error::other(format!("Failed to serialize thought: {e}")))?;
+        let length_bytes = (payload.len() as u64).to_le_bytes();
+
+        let mut state = self.state.lock().expect("BinaryStorageAdapter state mutex poisoned");
+
+        if self.auto_flush {
+            // --- Immediate-flush path (default) ---
+            // Write through a persistent BufWriter and flush after each record.
+            // This avoids the file-open/close overhead while preserving durability.
+            let file = state.open_file(&self.file_path)?;
+            file.write_all(&length_bytes)?;
+            file.write_all(&payload)?;
+            file.flush()?;
+        } else {
+            // --- Buffered path ---
+            // Accumulate serialized bytes and flush every FLUSH_THRESHOLD appends.
+            state.write_buffer.extend_from_slice(&length_bytes);
+            state.write_buffer.extend_from_slice(&payload);
+            state.dirty_count += 1;
+            if state.dirty_count >= FLUSH_THRESHOLD {
+                state.flush_buffer(&self.file_path)?;
+            }
+        }
+        Ok(())
     }
 
     fn storage_location(&self) -> String {
