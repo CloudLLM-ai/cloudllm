@@ -1,3 +1,24 @@
+0.4.1.6 MAR/16/2026
+ - feat: Skill registry delta/diff versioning
+   - First version of each skill is stored as full raw content; subsequent versions store only unified diff patches via `diffy`
+   - Added `SkillVersionContent` enum (`Full { raw }` / `Delta { patch }`) replacing the embedded `SkillDocument` in `SkillVersion`
+   - Added `version_number: u32` (zero-based monotone index) to `SkillVersion` and `SkillVersionSummary`
+   - Version reconstruction applies the patch chain from v0 forward; all read and export paths go through `reconstruct_raw_content`
+   - Content integrity hash is now SHA-256 of the full reconstructed raw content string
+ - feat: Ed25519 cryptographic skill upload signing
+   - Agents with registered public keys must provide `signing_key_id` and `skill_signature` (64-byte Ed25519) on every skill upload
+   - Agents without registered public keys may upload without signatures for backward compatibility
+   - Signature is verified against the agent's active public key in the agent registry before the upload is accepted
+   - `signing_key_id` and `skill_signature` are stored on each `SkillVersion` for auditability
+   - Added `verify_ed25519_signature` to the server layer using `ed25519-dalek 2`
+ - feat: Skill registry V1→V2 startup migration
+   - `migrate_skill_registry(chain_dir)` migrates the persisted `mentisdb-skills.bin` from registry V1 (full document per version) to V2 (delta content model)
+   - Migration is idempotent; returns `None` if the registry is already at the current version or does not exist
+   - `mentisdbd` runs skill registry migration at startup, after chain migration and before opening the skill registry
+   - Panics on unrecoverable migration failure to prevent serving stale data
+ - feat: Add `SkillRegistryMigrationReport` public type reporting migration outcome
+ - test: Expand skill registry coverage for delta versioning and signing
+
 0.4.0.5 MAR/13/2026
  - feat: Complete the MentisDB skill registry release
    - Added the built-in `MENTISDB_SKILL.md` plus versioned uploaded skill documents for specialist agents
