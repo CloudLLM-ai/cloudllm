@@ -618,52 +618,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## MentisDB: Persistent Agent Memory
 
-MentisDB, formerly ThoughtChain, is the standalone durable-memory crate in this
-workspace. Its Rust API is exposed as
-[`mentisdb::MentisDb`](https://docs.rs/mentisdb/latest/mentisdb/struct.MentisDb.html).
-
-It is an append-only, SHA-256 hash-chained, adapter-backed memory log of agent thoughts. Each thought can carry
-back-references and typed relations to earlier thoughts, forming a graph that enables efficient context
-resolution, replay, summarization, and memory export.
-
-```text
-MentisDB (adapter-backed; binary by default)
-  ├─ Thought #0  Insight   role=Memory      hash=abc1...   refs=[]
-  ├─ Thought #1  Decision  role=Memory      hash=def2...   refs=[]      prev_hash=abc1...
-  ├─ Thought #2  Mistake   role=Memory      hash=789a...   refs=[]      prev_hash=def2...
-  └─ Thought #3  Summary   role=Compression hash=bcd3...   refs=[0, 2]  prev_hash=789a...
-                                                   ↑
-                                resolve_context(3) walks refs → returns [#0, #2, #3]
-```
+[MentisDB](https://github.com/cloudllm-ai/mentisdb) is a sibling project — a standalone
+durable-memory crate for AI agents. CloudLLM re-exports its public API so agents can use
+persistent, hash-chained memory without any extra setup:
 
 ```rust,no_run
+use cloudllm::MentisDb;
+use cloudllm::{ThoughtInput, ThoughtRole, ThoughtType};
 use std::path::PathBuf;
-use mentisdb::{MentisDb, ThoughtInput, ThoughtRole, ThoughtType};
 
 fn main() -> std::io::Result<()> {
     let mut chain = MentisDb::open_with_key(PathBuf::from("chains"), "borganism-brain")?;
 
     chain.append_thought(
         "astro",
-        ThoughtInput::new(
-            ThoughtType::Decision,
-            "The repo now uses a three-crate workspace: cloudllm, mentisdb, and mcp.",
-        )
-        .with_agent_name("Astro")
-        .with_agent_owner("@gubatron")
-        .with_importance(0.95),
-    )?;
-
-    chain.append_thought(
-        "astro",
-        ThoughtInput::new(
-            ThoughtType::Summary,
-            "MentisDB should be the durable memory source; MEMORY.md is a human-readable export.",
-        )
-        .with_agent_name("Astro")
-        .with_role(ThoughtRole::Checkpoint)
-        .with_refs(vec![0])
-        .with_importance(0.9),
+        ThoughtInput::new(ThoughtType::Decision, "Switched MentisDB to its own repo.")
+            .with_agent_name("Astro")
+            .with_agent_owner("@gubatron")
+            .with_importance(0.95),
     )?;
 
     assert!(chain.verify_integrity());
@@ -672,93 +644,12 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-In CloudLLM, agents can still use MentisDB directly through
-[`Agent::with_mentisdb`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/agent/struct.Agent.html#method.with_mentisdb),
-and the storage and query model now lives in the standalone `mentisdb` crate. Persistence is
-adapter-backed through a `StorageAdapter` interface. The built-in backends today are:
+Agents can attach a chain via
+[`Agent::with_mentisdb`](https://docs.rs/cloudllm/latest/cloudllm/cloudllm/agent/struct.Agent.html#method.with_mentisdb)
+or resume from one with `Agent::resume_from_latest`.
 
-- `JsonlStorageAdapter`
-- `BinaryStorageAdapter`
-
-Use `MentisDb::verify_integrity()` to detect tampering, `MentisDb::search(...)` to query
-semantic memory, `MentisDb::resolve_context(index)` to reconstruct the minimal dependency graph
-for a thought, and `MentisDb::to_memory_markdown(...)` to export a `MEMORY.md`-style snapshot.
-For hard debugging snags or repeated failures, MentisDB now also supports dedicated
-retrospective memory via `ThoughtType::LessonLearned` and `ThoughtRole::Retrospective`.
-
-Resume a previously running agent from its chain:
-
-```rust,no_run
-use cloudllm::Agent;
-use mentisdb::MentisDb;
-use cloudllm::clients::openai::OpenAIClient;
-use std::sync::Arc;
-use std::path::PathBuf;
-use tokio::sync::RwLock;
-
-# fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-let chain = Arc::new(RwLock::new(
-    MentisDb::open_with_key(PathBuf::from("chains"), "borganism-brain")?
-));
-
-// Resume from the latest thought — context graph is injected into a fresh session
-let agent = Agent::resume_from_latest(
-    "analyst", "Analyst",
-    Arc::new(OpenAIClient::new_with_model_string(
-        &std::env::var("OPEN_AI_SECRET")?, "gpt-4o",
-    )),
-    128_000,
-    chain,
-)?;
-# Ok(())
-# }
-```
-
-### `mentisdbd`: MCP + REST daemon for shared memory
-
-If you want MentisDB available to multiple agents, sessions, or external tools, run the
-standalone daemon from the `mentisdb/` crate:
-
-```bash
-cargo install mentisdb
-mentisdbd
-```
-
-If you want it to keep running after you close your SSH session:
-
-```bash
-nohup mentisdbd &
-```
-
-If you are developing inside this repo and want to run it from source:
-
-```bash
-cd mentisdb
-cargo run --bin mentisdbd
-```
-
-`mentisdbd` exposes:
-
-- standard MCP at `POST /`
-- legacy CloudLLM-compatible MCP endpoints at `POST /tools/list` and `POST /tools/execute`
-- REST endpoints at `/v1/chains`, `/v1/agents`, `/v1/bootstrap`, `/v1/thoughts`, `/v1/retrospectives`,
-  `/v1/search`, `/v1/recent-context`, `/v1/memory-markdown`, and `/v1/head`
-- `GET /health` on both server surfaces
-
-The daemon is configured with environment variables:
-
-- `MENTISDB_DIR`
-- `MENTISDB_DEFAULT_KEY`
-- `MENTISDB_DEFAULT_STORAGE_ADAPTER=binary|jsonl`
-- `MENTISDB_BIND_HOST`
-- `MENTISDB_MCP_PORT`
-- `MENTISDB_REST_PORT`
-
-For full daemon usage, remote MCP examples, and the REST contract, see:
-
-- [`mentisdb/README.md`](mentisdb/README.md)
-- [`MENTISDB_MCP.md`](MENTISDB_MCP.md)
-- [`MENTISDB_REST.md`](MENTISDB_REST.md)
+For the full API reference, daemon (`mentisdbd`) usage, MCP/REST contract, and versioned skill
+registry, see the **[MentisDB repository](https://github.com/cloudllm-ai/mentisdb)**.
 
 ---
 
