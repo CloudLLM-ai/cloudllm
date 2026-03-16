@@ -2228,3 +2228,196 @@ async fn live_mcp_server_supports_standard_initialize_and_tools_list() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Test 7: rest_upload_skill_with_signature_verification
+// ---------------------------------------------------------------------------
+
+/// Verifies the full Ed25519 signature enforcement flow at the REST server level:
+///
+/// 1. Register an agent.
+/// 2. Generate a real Ed25519 keypair from a fixed seed and register the public key.
+/// 3. Upload a skill with a valid signature → expect HTTP 200.
+/// 4. Upload again without any signature fields → expect HTTP 4xx (signature required).
+/// 5. Upload again with a tampered signature (one byte flipped) → expect HTTP 4xx.
+#[tokio::test]
+async fn rest_upload_skill_with_signature_verification() {
+    use ed25519_dalek::{Signer, SigningKey};
+
+    let dir = unique_chain_dir();
+    let router = rest_router(MentisDbServiceConfig::new(
+        dir.clone(),
+        "sig-test-chain",
+        StorageAdapterKind::Binary,
+    ));
+
+    let skill_content = r#"---
+schema_version: 1
+name: Signed REST Skill
+description: Skill uploaded with Ed25519 signature verification
+tags: [security, signing]
+triggers: [signing, ed25519]
+---
+
+# Signed REST Skill
+
+This skill is cryptographically signed.
+
+## Usage
+
+Always verify signatures before trusting skill content.
+"#;
+
+    // --- Step 1: Register the uploading agent ---
+    let upsert = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents/upsert")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "sig-test-chain",
+                        "agent_id": "signing-agent",
+                        "display_name": "Signing Agent",
+                        "agent_owner": "@gubatron",
+                        "status": "active"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upsert.status(), StatusCode::OK, "agent upsert must succeed");
+
+    // --- Step 2: Generate a deterministic Ed25519 keypair from a fixed seed ---
+    // Using a fixed 32-byte seed guarantees test determinism without requiring `rand`.
+    let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+    let verifying_key = signing_key.verifying_key();
+    let pub_key_bytes: Vec<u8> = verifying_key.as_bytes().to_vec();
+
+    let add_key = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/agents/keys")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "sig-test-chain",
+                        "agent_id": "signing-agent",
+                        "key_id": "ed25519-main",
+                        "algorithm": "ed25519",
+                        "public_key_bytes": pub_key_bytes
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(add_key.status(), StatusCode::OK, "adding public key must succeed");
+
+    // --- Step 3: Upload with a valid signature → expect 200 ---
+    let valid_sig: Vec<u8> = signing_key
+        .sign(skill_content.as_bytes())
+        .to_bytes()
+        .to_vec();
+
+    let upload_ok = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/skills/upload")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "sig-test-chain",
+                        "agent_id": "signing-agent",
+                        "content": skill_content,
+                        "signing_key_id": "ed25519-main",
+                        "skill_signature": valid_sig
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status_ok = upload_ok.status();
+    let body_ok = axum::body::to_bytes(upload_ok.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        status_ok,
+        StatusCode::OK,
+        "upload with valid signature must succeed; body: {}",
+        String::from_utf8_lossy(&body_ok)
+    );
+    let ok_json: serde_json::Value = serde_json::from_slice(&body_ok).unwrap();
+    assert_eq!(ok_json["skill"]["skill_id"], "signed-rest-skill");
+
+    // --- Step 4: Upload without signature fields → expect 4xx ---
+    let upload_no_sig = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/skills/upload")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "sig-test-chain",
+                        "agent_id": "signing-agent",
+                        "content": skill_content
+                        // signing_key_id and skill_signature intentionally omitted
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        upload_no_sig.status().is_client_error(),
+        "upload without signature must be rejected with a 4xx status; got: {}",
+        upload_no_sig.status()
+    );
+
+    // --- Step 5: Upload with a tampered signature (flip first byte) → expect 4xx ---
+    let mut tampered_sig = valid_sig.clone();
+    tampered_sig[0] ^= 0xFF; // Flip all bits in first byte.
+
+    let upload_bad_sig = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/skills/upload")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "chain_key": "sig-test-chain",
+                        "agent_id": "signing-agent",
+                        "content": skill_content,
+                        "signing_key_id": "ed25519-main",
+                        "skill_signature": tampered_sig
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        upload_bad_sig.status().is_client_error(),
+        "upload with tampered signature must be rejected with a 4xx status; got: {}",
+        upload_bad_sig.status()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
