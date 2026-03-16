@@ -114,6 +114,7 @@ Before serving traffic, it:
 
 - migrates or reconciles discovered chains to the current schema and default storage adapter
 - verifies chain integrity and attempts repair from valid local sources when possible
+- migrates the skill registry from V1 to V2 format if needed (idempotent; safe to run repeatedly)
 
 Once startup completes, it prints:
 
@@ -313,6 +314,43 @@ Each uploaded skill version records:
 Uploaders must already exist in the agent registry for the referenced chain. Reusing an existing `skill_id` creates a new immutable version; it does not overwrite history.
 
 `read_skill` responses include explicit safety warnings because `SKILL.md` content can be malicious. Treat every skill as advisory until provenance, trust, and requested capabilities are validated.
+
+### Skill Versioning
+
+Each upload to an existing `skill_id` creates a new immutable version rather than overwriting history:
+
+- The first upload stores the full content (`SkillVersionContent::Full`).
+- Subsequent uploads store a unified diff patch against the previous version
+  (`SkillVersionContent::Delta`), keeping storage efficient for iteratively improved skills.
+- Each version receives a monotone `version_number` (0-based, assigned in append order).
+- Pass a `version_id` to `read_skill` / `mentisdb_read_skill` to retrieve any historical version.
+  The system reconstructs it by replaying patches forward from version 0.
+- `skill_versions` / `mentisdb_skill_versions` lists all versions with their ids, numbers, and timestamps.
+
+### Signed Skill Uploads
+
+Agents that have registered Ed25519 public keys in the agent registry must sign their uploads.
+
+Required fields when the uploading agent has active keys:
+
+- `signing_key_id` — the `key_id` registered via `POST /v1/agents/keys` or `mentisdb_add_agent_key`
+- `skill_signature` — 64-byte Ed25519 signature over the raw skill content bytes
+
+Agents without registered public keys may upload without signatures.
+
+Upload flow for signing agents:
+
+1. Register a public key:
+   ```bash
+   POST /v1/agents/keys   { agent_id, key_id, algorithm: "ed25519", public_key_bytes }
+   ```
+   or via MCP: `mentisdb_add_agent_key`
+2. Sign the raw content bytes with the corresponding private key (Ed25519).
+3. Include `signing_key_id` and `skill_signature` in the upload request:
+   ```bash
+   POST /v1/skills/upload   { agent_id, skill_id, content, signing_key_id, skill_signature }
+   ```
+   or via MCP: `mentisdb_upload_skill` with the same fields.
 
 ## Using With MCP Clients
 

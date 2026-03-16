@@ -162,6 +162,24 @@ The daemon also maintains a MentisDB registry so callers and operators can quick
 - where each chain is stored
 - how many thoughts and registered agents each chain currently has
 
+### 7. Skill Registry
+
+Beyond remembering what happened, agents benefit from remembering how to act. MentisDB ships a versioned skill registry as a first-class primitive, not an afterthought.
+
+A skill is a structured document — authored in Markdown or JSON — that describes a reusable capability: how to use a tool, operate a protocol, or apply a domain pattern. Skills are uploaded by agents, assigned a stable `skill_id`, and versioned immutably. The registry exposes full lifecycle operations: upload, list, search, read, deprecate, and revoke — all available through the library API, the MCP surface, and the REST surface.
+
+#### Delta Versioning
+
+AI agents iteratively improve their skills over time. Storing a full copy of every skill version is wasteful at scale; the natural model is delta storage — recording only what changed between consecutive versions, much as version control systems do.
+
+The first version of any skill is always stored in full. Every subsequent upload produces a unified diff patch via `diffy::create_patch` that captures only the changed lines. The content hash for each version is computed over the full reconstructed content, so integrity checks are independent of the storage representation. A caller verifying a version hash does not need to know whether the underlying record is a full snapshot or a patch.
+
+To read an older version, MentisDB applies the patch chain sequentially from v0 forward. Every historical version is equally accessible; the cost is O(n) patch applications to reach version n.
+
+This design makes a deliberate tradeoff: reconstruction cost grows linearly with version history depth. A practical future optimization is to introduce periodic full-content snapshots at configurable intervals — for example, every ten versions — so that reconstruction always starts from a nearby anchor rather than the original. The interface remains unchanged; the snapshot strategy is an internal storage concern.
+
+The result is an audit-friendly record of how a skill evolved: nothing is silently rewritten, the full provenance of any version is recoverable, and the storage footprint for frequently revised skills stays proportional to the change surface rather than the total content.
+
 ## Data Model
 
 MentisDB deliberately separates memory creation, memory storage, and memory retrieval.
@@ -309,7 +327,23 @@ For that reason, the thought format now includes optional signing hooks:
 
 Those fields allow a thought to carry a detached signature over the signable payload, while public verification keys can live in the agent registry.
 
-This is still an early foundation rather than a full trust model. The current implementation does not yet require signatures or enforce a public-key policy, but the schema is now shaped to support Ed25519-style agent identity and stronger provenance controls.
+This is still an early foundation rather than a full trust model. The current implementation does not yet require signatures or enforce a public-key policy on thoughts, but the schema is now shaped to support Ed25519-style agent identity and stronger provenance controls.
+
+### Cryptographic Skill Authorship
+
+The signing foundation described above extends naturally to the skill registry. In multi-agent systems, provenance matters: when an agent uploads a skill, that upload should be attributable not just by `agent_id` (a string) but by cryptographic proof.
+
+The agent registry serves as the PKI anchor. Agents register Ed25519 public keys via `add_agent_key`. On skill upload, if the uploading agent has active registered keys, the upload request must include a detached signature over the raw skill content along with the `key_id` identifying which key was used. The server verifies the signature against the registered public key before accepting the upload. If verification fails, the upload is rejected.
+
+The trust model is progressive:
+
+- **No registered keys** — signature is not required. Legacy uploads and simple integrations continue to work without modification.
+- **Active registered keys** — signature is mandatory. The agent has opted into signed provenance, and the system enforces it.
+- **Revoked keys** — upload is rejected even if the signature is technically valid. Key revocation is authoritative.
+
+The `key_id` and signature are stored durably on the `SkillVersion` record, enabling offline verification at any future point without querying a live server. An auditor with a copy of the agent's public key can verify the authorship of any signed skill version independently.
+
+This means a signed skill upload is a statement of authorship and intent — not merely attributed by a string identifier, but bound to a cryptographic identity the agent controls. A signed version cannot later be disavowed, and a revoked key cannot be used to quietly replace a legitimate version.
 
 Stronger controls could include signatures from a human-controlled or centrally controlled authority that agents themselves cannot control.
 
@@ -335,6 +369,7 @@ It helps solve:
 - transparency
 - traceability
 - tamper detection
+- durable, versioned skill provenance
 
 In short, MentisDB is designed to be a practical memory ledger for real agent systems.
 
