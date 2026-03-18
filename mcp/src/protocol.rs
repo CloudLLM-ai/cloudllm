@@ -705,16 +705,16 @@ impl ToolRegistry {
     ///         Ok(vec![])
     ///     }
     /// }
-///
-/// # async {
-/// let mut registry = ToolRegistry::empty();
-/// registry.add_protocol(
-///     "memory_server",
-///     Arc::new(MemoryServerProtocol)
-/// ).await?;
-/// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
-/// # };
-/// ```
+    ///
+    /// # async {
+    /// let mut registry = ToolRegistry::empty();
+    /// registry.add_protocol(
+    ///     "memory_server",
+    ///     Arc::new(MemoryServerProtocol)
+    /// ).await?;
+    /// # Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    /// # };
+    /// ```
     pub async fn add_protocol(
         &mut self,
         protocol_name: &str,
@@ -894,13 +894,13 @@ impl ToolRegistry {
     ///         Ok(vec![])
     ///     }
     /// }
-///
-/// # #[tokio::main]
-/// # async fn main() {
-/// let protocol = Arc::new(DemoProtocol);
-/// let mut registry = ToolRegistry::new(protocol.clone());
-///
-/// let tool = Tool::new("calculator", "Evaluates math", protocol);
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let protocol = Arc::new(DemoProtocol);
+    /// let mut registry = ToolRegistry::new(protocol.clone());
+    ///
+    /// let tool = Tool::new("calculator", "Evaluates math", protocol);
     /// registry.add_tool(tool);
     ///
     /// let defs = registry.to_tool_definitions();

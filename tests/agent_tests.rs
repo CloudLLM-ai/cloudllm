@@ -5,9 +5,9 @@ use cloudllm::client_wrapper::{
 use cloudllm::tool_protocol::{ToolMetadata, ToolRegistry, ToolResult};
 use cloudllm::tool_protocols::CustomToolProtocol;
 use cloudllm::Agent;
+use mentisdb::{MentisDb, ThoughtType};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
-use mentisdb::{MentisDb, ThoughtType};
 use tokio::sync::RwLock;
 
 struct MockClient {

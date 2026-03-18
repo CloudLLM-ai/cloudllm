@@ -20,9 +20,9 @@ use std::sync::Arc;
 use cloudllm::clients::openai::{Model, OpenAIClient};
 use cloudllm::tool_protocol::ToolProtocol;
 use cloudllm::Agent;
+use mentisdb::server::{default_mentisdb_dir, start_mcp_server, MentisDbServiceConfig};
 use persistent_agent_tools::build_persistent_agent_registry;
 use serde_json::json;
-use mentisdb::server::{default_mentisdb_dir, start_mcp_server, MentisDbServiceConfig};
 
 const DEFAULT_CHAIN_KEY: &str = "borganism-brain";
 

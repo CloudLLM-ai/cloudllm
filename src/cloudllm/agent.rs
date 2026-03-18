@@ -53,12 +53,12 @@ use crate::cloudllm::context_strategy::{ContextStrategy, TrimStrategy};
 use crate::cloudllm::event::{AgentEvent, EventHandler, PlannerEvent};
 use crate::cloudllm::llm_session::LLMSession;
 use crate::cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
+use mentisdb::{MentisDb, Thought, ThoughtType};
 use openai_rust2::chat::{GrokTool, OpenAITool};
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::sync::Arc;
-use mentisdb::{Thought, MentisDb, ThoughtType};
 use tokio::sync::RwLock;
 
 /// Internal representation of a resolved tool call.

@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "cloudllm"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, multi-agent orchestration, and MentisDB-backed durable memory."

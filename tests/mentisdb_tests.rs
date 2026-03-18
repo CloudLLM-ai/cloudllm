@@ -1,6 +1,6 @@
+use mentisdb::{chain_filename, MentisDb, ThoughtType};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use mentisdb::{chain_filename, MentisDb, ThoughtType};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 

@@ -41,10 +41,10 @@
 use crate::client_wrapper::Role;
 use crate::cloudllm::llm_session::LLMSession;
 use async_trait::async_trait;
+use mentisdb::{MentisDb, ThoughtInput, ThoughtRole, ThoughtType};
 use std::collections::HashSet;
 use std::error::Error;
 use std::sync::Arc;
-use mentisdb::{MentisDb, ThoughtInput, ThoughtRole, ThoughtType};
 use tokio::sync::RwLock;
 
 /// Trait for pluggable context-window management strategies.
