@@ -139,6 +139,10 @@ pub fn image_model_to_string(model: ImageModel) -> String {
 pub enum Model {
     /// `gpt-5.4` – Latest GPT-5 generation model.
     GPT54,
+    /// `gpt-5.4-mini` – Lower-cost GPT-5.4 tier with reduced latency.
+    GPT54Mini,
+    /// `gpt-5.4-nano` – Smallest GPT-5.4 tier optimized for cost and latency.
+    GPT54Nano,
     /// `gpt-5.2` – Complex reasoning, broad world knowledge, and code-heavy or multi-step agentic tasks
     GPT52,
     /// `gpt-5.2-chat-latest` – ChatGPT's production deployment of GPT-5.2.
@@ -195,6 +199,8 @@ pub enum Model {
 pub fn model_to_string(model: Model) -> String {
     match model {
         Model::GPT54 => "gpt-5.4".to_string(),
+        Model::GPT54Mini => "gpt-5.4-mini".to_string(),
+        Model::GPT54Nano => "gpt-5.4-nano".to_string(),
         Model::GPT52 => "gpt-5.2".to_string(),
         Model::GPT52ChatLatest => "gpt-5.2-chat-latest".to_string(),
         Model::GPT52Pro => "gpt-5.2-pro".to_string(),

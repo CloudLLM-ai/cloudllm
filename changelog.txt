@@ -1,3 +1,9 @@
+0.14.0 MAR/18/2026
+ - feat: Add GPT-5.4 mini and nano OpenAI model support
+   - [ADDED] `Model::GPT54Mini` mapped to `"gpt-5.4-mini"`
+   - [ADDED] `Model::GPT54Nano` mapped to `"gpt-5.4-nano"`
+   - Added `tests/openai_models_tests.rs` to verify enum-to-string mapping and `OpenAIClient::new_with_model_enum()` model selection
+
 0.13.0 MAR/11/2026
 Note: historical entries below use the original ThoughtChain / thoughtchaind
 names because they describe the repo as it shipped at the time. The project is
