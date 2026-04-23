@@ -26,7 +26,7 @@ async fn main() {
     };
 
     // Create OpenAI client with a fast model
-    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
+    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano);
     println!("Using model: {}\n", client.model_name());
 
     // Create a session

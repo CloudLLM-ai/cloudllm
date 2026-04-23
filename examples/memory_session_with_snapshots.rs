@@ -32,10 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shared_registry = Arc::new(tokio::sync::RwLock::new(ToolRegistry::new(memory_adapter)));
 
     // Create an OpenAI client
-    let client = Arc::new(OpenAIClient::new_with_model_enum(
-        &api_key,
-        Model::GPT41Nano,
-    ));
+    let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT5Nano));
 
     // Create an agent with the memory tool registry
     let agent = Agent::new("summarizer", "Document Summarization Agent", client)

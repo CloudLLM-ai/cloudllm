@@ -23,7 +23,7 @@ async fn main() {
     // // Instantiate the OpenAI client
     // let client = cloudllm::clients::openai::OpenAIClient::new_with_model_enum(
     //     &secret_key,
-    //     cloudllm::clients::openai::Model::GPT41Nano,
+    //     cloudllm::clients::openai::Model::GPT5Nano,
     // );
 
     // // Read GEMINI_API_KEY from the environment variable

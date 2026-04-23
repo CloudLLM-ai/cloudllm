@@ -16,7 +16,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let key = std::env::var("OPEN_AI_SECRET")?;
-//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Nano);
+//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT5Nano);
 //!
 //!     let response = client
 //!         .send_message(

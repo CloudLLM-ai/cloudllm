@@ -20,7 +20,7 @@
 //!
 //! // 1) Build the client & session
 //! let secret_key : String = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
-//! let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
+//! let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano);
 //! let mut session = LLMSession::new(
 //!     Arc::new(client),
 //!     "You are a bilingual crypto journalist.".into(),

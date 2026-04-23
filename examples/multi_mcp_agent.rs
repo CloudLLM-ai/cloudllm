@@ -60,10 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Create the LLM client
     println!("Step 1: Creating OpenAI client...");
     let api_key = std::env::var("OPEN_AI_SECRET")?;
-    let client = Arc::new(OpenAIClient::new_with_model_enum(
-        &api_key,
-        Model::GPT41Nano,
-    ));
+    let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT5Nano));
 
     // Step 2: Create an empty ToolRegistry for multi-protocol support
     println!("\nStep 2: Creating multi-protocol ToolRegistry...");

@@ -31,7 +31,7 @@ This interactive Rust example demonstrates how to run an ongoing chat session wi
 1. **Setup**
 
     * Reads `OPEN_AI_SECRET` for the API key.
-    * Creates `OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano)`.
+    * Creates `OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano)`.
     * Builds `LLMSession` with `Arc::new(client)` and a system prompt.
 2. **Input loop**
 

@@ -136,7 +136,7 @@ impl PanelWorkflow {
             "Verifier & Integrator",
             Arc::new(OpenAIClient::new_with_model_enum(
                 api_key_openai,
-                Model::GPT41Nano,
+                Model::GPT5Nano,
             )),
         )
         .with_expertise(

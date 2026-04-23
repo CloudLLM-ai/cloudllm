@@ -27,7 +27,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() {
     let secret_key = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
-    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
+    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano);
     
     let mut session = LLMSession::new(
         Arc::new(client),

@@ -14,7 +14,7 @@ async fn test_streaming_returns_option() {
     // For now, just check that the API is callable
 
     let secret_key = std::env::var("OPEN_AI_SECRET").unwrap_or_else(|_| "fake_key".to_string());
-    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
+    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano);
 
     let messages = vec![Message {
         role: Role::User,
@@ -32,7 +32,7 @@ async fn test_session_streaming_api() {
     cloudllm::init_logger();
 
     let secret_key = std::env::var("OPEN_AI_SECRET").unwrap_or_else(|_| "fake_key".to_string());
-    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
+    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano);
 
     let mut session = LLMSession::new(
         std::sync::Arc::new(client),
@@ -52,7 +52,7 @@ async fn test_backward_compatibility_non_streaming() {
 
     // Verify that existing non-streaming code still works
     let secret_key = std::env::var("OPEN_AI_SECRET").unwrap_or_else(|_| "fake_key".to_string());
-    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
+    let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano);
 
     let mut session = LLMSession::new(
         std::sync::Arc::new(client),

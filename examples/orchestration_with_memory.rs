@@ -36,10 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let analyst = Agent::new(
         "analyst",
         "Data Analyst",
-        Arc::new(OpenAIClient::new_with_model_enum(
-            &api_key,
-            Model::GPT41Nano,
-        )),
+        Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT5Nano)),
     )
     .with_expertise("Analyzes data patterns and identifies key metrics")
     .with_personality("Quantitative, focused on numbers and trends")
@@ -48,10 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let strategist = Agent::new(
         "strategist",
         "Strategic Advisor",
-        Arc::new(OpenAIClient::new_with_model_enum(
-            &api_key,
-            Model::GPT41Nano,
-        )),
+        Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT5Nano)),
     )
     .with_expertise("Creates strategic plans and identifies opportunities")
     .with_personality("Visionary, thinks about long-term implications")
@@ -60,10 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let implementer = Agent::new(
         "implementer",
         "Implementation Expert",
-        Arc::new(OpenAIClient::new_with_model_enum(
-            &api_key,
-            Model::GPT41Nano,
-        )),
+        Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT5Nano)),
     )
     .with_expertise("Focuses on practical execution and feasibility")
     .with_personality("Pragmatic, detail-oriented, risk-aware")

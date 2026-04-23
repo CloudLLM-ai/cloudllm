@@ -253,7 +253,7 @@
 //!     cloudllm::init_logger();
 //!
 //!     let api_key = std::env::var("OPEN_AI_SECRET")?;
-//!     let client = OpenAIClient::new_with_model_enum(&api_key, Model::GPT41Nano);
+//!     let client = OpenAIClient::new_with_model_enum(&api_key, Model::GPT5Nano);
 //!
 //!     let response = client
 //!         .send_message(
