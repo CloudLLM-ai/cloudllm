@@ -17,7 +17,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let key = std::env::var("GEMINI_KEY")?;
-//!     let client = GeminiClient::new_with_model_enum(&key, Model::Gemini20Flash);
+//!     let client = GeminiClient::new_with_model_enum(&key, Model::Gemini25Flash);
 //!     let reply = client
 //!         .send_message(
 //!             &[Message {
@@ -105,75 +105,203 @@ pub struct GeminiClient {
     base_url: String,
 }
 
-/// Gemini model identifiers returned by the public API (February 2025 snapshot).
+/// Gemini model identifiers returned by the public API (Apr 2026 snapshot).
 ///
 /// Every variant maps 1:1 to the hyphenated model name that the API expects.  Use
 /// [`model_to_string`] when you need the string literal.
 pub enum Model {
-    Gemini20Flash,
-    Gemini20FlashExp,
-    Gemini20Flash001,
-    Gemini20FlashLite001,
-    Gemini20FlashThinking001,
-    Gemini20FlashLitePreview,
-    Gemini20FlashLitePreview0205,
-    Gemini20ProExp,
-    Gemini20ProExp0205,
-    ChatBison001,
-    TextBison001,
-    TextBisonSafetyRecitationOff,
-    TextBisonSafetyOff,
-    TextBisonRecitationOff,
-    EmbeddingGecko001,
-    EvergreenCustom,
-    Gemini10ProLatest,
-    Gemini10Pro,
-    GeminiPro,
-    Gemini10Pro001,
-    Gemini10ProVisionLatest,
-    GeminiProVision,
-    Gemini15ProLatest,
-    Gemini15Pro001,
-    Gemini15Pro002,
-    Gemini15Pro,
-    Gemini15FlashLatest,
-    Gemini15Flash001,
-    Gemini15Flash001Tuning,
-    Gemini15Flash,
-    Gemini15Flash002,
-    Gemini15FlashDarkLaunch,
-    GeminiTest23,
-    Gemini15Flash8b,
-    Gemini15Flash8b001,
-    Gemini15Flash8bLatest,
-    Gemini15Flash8bExp0827,
-    Gemini15Flash8bExp0924,
-    GeminiExp1206,
-    GeminiToolTest,
-    Gemini20FlashThinkingExp0121,
-    Gemini20FlashThinkingExp,
-    Gemini20FlashThinkingExp1219,
-    Gemini20FlashThinkingExpNoThoughts,
-    Gemini20Flash001BidiTest,
-    Gemini20FlashAudiogenRev17,
-    Gemini20FlashMmgenRev17,
-    Gemini20FlashJarvis,
-    Learnlm15ProExperimental,
-    Embedding001,
-    TextEmbedding004,
-    Aqa,
-    Imagen30Generate002,
-    Imagen30Generate002Exp,
-    ImageVerification001,
-    Veo20Generate001,
-    Gemini25Flash,
+    /// `gemini-2.5-pro-latest` – latest stable alias for Gemini 2.5 Pro.
+    Gemini25ProLatest,
+    /// `gemini-2.5-pro` – high-capability reasoning and coding model.
     Gemini25Pro,
+    /// `gemini-2.5-flash-latest` – latest stable alias for Gemini 2.5 Flash.
+    Gemini25FlashLatest,
+    /// `gemini-2.5-flash` – fast, efficient general-purpose model.
+    Gemini25Flash,
+    /// `gemini-2.5-flash-lite` – lowest-latency Gemini 2.5 tier.
+    Gemini25FlashLite,
+    /// `gemini-2.5-flash-lite-preview-06-17` – preview build of Flash Lite.
     Gemini25FlashLitePreview0617,
+    /// `gemini-2.0-flash` – previous generation workhorse model.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini20Flash,
+    /// `gemini-2.0-flash-exp` – experimental 2.0 Flash build.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini20FlashExp,
+    /// `gemini-2.0-flash-001` – stable 2.0 Flash snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini20Flash001,
+    /// `gemini-2.0-flash-lite-001` – lightweight 2.0 Flash snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25FlashLite instead.")]
+    Gemini20FlashLite001,
+    /// `gemini-2.0-flash-thinking-001` – reasoning-enabled 2.0 Flash.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini20FlashThinking001,
+    /// `gemini-2.0-flash-lite-preview` – preview of 2.0 Flash Lite.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25FlashLite instead.")]
+    Gemini20FlashLitePreview,
+    /// `gemini-2.0-flash-lite-preview-02-05` – dated preview of 2.0 Flash Lite.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25FlashLite instead.")]
+    Gemini20FlashLitePreview0205,
+    /// `gemini-2.0-pro-exp` – experimental 2.0 Pro build.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini20ProExp,
+    /// `gemini-2.0-pro-exp-02-05` – dated experimental 2.0 Pro build.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini20ProExp0205,
+    /// `gemini-2.0-flash-thinking-exp-01-21` – dated thinking experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini20FlashThinkingExp0121,
+    /// `gemini-2.0-flash-thinking-exp` – thinking experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini20FlashThinkingExp,
+    /// `gemini-2.0-flash-thinking-exp-1219` – dated thinking experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini20FlashThinkingExp1219,
+    /// `gemini-2.0-flash-thinking-exp-no-thoughts` – thinking experiment variant.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini20FlashThinkingExpNoThoughts,
+    /// `gemini-2.0-flash-001-bidi-test` – internal test model.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini20Flash001BidiTest,
+    /// `gemini-2.0-flash-audiogen-rev17` – audio generation experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini20FlashAudiogenRev17,
+    /// `gemini-2.0-flash-mmgen-rev17` – multimodal generation experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini20FlashMmgenRev17,
+    /// `gemini-2.0-flash-jarvis` – internal experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini20FlashJarvis,
+    /// `gemini-1.5-pro-latest` – legacy 1.5 Pro alias.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini15ProLatest,
+    /// `gemini-1.5-pro-001` – legacy 1.5 Pro snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini15Pro001,
+    /// `gemini-1.5-pro-002` – legacy 1.5 Pro snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini15Pro002,
+    /// `gemini-1.5-pro` – legacy 1.5 Pro.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini15Pro,
+    /// `gemini-1.5-flash-latest` – legacy 1.5 Flash alias.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15FlashLatest,
+    /// `gemini-1.5-flash-001` – legacy 1.5 Flash snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash001,
+    /// `gemini-1.5-flash-001-tuning` – legacy 1.5 Flash tuning variant.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash001Tuning,
+    /// `gemini-1.5-flash` – legacy 1.5 Flash.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash,
+    /// `gemini-1.5-flash-002` – legacy 1.5 Flash snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash002,
+    /// `gemini-1.5-flash-dark-launch` – legacy internal build.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15FlashDarkLaunch,
+    /// `gemini-1.5-flash-8b` – legacy 1.5 Flash 8B.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash8b,
+    /// `gemini-1.5-flash-8b-001` – legacy 1.5 Flash 8B snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash8b001,
+    /// `gemini-1.5-flash-8b-latest` – legacy 1.5 Flash 8B alias.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash8bLatest,
+    /// `gemini-1.5-flash-8b-exp-0827` – legacy 1.5 Flash 8B experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash8bExp0827,
+    /// `gemini-1.5-flash-8b-exp-0924` – legacy 1.5 Flash 8B experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Flash instead.")]
+    Gemini15Flash8bExp0924,
+    /// `gemini-1.0-pro-latest` – legacy 1.0 Pro alias.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini10ProLatest,
+    /// `gemini-1.0-pro` – legacy 1.0 Pro.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini10Pro,
+    /// `gemini-1.0-pro-001` – legacy 1.0 Pro snapshot.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini10Pro001,
+    /// `gemini-1.0-pro-vision-latest` – legacy 1.0 Pro Vision alias.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Gemini10ProVisionLatest,
+    /// `gemini-pro-vision` – legacy Pro Vision.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    GeminiProVision,
+    /// `gemini-pro` – legacy Pro.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    GeminiPro,
+    /// `chat-bison-001` – legacy PaLM chat model.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    ChatBison001,
+    /// `text-bison-001` – legacy PaLM text model.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    TextBison001,
+    /// `text-bison-safety-recitation-off` – legacy PaLM text model.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    TextBisonSafetyRecitationOff,
+    /// `text-bison-safety-off` – legacy PaLM text model.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    TextBisonSafetyOff,
+    /// `text-bison-recitation-off` – legacy PaLM text model.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    TextBisonRecitationOff,
+    /// `embedding-gecko-001` – legacy embedding model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for chat use.")]
+    EmbeddingGecko001,
+    /// `evergreen-custom` – internal/custom model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for chat use.")]
+    EvergreenCustom,
+    /// `gemini-test-23` – internal test model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for production use.")]
+    GeminiTest23,
+    /// `gemini-tool-test` – internal tool test model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for production use.")]
+    GeminiToolTest,
+    /// `gemini-exp-1206` – legacy experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    GeminiExp1206,
+    /// `learnlm-1.5-pro-experimental` – legacy learning model experiment.
+    #[deprecated(since = "0.15.0", note = "Use Gemini25Pro instead.")]
+    Learnlm15ProExperimental,
+    /// `embedding-001` – legacy embedding model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for chat use.")]
+    Embedding001,
+    /// `text-embedding-004` – legacy embedding model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for chat use.")]
+    TextEmbedding004,
+    /// `aqa` – legacy AQA model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for chat use.")]
+    Aqa,
+    /// `imagen-3.0-generate-002` – image generation model (use [`ImageModel`] instead).
+    #[deprecated(since = "0.15.0", note = "Use ImageModel::Gemini25FlashImage instead.")]
+    Imagen30Generate002,
+    /// `imagen-3.0-generate-002-exp` – experimental image generation model.
+    #[deprecated(since = "0.15.0", note = "Use ImageModel::Gemini25FlashImage instead.")]
+    Imagen30Generate002Exp,
+    /// `image-verification-001` – internal verification model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for chat use.")]
+    ImageVerification001,
+    /// `veo-2.0-generate-001` – video generation model.
+    #[deprecated(since = "0.15.0", note = "Not recommended for chat use.")]
+    Veo20Generate001,
 }
 
 /// Convert a strongly typed [`Model`] into the string literal expected by the Gemini endpoint.
+#[allow(deprecated)]
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::Gemini25ProLatest => "gemini-2.5-pro-latest".to_string(),
+        Model::Gemini25Pro => "gemini-2.5-pro".to_string(),
+        Model::Gemini25FlashLatest => "gemini-2.5-flash-latest".to_string(),
+        Model::Gemini25Flash => "gemini-2.5-flash".to_string(),
+        Model::Gemini25FlashLite => "gemini-2.5-flash-lite".to_string(),
+        Model::Gemini25FlashLitePreview0617 => "gemini-2.5-flash-lite-preview-06-17".to_string(),
         Model::Gemini20Flash => "gemini-2.0-flash".to_string(),
         Model::Gemini20FlashExp => "gemini-2.0-flash-exp".to_string(),
         Model::Gemini20Flash001 => "gemini-2.0-flash-001".to_string(),
@@ -183,37 +311,6 @@ pub fn model_to_string(model: Model) -> String {
         Model::Gemini20FlashLitePreview0205 => "gemini-2.0-flash-lite-preview-02-05".to_string(),
         Model::Gemini20ProExp => "gemini-2.0-pro-exp".to_string(),
         Model::Gemini20ProExp0205 => "gemini-2.0-pro-exp-02-05".to_string(),
-        Model::ChatBison001 => "chat-bison-001".to_string(),
-        Model::TextBison001 => "text-bison-001".to_string(),
-        Model::TextBisonSafetyRecitationOff => "text-bison-safety-recitation-off".to_string(),
-        Model::TextBisonSafetyOff => "text-bison-safety-off".to_string(),
-        Model::TextBisonRecitationOff => "text-bison-recitation-off".to_string(),
-        Model::EmbeddingGecko001 => "embedding-gecko-001".to_string(),
-        Model::EvergreenCustom => "evergreen-custom".to_string(),
-        Model::Gemini10ProLatest => "gemini-1.0-pro-latest".to_string(),
-        Model::Gemini10Pro => "gemini-1.0-pro".to_string(),
-        Model::GeminiPro => "gemini-pro".to_string(),
-        Model::Gemini10Pro001 => "gemini-1.0-pro-001".to_string(),
-        Model::Gemini10ProVisionLatest => "gemini-1.0-pro-vision-latest".to_string(),
-        Model::GeminiProVision => "gemini-pro-vision".to_string(),
-        Model::Gemini15ProLatest => "gemini-1.5-pro-latest".to_string(),
-        Model::Gemini15Pro001 => "gemini-1.5-pro-001".to_string(),
-        Model::Gemini15Pro002 => "gemini-1.5-pro-002".to_string(),
-        Model::Gemini15Pro => "gemini-1.5-pro".to_string(),
-        Model::Gemini15FlashLatest => "gemini-1.5-flash-latest".to_string(),
-        Model::Gemini15Flash001 => "gemini-1.5-flash-001".to_string(),
-        Model::Gemini15Flash001Tuning => "gemini-1.5-flash-001-tuning".to_string(),
-        Model::Gemini15Flash => "gemini-1.5-flash".to_string(),
-        Model::Gemini15Flash002 => "gemini-1.5-flash-002".to_string(),
-        Model::Gemini15FlashDarkLaunch => "gemini-1.5-flash-dark-launch".to_string(),
-        Model::GeminiTest23 => "gemini-test-23".to_string(),
-        Model::Gemini15Flash8b => "gemini-1.5-flash-8b".to_string(),
-        Model::Gemini15Flash8b001 => "gemini-1.5-flash-8b-001".to_string(),
-        Model::Gemini15Flash8bLatest => "gemini-1.5-flash-8b-latest".to_string(),
-        Model::Gemini15Flash8bExp0827 => "gemini-1.5-flash-8b-exp-0827".to_string(),
-        Model::Gemini15Flash8bExp0924 => "gemini-1.5-flash-8b-exp-0924".to_string(),
-        Model::GeminiExp1206 => "gemini-exp-1206".to_string(),
-        Model::GeminiToolTest => "gemini-tool-test".to_string(),
         Model::Gemini20FlashThinkingExp0121 => "gemini-2.0-flash-thinking-exp-01-21".to_string(),
         Model::Gemini20FlashThinkingExp => "gemini-2.0-flash-thinking-exp".to_string(),
         Model::Gemini20FlashThinkingExp1219 => "gemini-2.0-flash-thinking-exp-1219".to_string(),
@@ -224,6 +321,37 @@ pub fn model_to_string(model: Model) -> String {
         Model::Gemini20FlashAudiogenRev17 => "gemini-2.0-flash-audiogen-rev17".to_string(),
         Model::Gemini20FlashMmgenRev17 => "gemini-2.0-flash-mmgen-rev17".to_string(),
         Model::Gemini20FlashJarvis => "gemini-2.0-flash-jarvis".to_string(),
+        Model::Gemini15ProLatest => "gemini-1.5-pro-latest".to_string(),
+        Model::Gemini15Pro001 => "gemini-1.5-pro-001".to_string(),
+        Model::Gemini15Pro002 => "gemini-1.5-pro-002".to_string(),
+        Model::Gemini15Pro => "gemini-1.5-pro".to_string(),
+        Model::Gemini15FlashLatest => "gemini-1.5-flash-latest".to_string(),
+        Model::Gemini15Flash001 => "gemini-1.5-flash-001".to_string(),
+        Model::Gemini15Flash001Tuning => "gemini-1.5-flash-001-tuning".to_string(),
+        Model::Gemini15Flash => "gemini-1.5-flash".to_string(),
+        Model::Gemini15Flash002 => "gemini-1.5-flash-002".to_string(),
+        Model::Gemini15FlashDarkLaunch => "gemini-1.5-flash-dark-launch".to_string(),
+        Model::Gemini15Flash8b => "gemini-1.5-flash-8b".to_string(),
+        Model::Gemini15Flash8b001 => "gemini-1.5-flash-8b-001".to_string(),
+        Model::Gemini15Flash8bLatest => "gemini-1.5-flash-8b-latest".to_string(),
+        Model::Gemini15Flash8bExp0827 => "gemini-1.5-flash-8b-exp-0827".to_string(),
+        Model::Gemini15Flash8bExp0924 => "gemini-1.5-flash-8b-exp-0924".to_string(),
+        Model::Gemini10ProLatest => "gemini-1.0-pro-latest".to_string(),
+        Model::Gemini10Pro => "gemini-1.0-pro".to_string(),
+        Model::Gemini10Pro001 => "gemini-1.0-pro-001".to_string(),
+        Model::Gemini10ProVisionLatest => "gemini-1.0-pro-vision-latest".to_string(),
+        Model::GeminiProVision => "gemini-pro-vision".to_string(),
+        Model::GeminiPro => "gemini-pro".to_string(),
+        Model::ChatBison001 => "chat-bison-001".to_string(),
+        Model::TextBison001 => "text-bison-001".to_string(),
+        Model::TextBisonSafetyRecitationOff => "text-bison-safety-recitation-off".to_string(),
+        Model::TextBisonSafetyOff => "text-bison-safety-off".to_string(),
+        Model::TextBisonRecitationOff => "text-bison-recitation-off".to_string(),
+        Model::EmbeddingGecko001 => "embedding-gecko-001".to_string(),
+        Model::EvergreenCustom => "evergreen-custom".to_string(),
+        Model::GeminiTest23 => "gemini-test-23".to_string(),
+        Model::GeminiToolTest => "gemini-tool-test".to_string(),
+        Model::GeminiExp1206 => "gemini-exp-1206".to_string(),
         Model::Learnlm15ProExperimental => "learnlm-1.5-pro-experimental".to_string(),
         Model::Embedding001 => "embedding-001".to_string(),
         Model::TextEmbedding004 => "text-embedding-004".to_string(),
@@ -232,9 +360,6 @@ pub fn model_to_string(model: Model) -> String {
         Model::Imagen30Generate002Exp => "imagen-3.0-generate-002-exp".to_string(),
         Model::ImageVerification001 => "image-verification-001".to_string(),
         Model::Veo20Generate001 => "veo-2.0-generate-001".to_string(),
-        Model::Gemini25Flash => "gemini-2.5-flash".to_string(),
-        Model::Gemini25Pro => "gemini-2.5-pro".to_string(),
-        Model::Gemini25FlashLitePreview0617 => "gemini-2.5-flash-lite-preview-06-17".to_string(),
     }
 }
 
@@ -313,7 +438,7 @@ impl ClientWrapper for GeminiClient {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = GeminiClient::new_with_model_enum(
     ///     &std::env::var("GEMINI_KEY")?,
-    ///     Model::Gemini20Flash,
+    ///     Model::Gemini25Flash,
     /// );
     /// let resp = client.send_message(
     ///     &[Message { role: Role::User, content: Arc::from("Hello"), tool_calls: vec![] }],

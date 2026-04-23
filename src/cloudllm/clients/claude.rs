@@ -47,41 +47,50 @@ pub struct ClaudeClient {
     model: String,
 }
 
-/// Anthropic Claude models available through the compatibility layer (Feb 2026 snapshot).
+/// Anthropic Claude models available through the compatibility layer (Apr 2026 snapshot).
 pub enum Model {
-    /// `claude-sonnet-4-6` – Claude Sonnet 4.6, latest Sonnet generation.
+    /// `claude-opus-4-7` – most capable generally available model for complex reasoning and agentic coding.
+    ClaudeOpus47,
+    /// `claude-sonnet-4-6` – best combination of speed and intelligence.
     ClaudeSonnet46,
-    /// `claude-opus-4-6` – latest and most capable Opus model.
+    /// `claude-haiku-4-5` – fastest model with near-frontier intelligence.
+    ClaudeHaiku45,
+    /// `claude-opus-4-6` – previous Opus generation with extended thinking.
+    #[deprecated(since = "0.15.0", note = "Use ClaudeOpus47 instead.")]
     ClaudeOpus46,
+    /// `claude-sonnet-4-5` – smartest model for complex agents and coding.
+    ClaudeSonnet45,
     /// `claude-opus-4-5` – previous Opus generation with extended thinking.
     ClaudeOpus45,
-    /// `claude-sonnet-4-5` – smartest model for complex agents and coding
-    ClaudeSonnet45,
-    /// `claude-haiku-4-5` – fastest Sonnet 4.5 variant.
-    ClaudeHaiku45,
     /// `claude-opus-4-1` – earlier Opus reasoning tier.
     ClaudeOpus41,
-    /// `claude-opus-4-0` – original Opus generation.
-    ClaudeOpus4,
     /// `claude-sonnet-4-0` – balanced reasoning + throughput.
+    #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet46 instead.")]
     ClaudeSonnet4,
-    /// `claude-sonnet-3-7-sonnet-latest` – latest Sonnet iteration.
+    /// `claude-opus-4-0` – original Opus generation.
+    #[deprecated(since = "0.15.0", note = "Use ClaudeOpus47 instead.")]
+    ClaudeOpus4,
+    /// `claude-sonnet-3-7-sonnet-latest` – legacy Sonnet iteration.
+    #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet46 instead.")]
     ClaudeSonnet37,
-    /// `claude-haiku-3-5-haiku-latest` – fastest Claude tier.
+    /// `claude-haiku-3-5-haiku-latest` – legacy Haiku iteration.
+    #[deprecated(since = "0.15.0", note = "Use ClaudeHaiku45 instead.")]
     ClaudeHaiku35,
 }
 
 /// Convert a [`Model`] variant into its public string identifier.
+#[allow(deprecated)]
 fn model_to_string(model: Model) -> String {
     match model {
+        Model::ClaudeOpus47 => "claude-opus-4-7".to_string(),
         Model::ClaudeSonnet46 => "claude-sonnet-4-6".to_string(),
-        Model::ClaudeOpus46 => "claude-opus-4-6".to_string(),
-        Model::ClaudeOpus45 => "claude-opus-4-5".to_string(),
-        Model::ClaudeSonnet45 => "claude-sonnet-4-5".to_string(),
         Model::ClaudeHaiku45 => "claude-haiku-4-5".to_string(),
+        Model::ClaudeOpus46 => "claude-opus-4-6".to_string(),
+        Model::ClaudeSonnet45 => "claude-sonnet-4-5".to_string(),
+        Model::ClaudeOpus45 => "claude-opus-4-5".to_string(),
         Model::ClaudeOpus41 => "claude-opus-4-1".to_string(),
-        Model::ClaudeOpus4 => "claude-opus-4-0".to_string(),
         Model::ClaudeSonnet4 => "claude-sonnet-4-0".to_string(),
+        Model::ClaudeOpus4 => "claude-opus-4-0".to_string(),
         Model::ClaudeSonnet37 => "claude-sonnet-3-7-sonnet-latest".to_string(),
         Model::ClaudeHaiku35 => "claude-haiku-3-5-haiku-latest".to_string(),
     }
