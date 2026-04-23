@@ -17,6 +17,25 @@
    - `tests/client_tests.rs` now uses `ClaudeSonnet46` and `Gemini25Flash`
    - `gemini.rs` doc examples updated to `Model::Gemini25Flash`
 
+0.15.0 APR/22/2026
+ - feat: Update OpenAI Model enum — deprecate discontinued models and add replacements
+   - [ADDED] `Model::GPT54Pro` mapped to `"gpt-5.4-pro"` — high-capability model for tough problems
+   - [ADDED] `Model::GPT53ChatLatest` mapped to `"gpt-5.3-chat-latest"` — ChatGPT production deployment
+   - [ADDED] `Model::GPT52ChatLatest` mapped to `"gpt-5.2-chat-latest"`
+   - [ADDED] `Model::GPT52Pro` mapped to `"gpt-5.2-pro"`
+   - [ADDED] `Model::O4Mini` mapped to `"o4-mini"` — newest O-series low-latency tier
+   - [ADDED] `Model::O4MiniHigh` mapped to `"o4-mini-high"` — higher accuracy variant
+   - [ADDED] `Model::O3` mapped to `"o3"` — general availability O-series release
+   - [ADDED] `Model::GPTRealtime15` mapped to `"gpt-realtime-1.5"`
+   - [ADDED] `Model::GPTRealtimeMini` mapped to `"gpt-realtime-mini"`
+   - [ADDED] `Model::GPTAudio15` mapped to `"gpt-audio-1.5"`
+   - [ADDED] `Model::GPTAudioMini` mapped to `"gpt-audio-mini"`
+   - [DEPRECATED] `GPT52`, `GPT5ChatLatest`, `ChatGPT4oLatest`, `O1Mini`, `O1Preview`, `O3Mini`, `GPT4oRealtimePreview`, `GPT4oMiniRealtimePreview`, `GPT4oAudioPreview`, `GPT45Preview`, `GPT41Nano` with migration notes
+   - Reorganized enum: current models first, deprecated legacy models below
+   - Added `#[allow(deprecated)]` on `model_to_string()` to keep build clean
+ - maint: Updated examples, docs and tests to use current non-deprecated model variants
+   - All doc examples and tests now use `GPT5Nano` instead of deprecated `GPT41Nano`
+
 0.14.0 MAR/18/2026
  - feat: Add GPT-5.4 mini and nano OpenAI model support
    - [ADDED] `Model::GPT54Mini` mapped to `"gpt-5.4-mini"`
