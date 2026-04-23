@@ -1,3 +1,22 @@
+0.15.1 APR/23/2026
+ - feat: Update Claude model enum with latest Anthropic models (Apr 2026)
+   - [ADDED] `Model::ClaudeOpus47` mapped to `"claude-opus-4-7"` — most capable generally available model
+   - [ADDED] `Model::ClaudeSonnet46` mapped to `"claude-sonnet-4-6"` — best combination of speed and intelligence
+   - [ADDED] `Model::ClaudeHaiku45` mapped to `"claude-haiku-4-5"` — fastest model with near-frontier intelligence
+   - [DEPRECATED] `ClaudeOpus46`, `ClaudeSonnet4`, `ClaudeOpus4`, `ClaudeSonnet37`, `ClaudeHaiku35` with migration notes
+   - Reorganized enum: current models first, legacy/deprecated models below
+   - Added `#[allow(deprecated)]` on `model_to_string()` to keep build clean
+ - feat: Update Gemini model enum with latest Google models (Apr 2026)
+   - [ADDED] `Model::Gemini25ProLatest` mapped to `"gemini-2.5-pro-latest"`
+   - [ADDED] `Model::Gemini25FlashLatest` mapped to `"gemini-2.5-flash-latest"`
+   - [ADDED] `Model::Gemini25FlashLite` mapped to `"gemini-2.5-flash-lite"`
+   - [DEPRECATED] All legacy models: 1.0/1.5 series, 2.0 experiments/previews, PaLM Bison, embeddings, Imagen, Veo, AQA, test models
+   - Reorganized enum with current 2.5 models at the top
+   - Added `#[allow(deprecated)]` on `model_to_string()` to keep build clean
+ - maint: Updated doc examples and tests to use current non-deprecated model variants
+   - `tests/client_tests.rs` now uses `ClaudeSonnet46` and `Gemini25Flash`
+   - `gemini.rs` doc examples updated to `Model::Gemini25Flash`
+
 0.14.0 MAR/18/2026
  - feat: Add GPT-5.4 mini and nano OpenAI model support
    - [ADDED] `Model::GPT54Mini` mapped to `"gpt-5.4-mini"`
