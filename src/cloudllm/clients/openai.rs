@@ -19,7 +19,7 @@
 //! async fn main() {
 //!     // Initialize with your API key and model enum.
 //!     let secret_key : String = std::env::var("OPEN_AI_SECRET").expect("OPEN_AI_SECRET not set");
-//!     let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT41Nano);
+//!     let client = OpenAIClient::new_with_model_enum(&secret_key, Model::GPT5Nano);
 //!
 //!     // Send system + user messages.
 //!     let resp = client.send_message(&vec![
@@ -77,7 +77,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let key = std::env::var("OPEN_AI_SECRET")?;
-//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Nano);
+//!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT5Nano);
 //!
 //!     let options = ImageGenerationOptions {
 //!         aspect_ratio: Some("16:9".to_string()),
@@ -123,14 +123,17 @@ use tokio::sync::Mutex;
 /// Image generation model identifiers for OpenAI.
 #[allow(non_camel_case_types)]
 pub enum ImageModel {
-    /// `gpt-image-1.5` – Current OpenAI image generation model
+    /// `gpt-image-1.5` – Current OpenAI image generation model.
     GPTImage1_5,
+    /// `gpt-image-1-mini` – Lower-cost OpenAI image generation model.
+    GPTImage1Mini,
 }
 
 /// Convert an [`ImageModel`] variant into the string identifier expected by the API.
 pub fn image_model_to_string(model: ImageModel) -> String {
     match model {
         ImageModel::GPTImage1_5 => "gpt-image-1.5".to_string(),
+        ImageModel::GPTImage1Mini => "gpt-image-1-mini".to_string(),
     }
 }
 
@@ -143,13 +146,18 @@ pub enum Model {
     GPT54Mini,
     /// `gpt-5.4-nano` – Smallest GPT-5.4 tier optimized for cost and latency.
     GPT54Nano,
-    /// `gpt-5.2` – Complex reasoning, broad world knowledge, and code-heavy or multi-step agentic tasks
+    /// `gpt-5.4-pro` – High-capability model for tough problems requiring harder thinking.
+    GPT54Pro,
+    /// `gpt-5.3-chat-latest` – ChatGPT's production deployment of GPT-5.3.
+    GPT53ChatLatest,
+    /// `gpt-5.2` – Complex reasoning, broad world knowledge, and code-heavy or multi-step agentic tasks.
+    #[deprecated(since = "0.15.0", note = "Use GPT54 instead.")]
     GPT52,
     /// `gpt-5.2-chat-latest` – ChatGPT's production deployment of GPT-5.2.
     GPT52ChatLatest,
-    /// `gpt-5.2-pro` – Tough problems that may take longer to solve but require harder thinking
+    /// `gpt-5.2-pro` – Tough problems that may take longer to solve but require harder thinking.
     GPT52Pro,
-    /// `gpt-5.1 - flagship for coding and agentic tasks with configurable reasoning and non-reasoning effort.
+    /// `gpt-5.1` – flagship for coding and agentic tasks with configurable reasoning and non-reasoning effort.
     GPT51,
     /// `gpt-5` – high-reasoning, medium latency, text or multimodal input.
     GPT5,
@@ -158,20 +166,25 @@ pub enum Model {
     /// `gpt-5-nano` – lowest latency GPT-5 configuration.
     GPT5Nano,
     /// `gpt-5-chat-latest` – ChatGPT's production deployment of GPT-5.
+    #[deprecated(since = "0.15.0", note = "Use GPT53ChatLatest instead.")]
     GPT5ChatLatest,
     /// `gpt-4o` – Omni model with text + image inputs.
     GPT4o,
     /// `chatgpt-4o-latest` – the ChatGPT tuned interface to GPT-4o.
+    #[deprecated(since = "0.15.0", note = "Use GPT51 instead.")]
     ChatGPT4oLatest,
     /// `gpt-4o-mini` – cost effective GPT-4o derivative.
     GPt4oMini,
     /// `o1` – reasoning-focused O-series frontier model.
     O1,
     /// `o1-mini` – faster/cheaper O-series offering.
+    #[deprecated(since = "0.15.0", note = "Use O4Mini instead.")]
     O1Mini,
     /// `o1-preview` – preview build of the O1 family.
+    #[deprecated(since = "0.15.0", note = "Use O3 instead.")]
     O1Preview,
     /// `o3-mini` – compact successor in the O-series.
+    #[deprecated(since = "0.15.0", note = "Use O3 instead.")]
     O3Mini,
     /// `o4-mini` – newest O-series low-latency tier.
     O4Mini,
@@ -180,27 +193,45 @@ pub enum Model {
     /// `o3` – general availability O-series release.
     O3,
     /// `gpt-4o-realtime-preview` – realtime WebRTC capable GPT-4o.
+    #[deprecated(since = "0.15.0", note = "Use GPTRealtime15 instead.")]
     GPT4oRealtimePreview,
     /// `gpt-4o-mini-realtime-preview` – lightweight realtime GPT-4o.
+    #[deprecated(since = "0.15.0", note = "Use GPTRealtimeMini instead.")]
     GPT4oMiniRealtimePreview,
     /// `gpt-4o-audio-preview` – GPT-4o tuned for audio conversations.
+    #[deprecated(since = "0.15.0", note = "Use GPTAudio15 instead.")]
     GPT4oAudioPreview,
+    /// `gpt-realtime-1.5` – Realtime model for WebRTC and WebSocket applications.
+    GPTRealtime15,
+    /// `gpt-realtime-mini` – Lightweight realtime model with lower latency.
+    GPTRealtimeMini,
+    /// `gpt-audio-1.5` – Model tuned for audio conversations.
+    GPTAudio15,
+    /// `gpt-audio-mini` – Compact model for audio conversations.
+    GPTAudioMini,
     /// `gpt-4.5-preview` – preview of the 4.5 Omni upgrade.
+    #[deprecated(since = "0.15.0", note = "Use GPT41 instead.")]
     GPT45Preview,
     /// `gpt-4.1` – general availability GPT-4.1.
     GPT41,
     /// `gpt-4.1-mini` – reduced cost GPT-4.1 tier.
     GPT41Mini,
     /// `gpt-4.1-nano` – ultra low cost GPT-4.1 derivative.
+    #[deprecated(since = "0.15.0", note = "Use GPT5Nano instead.")]
     GPT41Nano,
+    /// `gpt-5-codex-mini` – Lower-cost codex model for coding tasks.
+    GPT5CodexMini,
 }
 
 /// Convert a [`Model`] variant into the string identifier expected by the REST API.
+#[allow(deprecated)]
 pub fn model_to_string(model: Model) -> String {
     match model {
         Model::GPT54 => "gpt-5.4".to_string(),
         Model::GPT54Mini => "gpt-5.4-mini".to_string(),
         Model::GPT54Nano => "gpt-5.4-nano".to_string(),
+        Model::GPT54Pro => "gpt-5.4-pro".to_string(),
+        Model::GPT53ChatLatest => "gpt-5.3-chat-latest".to_string(),
         Model::GPT52 => "gpt-5.2".to_string(),
         Model::GPT52ChatLatest => "gpt-5.2-chat-latest".to_string(),
         Model::GPT52Pro => "gpt-5.2-pro".to_string(),
@@ -222,10 +253,15 @@ pub fn model_to_string(model: Model) -> String {
         Model::GPT4oRealtimePreview => "gpt-4o-realtime-preview".to_string(),
         Model::GPT4oMiniRealtimePreview => "gpt-4o-mini-realtime-preview".to_string(),
         Model::GPT4oAudioPreview => "gpt-4o-audio-preview".to_string(),
+        Model::GPTRealtime15 => "gpt-realtime-1.5".to_string(),
+        Model::GPTRealtimeMini => "gpt-realtime-mini".to_string(),
+        Model::GPTAudio15 => "gpt-audio-1.5".to_string(),
+        Model::GPTAudioMini => "gpt-audio-mini".to_string(),
         Model::GPT45Preview => "gpt-4.5-preview".to_string(),
         Model::GPT41 => "gpt-4.1".to_string(),
         Model::GPT41Mini => "gpt-4.1-mini".to_string(),
         Model::GPT41Nano => "gpt-4.1-nano".to_string(),
+        Model::GPT5CodexMini => "gpt-5-codex-mini".to_string(),
     }
 }
 
@@ -320,7 +356,7 @@ impl ClientWrapper for OpenAIClient {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = OpenAIClient::new_with_model_enum(
     ///     &std::env::var("OPEN_AI_SECRET")?,
-    ///     Model::GPT41Nano,
+    ///     Model::GPT5Nano,
     /// );
     /// let resp = client.send_message(
     ///     &[Message { role: Role::User, content: Arc::from("Hello"), tool_calls: vec![] }],
