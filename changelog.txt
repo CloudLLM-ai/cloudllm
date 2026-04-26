@@ -1,5 +1,5 @@
 0.15.2 APR/26/2026
- - feat(cloudllm_mcp 0.2.0): Update MCP streamable HTTP transport to protocol version 2025-11-25
+ - feat(cloudllm_mcp 0.2.1): Update MCP streamable HTTP transport to protocol version 2025-11-25
    - `CURRENT_MCP_PROTOCOL_VERSION` changed from `"2025-06-18"` to `"2025-11-25"`
    - `"2025-11-25"` added to `SUPPORTED_MCP_PROTOCOL_VERSIONS`
    - Tool responses now include `execution: { taskSupport: "optional" }` per 2025-11-25 spec
@@ -8,6 +8,14 @@
    - New builder method `with_skip_origin_validation(bool)`
    - When `true`, bypasses the localhost-only Origin header check, allowing remote LAN clients
    - `validate_origin()` now takes the runtime config so it can respect the skip flag
+ - test(cloudllm_mcp): Refactor all inline tests into `mcp/tests/` integration test folder
+   - Moved 20 protocol tests from `src/protocol.rs` to `tests/protocol_tests.rs`
+   - Moved 9 server tests from `src/server.rs` to `tests/server_tests.rs`
+   - Added 17 new streamable HTTP integration tests in `tests/streamable_http_tests.rs`
+   - Tests cover: protocol version negotiation, origin validation (localhost/LAN),
+     `execution.taskSupport` field, response headers, JSON-RPC error handling
+   - Only 2 private-field tests remain inline in `src/protocol.rs`
+   - Added `axum` and `tower` as dev-dependencies for HTTP test helpers
 
 0.15.1 APR/23/2026
  - feat: Update Claude model enum with latest Anthropic models (Apr 2026)
