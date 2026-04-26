@@ -22,10 +22,10 @@ use std::sync::Arc;
 use subtle::ConstantTimeEq;
 
 /// Current MCP protocol version supported by the streamable HTTP transport.
-pub const CURRENT_MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+pub const CURRENT_MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Legacy MCP protocol versions still accepted for compatibility.
-pub const SUPPORTED_MCP_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+pub const SUPPORTED_MCP_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// Configuration for a standard streamable HTTP MCP endpoint.
 ///
@@ -51,6 +51,10 @@ pub struct StreamableHttpConfig {
     pub server_version: String,
     /// Optional instructions returned in the initialize result.
     pub instructions: Option<String>,
+    /// When true, skip HTTP Origin header validation.
+    /// Set this to `true` when deploying on a LAN where non-localhost
+    /// origins need to connect (e.g., `http://192.168.1.x`).
+    pub skip_origin_validation: bool,
 }
 
 impl StreamableHttpConfig {
@@ -63,6 +67,7 @@ impl StreamableHttpConfig {
             server_title: None,
             server_version: server_version.into(),
             instructions: None,
+            skip_origin_validation: false,
         }
     }
 
@@ -89,6 +94,12 @@ impl StreamableHttpConfig {
         self.instructions = Some(instructions.into());
         self
     }
+
+    /// Skip HTTP Origin header validation for LAN deployments.
+    pub fn with_skip_origin_validation(mut self, skip: bool) -> Self {
+        self.skip_origin_validation = skip;
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -102,6 +113,7 @@ struct StreamableHttpState {
 struct StreamableHttpRuntimeConfig {
     bearer_token: Option<String>,
     ip_filter: IpFilter,
+    skip_origin_validation: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,6 +210,7 @@ pub fn streamable_http_router(
         http_config: StreamableHttpRuntimeConfig {
             bearer_token: http_config.bearer_token.clone(),
             ip_filter: http_config.ip_filter.clone(),
+            skip_origin_validation: transport.skip_origin_validation,
         },
         transport: transport.clone(),
     });
@@ -234,7 +247,7 @@ async fn streamable_http_post_handler(
         );
     }
 
-    if !validate_origin(&headers) {
+    if !validate_origin(&state.http_config, &headers) {
         return json_error_response(
             StatusCode::FORBIDDEN,
             None,
@@ -465,7 +478,11 @@ fn authorize(
     }
 }
 
-fn validate_origin(headers: &HeaderMap) -> bool {
+fn validate_origin(config: &StreamableHttpRuntimeConfig, headers: &HeaderMap) -> bool {
+    if config.skip_origin_validation {
+        return true;
+    }
+
     let Some(origin) = headers.get("Origin").and_then(|v| v.to_str().ok()) else {
         return true;
     };
@@ -539,6 +556,12 @@ fn tool_to_mcp_json(tool: crate::protocol::ToolMetadata) -> Value {
     if let Some(annotations) = tool.protocol_metadata.get("annotations") {
         object.insert("annotations".to_string(), annotations.clone());
     }
+    // 2025-11-25: execution object with taskSupport (defaults to "optional" for tools that
+    // support async execution via the MCP task mechanism).
+    object.insert(
+        "execution".to_string(),
+        json!({"taskSupport": "optional"}),
+    );
     Value::Object(object)
 }
 

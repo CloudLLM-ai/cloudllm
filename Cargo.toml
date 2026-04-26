@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "cloudllm"
-version = "0.15.1"
+version = "0.15.2"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, multi-agent orchestration, and MentisDB-backed durable memory."
@@ -37,7 +37,7 @@ axum = { version = "0.8.7", optional = true }
 tower = { version = "0.5.2", optional = true }
 uuid = { version = "1.10", features = ["v4"] }
 mentisdb = "0.4"
-mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.1.0", features = ["server"] }
+mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.2.0", features = ["server"] }
 
 [dev-dependencies]
 tempfile = "3.23"

@@ -1,3 +1,14 @@
+0.15.2 APR/26/2026
+ - feat(cloudllm_mcp 0.2.0): Update MCP streamable HTTP transport to protocol version 2025-11-25
+   - `CURRENT_MCP_PROTOCOL_VERSION` changed from `"2025-06-18"` to `"2025-11-25"`
+   - `"2025-11-25"` added to `SUPPORTED_MCP_PROTOCOL_VERSIONS`
+   - Tool responses now include `execution: { taskSupport: "optional" }` per 2025-11-25 spec
+ - fix(cloudllm_mcp): Add `skip_origin_validation` to `StreamableHttpConfig` for LAN deployments
+   - New field `skip_origin_validation: bool` (default `false`) on `StreamableHttpConfig`
+   - New builder method `with_skip_origin_validation(bool)`
+   - When `true`, bypasses the localhost-only Origin header check, allowing remote LAN clients
+   - `validate_origin()` now takes the runtime config so it can respect the skip flag
+
 0.15.1 APR/23/2026
  - feat: Update Claude model enum with latest Anthropic models (Apr 2026)
    - [ADDED] `Model::ClaudeOpus47` mapped to `"claude-opus-4-7"` — most capable generally available model
