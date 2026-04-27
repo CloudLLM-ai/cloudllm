@@ -262,6 +262,7 @@ impl SseBroadcaster {
 }
 
 /// An event handler that bridges to an SseBroadcaster.
+#[derive(Clone)]
 pub struct SseEventHandler {
     broadcaster: SseBroadcaster,
 }
