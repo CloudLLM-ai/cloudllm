@@ -30,6 +30,16 @@ foundation without creating circular dependencies.
   - `HttpServerInstance`
   - `IpFilter`
   - `AuthConfig`
+- streamable HTTP transport:
+  - `StreamableHttpConfig`
+  - `streamable_http_router`
+  - `streamable_http_router_with_sse`
+- SSE (Server-Sent Events) support:
+  - `SseBroadcaster` — multi-subscriber broadcast channel for SSE events
+  - `SseEventHandler` — bridges `McpEvent` lifecycle events into the SSE stream
+  - `SseMessage` — typed SSE message with optional event name and JSON data
+  - GET endpoint returns `text/event-stream` when a broadcaster is attached
+  - POST requests automatically broadcast JSON-RPC results/errors as SSE events
 
 ## Build
 

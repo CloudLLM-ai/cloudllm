@@ -7,19 +7,24 @@
 //! with standard MCP clients such as Codex and Claude Code.
 
 use crate::builder_utils::IpFilter;
+use crate::events::{McpEvent, McpEventHandler};
 use crate::protocol::{ToolError, ToolProtocol};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use subtle::ConstantTimeEq;
+use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
 
 /// Current MCP protocol version supported by the streamable HTTP transport.
 pub const CURRENT_MCP_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -102,11 +107,186 @@ impl StreamableHttpConfig {
     }
 }
 
+/// An SSE message following the text/event-stream format.
+#[derive(Debug, Clone, Serialize)]
+pub struct SseMessage {
+    /// Optional event type (defaults to "message" for MCP).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
+    /// Optional unique message ID for replay/resume.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The JSON-RPC payload or notification.
+    pub data: Value,
+}
+
+impl SseMessage {
+    /// Create a simple data-only SSE message (no event type or ID).
+    pub fn data(data: Value) -> Self {
+        Self {
+            event: None,
+            id: None,
+            data,
+        }
+    }
+
+    /// Create a typed SSE message with an event name.
+    pub fn with_event(event: impl Into<String>, data: Value) -> Self {
+        Self {
+            event: Some(event.into()),
+            id: None,
+            data,
+        }
+    }
+
+    /// Format as a proper text/event-stream line sequence.
+    pub fn format(&self) -> String {
+        let mut out = String::new();
+        if let Some(ref event) = self.event {
+            out.push_str(&format!("event: {}\n", event));
+        }
+        if let Some(ref id) = self.id {
+            out.push_str(&format!("id: {}\n", id));
+        }
+        out.push_str(&format!("data: {}\n\n", serde_json::to_string(&self.data).unwrap_or_default()));
+        out
+    }
+}
+
+/// Broadcast channel wrapping McpEvent for SSE streaming.
+#[derive(Clone)]
+pub struct SseBroadcaster {
+    sender: broadcast::Sender<SseMessage>,
+}
+
+impl SseBroadcaster {
+    /// Create a new broadcaster with the given buffer size.
+    pub fn new(buffer_size: usize) -> Self {
+        let (sender, _) = broadcast::channel(buffer_size);
+        Self { sender }
+    }
+
+    /// Subscribe to the event stream.
+    pub fn subscribe(&self) -> broadcast::Receiver<SseMessage> {
+        self.sender.subscribe()
+    }
+
+    /// Send an event to all subscribers.
+    pub fn send(&self, message: SseMessage) {
+        let _ = self.sender.send(message);
+    }
+
+    /// Convert an McpEvent into an SseMessage and broadcast it.
+    pub fn broadcast_mcp_event(&self, event: &McpEvent) {
+        let data = match event {
+            McpEvent::ServerStarted { addr } => json!({
+                "event": "server_started",
+                "addr": addr
+            }),
+            McpEvent::ToolListRequested { client_addr } => json!({
+                "event": "tool_list_requested",
+                "client_addr": client_addr
+            }),
+            McpEvent::ToolListReturned { client_addr, tool_count } => json!({
+                "event": "tool_list_returned",
+                "client_addr": client_addr,
+                "tool_count": tool_count
+            }),
+            McpEvent::ToolCallReceived { client_addr, tool_name, parameters } => json!({
+                "event": "tool_call_received",
+                "client_addr": client_addr,
+                "tool_name": tool_name,
+                "parameters": parameters
+            }),
+            McpEvent::ToolCallCompleted { client_addr, tool_name, success, error, duration_ms } => json!({
+                "event": "tool_call_completed",
+                "client_addr": client_addr,
+                "tool_name": tool_name,
+                "success": success,
+                "error": error,
+                "duration_ms": duration_ms
+            }),
+            McpEvent::ToolError { source, tool_name, error, duration_ms } => json!({
+                "event": "tool_error",
+                "source": source,
+                "tool_name": tool_name,
+                "error": error,
+                "duration_ms": duration_ms
+            }),
+            McpEvent::RequestRejected { client_addr, reason } => json!({
+                "event": "request_rejected",
+                "client_addr": client_addr,
+                "reason": reason
+            }),
+            McpEvent::ConnectionInitialized { endpoint, tool_count } => json!({
+                "event": "connection_initialized",
+                "endpoint": endpoint,
+                "tool_count": tool_count
+            }),
+            McpEvent::ConnectionClosed { endpoint } => json!({
+                "event": "connection_closed",
+                "endpoint": endpoint
+            }),
+            McpEvent::ToolsDiscovered { endpoint, tool_count, tool_names } => json!({
+                "event": "tools_discovered",
+                "endpoint": endpoint,
+                "tool_count": tool_count,
+                "tool_names": tool_names
+            }),
+            McpEvent::CacheHit { endpoint, tool_count } => json!({
+                "event": "cache_hit",
+                "endpoint": endpoint,
+                "tool_count": tool_count
+            }),
+            McpEvent::CacheExpired { endpoint } => json!({
+                "event": "cache_expired",
+                "endpoint": endpoint
+            }),
+            McpEvent::RemoteToolCallStarted { endpoint, tool_name, parameters } => json!({
+                "event": "remote_tool_call_started",
+                "endpoint": endpoint,
+                "tool_name": tool_name,
+                "parameters": parameters
+            }),
+            McpEvent::RemoteToolCallCompleted { endpoint, tool_name, success, error, duration_ms } => json!({
+                "event": "remote_tool_call_completed",
+                "endpoint": endpoint,
+                "tool_name": tool_name,
+                "success": success,
+                "error": error,
+                "duration_ms": duration_ms
+            }),
+        };
+        self.send(SseMessage::with_event("mcp_event", data));
+    }
+}
+
+/// An event handler that bridges to an SseBroadcaster.
+pub struct SseEventHandler {
+    broadcaster: SseBroadcaster,
+}
+
+impl SseEventHandler {
+    /// Create a new SSE event handler with a broadcaster of the given size.
+    pub fn new(buffer_size: usize) -> (Self, SseBroadcaster) {
+        let broadcaster = SseBroadcaster::new(buffer_size);
+        (Self { broadcaster: broadcaster.clone() }, broadcaster)
+    }
+}
+
+#[async_trait::async_trait]
+impl McpEventHandler for SseEventHandler {
+    async fn on_mcp_event(&self, event: &McpEvent) {
+        self.broadcaster.broadcast_mcp_event(event);
+    }
+}
+
 #[derive(Clone)]
 struct StreamableHttpState {
     protocol: Arc<dyn ToolProtocol>,
     http_config: StreamableHttpRuntimeConfig,
     transport: StreamableHttpConfig,
+    sse_broadcaster: Option<SseBroadcaster>,
 }
 
 #[derive(Clone)]
@@ -147,7 +327,7 @@ struct JsonRpcResponse {
 ///
 /// The router serves a single MCP endpoint that accepts:
 /// - `POST` for JSON-RPC requests and notifications
-/// - `GET` returning `405 Method Not Allowed` because SSE is not yet exposed
+/// - `GET` returning an SSE stream when a broadcaster is configured, otherwise `405`
 /// - `DELETE` returning `405 Method Not Allowed` because sessions are stateless
 ///
 /// # Example
@@ -205,6 +385,72 @@ pub fn streamable_http_router(
     transport: &StreamableHttpConfig,
     protocol: Arc<dyn ToolProtocol>,
 ) -> Router {
+    streamable_http_router_with_sse(http_config, transport, protocol, None)
+}
+
+/// Build a streamable HTTP MCP router with optional SSE support.
+///
+/// When `sse_broadcaster` is `Some`, the `GET` endpoint returns a
+/// `text/event-stream` response that emits server-side events as they occur.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use std::sync::Arc;
+/// use mcp::http::HttpServerConfig;
+/// use mcp::streamable_http::{streamable_http_router_with_sse, SseBroadcaster, StreamableHttpConfig};
+/// use mcp::{IpFilter, ToolMetadata, ToolProtocol, ToolResult};
+///
+/// struct Demo;
+///
+/// #[async_trait::async_trait]
+/// impl ToolProtocol for Demo {
+///     async fn execute(
+///         &self,
+///         _tool_name: &str,
+///         _parameters: serde_json::Value,
+///     ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(ToolResult::success(serde_json::json!({"ok": true})))
+///     }
+///
+///     async fn list_tools(
+///         &self,
+///     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(vec![ToolMetadata::new("demo", "Demo tool")])
+///     }
+///
+///     async fn get_tool_metadata(
+///         &self,
+///         _tool_name: &str,
+///     ) -> Result<ToolMetadata, Box<dyn std::error::Error + Send + Sync>> {
+///         Ok(ToolMetadata::new("demo", "Demo tool"))
+///     }
+///
+///     fn protocol_name(&self) -> &str {
+///         "demo"
+///     }
+/// }
+///
+/// let broadcaster = SseBroadcaster::new(256);
+/// let router = streamable_http_router_with_sse(
+///     &HttpServerConfig {
+///         addr: std::net::SocketAddr::from(([127, 0, 0, 1], 9471)),
+///         bearer_token: None,
+///         ip_filter: IpFilter::new(),
+///         event_handler: None,
+///     },
+///     &StreamableHttpConfig::new("demo", "0.1.0"),
+///     Arc::new(Demo),
+///     Some(broadcaster),
+/// );
+/// let _ = router;
+/// ```
+pub fn streamable_http_router_with_sse(
+    http_config: &crate::http::HttpServerConfig,
+    transport: &StreamableHttpConfig,
+    protocol: Arc<dyn ToolProtocol>,
+    sse_broadcaster: Option<SseBroadcaster>,
+) -> Router {
     let state = Arc::new(StreamableHttpState {
         protocol,
         http_config: StreamableHttpRuntimeConfig {
@@ -213,6 +459,7 @@ pub fn streamable_http_router(
             skip_origin_validation: transport.skip_origin_validation,
         },
         transport: transport.clone(),
+        sse_broadcaster,
     });
 
     Router::new()
@@ -299,23 +546,111 @@ async fn streamable_http_post_handler(
     let params = message.params.unwrap_or(Value::Object(Default::default()));
 
     match handle_jsonrpc_request(&state, method, params).await {
-        Ok(result) => json_success_response(id, result),
+        Ok(result) => {
+            if let Some(ref broadcaster) = state.sse_broadcaster {
+                broadcast_jsonrpc_result(broadcaster, method, &result, &addr);
+            }
+            json_success_response(id, result)
+        }
         Err((status, code, error_message, data)) => {
+            if let Some(ref broadcaster) = state.sse_broadcaster {
+                broadcast_jsonrpc_error(broadcaster, method, code, &error_message, &addr);
+            }
             json_error_response(status, Some(id), code, error_message, data)
         }
     }
 }
 
 async fn streamable_http_get_handler(
+    State(state): State<Arc<StreamableHttpState>>,
     ConnectInfo(_addr): ConnectInfo<SocketAddr>,
     _headers: HeaderMap,
 ) -> Response {
+    let Some(broadcaster) = state.sse_broadcaster.clone() else {
+        return (
+            StatusCode::METHOD_NOT_ALLOWED,
+            [("content-type", "application/json")],
+            Json(json!({"error": "SSE stream is not enabled on this endpoint"})),
+        )
+            .into_response();
+    };
+
+    let stream = sse_event_stream(broadcaster);
+
     (
-        StatusCode::METHOD_NOT_ALLOWED,
-        [("content-type", "application/json")],
-        Json(json!({"error": "SSE stream is not implemented on this endpoint"})),
+        StatusCode::OK,
+        [
+            ("content-type", "text/event-stream"),
+            ("cache-control", "no-cache"),
+            ("connection", "keep-alive"),
+            (
+                "MCP-Protocol-Version",
+                CURRENT_MCP_PROTOCOL_VERSION,
+            ),
+        ],
+        axum::body::Body::from_stream(stream),
     )
         .into_response()
+}
+
+fn sse_event_stream(
+    broadcaster: SseBroadcaster,
+) -> Pin<Box<dyn Stream<Item = Result<String, std::convert::Infallible>> + Send>> {
+    let rx = broadcaster.subscribe();
+    Box::pin(tokio_stream::wrappers::BroadcastStream::new(rx).then(|msg| async move {
+        match msg {
+            Ok(sse_msg) => Ok(sse_msg.format()),
+            Err(_) => Ok(format!(
+                "event: warning\ndata: {}\n\n",
+                json!({"message": "SSE stream closed"})
+            )),
+        }
+    }))
+}
+
+fn broadcast_jsonrpc_result(
+    broadcaster: &SseBroadcaster,
+    method: &str,
+    result: &Value,
+    addr: &SocketAddr,
+) {
+    let event_name = match method {
+        "initialize" => "initialized",
+        "ping" => "ping",
+        "tools/list" => "tools_listed",
+        "tools/call" => "tool_called",
+        "resources/list" => "resources_listed",
+        "resources/read" => "resource_read",
+        _ => method,
+    };
+    broadcaster.send(SseMessage::with_event(
+        event_name,
+        json!({
+            "method": method,
+            "result": result,
+            "client_addr": addr.to_string(),
+        }),
+    ));
+}
+
+fn broadcast_jsonrpc_error(
+    broadcaster: &SseBroadcaster,
+    method: &str,
+    code: i32,
+    message: &str,
+    addr: &SocketAddr,
+) {
+    broadcaster.send(SseMessage::with_event(
+        "error",
+        json!({
+            "method": method,
+            "error": {
+                "code": code,
+                "message": message,
+            },
+            "client_addr": addr.to_string(),
+        }),
+    ));
 }
 
 async fn streamable_http_delete_handler(
