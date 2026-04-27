@@ -37,7 +37,7 @@ axum = { version = "0.8.7", optional = true }
 tower = { version = "0.5.2", optional = true }
 uuid = { version = "1.10", features = ["v4"] }
 mentisdb = "0.4"
-mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.2.1", features = ["server"] }
+mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.3.0", features = ["server"] }
 
 [dev-dependencies]
 tempfile = "3.23"
