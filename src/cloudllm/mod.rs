@@ -119,7 +119,7 @@ impl ImageGenerationProvider {
     /// ```
     pub fn display_name(&self) -> &'static str {
         match self {
-            ImageGenerationProvider::OpenAI => "OpenAI (DALL-E 3)",
+            ImageGenerationProvider::OpenAI => "OpenAI (gpt-image-2)",
             ImageGenerationProvider::Grok => "Grok Imagine",
             ImageGenerationProvider::Gemini => "Google Gemini",
         }

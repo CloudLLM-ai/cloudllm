@@ -5,7 +5,7 @@
 //! - **`send_message`**: returns a `Message` compatible with the higher level [`LLMSession`](crate::LLMSession) API.
 //! - **Automatic usage capture**: the last token accounting is stored in a shared slot.
 //! - **Streaming support**: `send_message_stream` converts streamed responses into [`MessageChunk`] values.
-//! - **Image generation**: Uses DALL-E 3 for generating images from prompts via the [`ImageGenerationClient`] trait.
+//! - **Image generation**: Uses gpt-image-2 for generating images from prompts via the [`ImageGenerationClient`] trait.
 //!
 //! # Example
 //!
@@ -66,7 +66,7 @@
 //! }
 //! ```
 //!
-//! # Image Generation with DALL-E 3
+//! # Image Generation with GPT Image 2
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
@@ -123,7 +123,9 @@ use tokio::sync::Mutex;
 /// Image generation model identifiers for OpenAI.
 #[allow(non_camel_case_types)]
 pub enum ImageModel {
-    /// `gpt-image-1.5` – Current OpenAI image generation model.
+    /// `gpt-image-2` – Latest OpenAI image generation model (2026).
+    GPTImage2,
+    /// `gpt-image-1.5` – Previous OpenAI image generation model.
     GPTImage1_5,
     /// `gpt-image-1-mini` – Lower-cost OpenAI image generation model.
     GPTImage1Mini,
@@ -132,6 +134,7 @@ pub enum ImageModel {
 /// Convert an [`ImageModel`] variant into the string identifier expected by the API.
 pub fn image_model_to_string(model: ImageModel) -> String {
     match model {
+        ImageModel::GPTImage2 => "gpt-image-2".to_string(),
         ImageModel::GPTImage1_5 => "gpt-image-1.5".to_string(),
         ImageModel::GPTImage1Mini => "gpt-image-1-mini".to_string(),
     }
@@ -538,7 +541,7 @@ impl ImageGenerationClient for OpenAIClient {
         options: ImageGenerationOptions,
     ) -> Result<ImageGenerationResponse, Box<dyn Error + Send + Sync>> {
         // Map aspect ratio to OpenAI's supported sizes
-        // gpt-image-1.5 supports: 1024x1024, 1024x1536 (portrait), 1536x1024 (landscape), auto
+        // gpt-image-2 supports: 1024x1024, 1024x1536 (portrait), 1536x1024 (landscape), auto
         let size = match options.aspect_ratio.as_deref() {
             Some("16:9") | Some("4:3") | Some("3:2") => "1536x1024", // Landscape options
             Some("9:16") | Some("3:4") | Some("2:3") => "1024x1536", // Portrait options
@@ -556,7 +559,7 @@ impl ImageGenerationClient for OpenAIClient {
 
         let n = options.num_images.unwrap_or(1).min(10); // OpenAI max is 10
 
-        let model_name = image_model_to_string(ImageModel::GPTImage1_5);
+        let model_name = image_model_to_string(ImageModel::GPTImage2);
 
         // Build request body for direct HTTP call (honors base_url)
         let request_body = serde_json::json!({
@@ -643,6 +646,6 @@ impl ImageGenerationClient for OpenAIClient {
     }
 
     fn model_name(&self) -> &str {
-        "gpt-image-1.5" // ImageModel::GPTImage1_5
+        "gpt-image-2"
     }
 }

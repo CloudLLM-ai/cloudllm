@@ -7,7 +7,7 @@
 //!
 //! The image generation API provides a unified interface for generating images across
 //! multiple providers:
-//! - **OpenAI**: DALL-E 3 with support for various sizes and quality levels
+//! - **OpenAI**: gpt-image-2 (latest) with support for various sizes and quality levels
 //! - **Grok**: Grok Imagine API with fast image generation
 //! - **Gemini**: Google's image generation with aspect ratio control
 //!
