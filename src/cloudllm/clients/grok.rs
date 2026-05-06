@@ -104,7 +104,7 @@ pub struct GrokClient {
     base_url: String,
 }
 
-/// Grok model identifiers available as of April 2025.
+/// Grok model identifiers available as of May 2026.
 pub enum Model {
     /// `grok-2` – production Grok 2 multi-modal model.
     Grok2,
@@ -120,8 +120,14 @@ pub enum Model {
     Grok3Fast,
     /// `grok-3` – general Grok 3 release.
     Grok3,
+    /// `grok-4` – general Grok 4 release.
+    Grok4,
+    /// `grok-4-latest` – most recent Grok 4 drop.
+    Grok4Latest,
     /// `grok-4-0709` – midsummer 2024 Grok 4 release.
     Grok4_0709,
+    /// `grok-4-fast` – fast Grok 4 tier.
+    Grok4Fast,
     /// `grok-4-fast-reasoning` – reasoning tuned fast Grok 4.
     Grok4FastReasoning,
     /// `grok-4-fast-nonreasoning` – non-reasoning Grok 4 fast tier.
@@ -132,6 +138,10 @@ pub enum Model {
     Grok41FastReasoning,
     /// `grok-4-1-fast-non-reasoning` - frontier multimodal model without reasoning, supports server_tools
     Grok41FastNonReasoning,
+    /// `grok-4.3` – most intelligent and fastest Grok model (May 2026).
+    Grok43,
+    /// `grok-4.3-latest` – latest Grok 4.3 drop.
+    Grok43Latest,
 }
 
 /// Convert a [`Model`] variant into the identifier expected by the xAI API.
@@ -144,12 +154,17 @@ fn model_to_string(model: Model) -> String {
         Model::Grok3Mini => "grok-3-mini".to_string(), // cheapest model
         Model::Grok3Fast => "grok-3-fast".to_string(),
         Model::Grok3 => "grok-3".to_string(),
+        Model::Grok4 => "grok-4".to_string(),
+        Model::Grok4Latest => "grok-4-latest".to_string(),
         Model::Grok4_0709 => "grok-4-0709".to_string(),
+        Model::Grok4Fast => "grok-4-fast".to_string(),
         Model::Grok4FastReasoning => "grok-4-fast-reasoning".to_string(),
         Model::Grok4FastNonReasoning => "grok-4-fast-nonreasoning".to_string(),
         Model::GrokCodeFast1 => "grok-code-fast-1".to_string(),
         Model::Grok41FastReasoning => "grok-4-1-fast-reasoning".to_string(),
         Model::Grok41FastNonReasoning => "grok-4-1-fast-non-reasoning".to_string(),
+        Model::Grok43 => "grok-4.3".to_string(),
+        Model::Grok43Latest => "grok-4.3-latest".to_string(),
     }
 }
 
