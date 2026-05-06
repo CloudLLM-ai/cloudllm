@@ -878,8 +878,8 @@ fn test_openai_image_generation_model_name() {
 
     assert_eq!(
         client.model_name(),
-        "gpt-image-1.5",
-        "Expected image generation model to be gpt-image-1.5"
+        "gpt-image-2",
+        "Expected image generation model to be gpt-image-2"
     );
 
     log::info!("✓ test_openai_image_generation_model_name succeeded");
