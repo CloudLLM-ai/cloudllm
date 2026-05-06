@@ -115,7 +115,7 @@ impl ImageGenerationProvider {
     /// ```
     /// use cloudllm::cloudllm::ImageGenerationProvider;
     ///
-    /// assert_eq!(ImageGenerationProvider::OpenAI.display_name(), "OpenAI (DALL-E 3)");
+    /// assert_eq!(ImageGenerationProvider::OpenAI.display_name(), "OpenAI (gpt-image-2)");
     /// ```
     pub fn display_name(&self) -> &'static str {
         match self {
