@@ -55,14 +55,14 @@
 //! ## Running
 //!
 //! ```bash
-//! export ANTHROPIC_API_KEY=your_key
+//! export XAI_API_KEY=your_xai_key
 //! cargo run --example breakout_game_ralph
 //! ```
 //!
 //! The example writes the assembled game to `breakout_game_ralph.html` in the current directory.
 
 use async_trait::async_trait;
-use cloudllm::clients::claude::{ClaudeClient, Model};
+use cloudllm::clients::grok::{GrokClient, Model as GrokModel};
 use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
 use cloudllm::tool_protocols::{
@@ -326,26 +326,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    let api_key = match std::env::var("ANTHROPIC_API_KEY") {
+    let api_key = match std::env::var("XAI_API_KEY") {
         Ok(key) => key,
         Err(_) => {
-            eprintln!("\n❌ Error: ANTHROPIC_API_KEY environment variable is not set.");
-            eprintln!("\nThis example requires a valid Anthropic API key to run Claude agents.");
+            eprintln!("\n❌ Error: XAI_API_KEY environment variable is not set.");
+            eprintln!("\nThis example requires a valid xAI API key to run Grok agents.");
             eprintln!("\nTo fix this:");
-            eprintln!("  1. Get your API key from https://console.anthropic.com/");
+            eprintln!("  1. Get your API key from https://console.x.ai/");
             eprintln!("  2. Set the environment variable:");
-            eprintln!("     export ANTHROPIC_API_KEY=your-actual-key-here");
+            eprintln!("     export XAI_API_KEY=your-actual-key-here");
             eprintln!("  3. Run the example again:");
             eprintln!("     cargo run --example breakout_game_ralph");
             eprintln!("\nExpected runtime: 30-50 minutes (10 iterations × 4 agents × 2-3 min per LLM call)");
-            eprintln!("Expected cost: $5.00-$8.00 (Claude Haiku 4.5 is cost-effective)\n");
+            eprintln!("Expected cost: varies (using grok-build-0.1)\n");
             std::process::exit(1);
         }
     };
 
     println!("\n{}", "=".repeat(80));
     println!("  RALPH Orchestration Mode — Atari Breakout Game Builder");
-    println!("  Using model: Claude Haiku 4.5");
+    println!("  Using model: grok-build-0.1 (Grok Build 0.1)");
     println!("{}\n", "=".repeat(80));
 
     // ── Shared Memory + Custom Tools ──────────────────────────────────────
@@ -533,9 +533,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // ── Agents ──────────────────────────────────────────────────────────────
 
     let make_client = || {
-        Arc::new(ClaudeClient::new_with_model_enum(
+        Arc::new(GrokClient::new_with_model_enum(
             &api_key,
-            Model::ClaudeSonnet46,
+            GrokModel::GrokBuild01,
         ))
     };
 
