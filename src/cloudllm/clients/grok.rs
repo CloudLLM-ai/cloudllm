@@ -142,6 +142,8 @@ pub enum Model {
     Grok43,
     /// `grok-4.3-latest` – latest Grok 4.3 drop.
     Grok43Latest,
+    /// `grok-build-0.1` – Grok build 0.1 model (xai/grok-build-0.1).
+    GrokBuild01,
 }
 
 /// Convert a [`Model`] variant into the identifier expected by the xAI API.
@@ -165,6 +167,7 @@ fn model_to_string(model: Model) -> String {
         Model::Grok41FastNonReasoning => "grok-4-1-fast-non-reasoning".to_string(),
         Model::Grok43 => "grok-4.3".to_string(),
         Model::Grok43Latest => "grok-4.3-latest".to_string(),
+        Model::GrokBuild01 => "grok-build-0.1".to_string(),
     }
 }
 
