@@ -49,14 +49,17 @@ pub struct ClaudeClient {
 
 /// Anthropic Claude models available through the compatibility layer (Apr 2026 snapshot).
 pub enum Model {
+    /// `claude-opus-4-8` – most capable generally available model for complex reasoning and agentic coding.
+    ClaudeOpus48,
     /// `claude-opus-4-7` – most capable generally available model for complex reasoning and agentic coding.
+    #[deprecated(since = "0.15.0", note = "Use ClaudeOpus48 instead.")]
     ClaudeOpus47,
     /// `claude-sonnet-4-6` – best combination of speed and intelligence.
     ClaudeSonnet46,
     /// `claude-haiku-4-5` – fastest model with near-frontier intelligence.
     ClaudeHaiku45,
     /// `claude-opus-4-6` – previous Opus generation with extended thinking.
-    #[deprecated(since = "0.15.0", note = "Use ClaudeOpus47 instead.")]
+    #[deprecated(since = "0.15.0", note = "Use ClaudeOpus48 instead.")]
     ClaudeOpus46,
     /// `claude-sonnet-4-5` – smartest model for complex agents and coding.
     ClaudeSonnet45,
@@ -68,7 +71,7 @@ pub enum Model {
     #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet46 instead.")]
     ClaudeSonnet4,
     /// `claude-opus-4-0` – original Opus generation.
-    #[deprecated(since = "0.15.0", note = "Use ClaudeOpus47 instead.")]
+    #[deprecated(since = "0.15.0", note = "Use ClaudeOpus48 instead.")]
     ClaudeOpus4,
     /// `claude-sonnet-3-7-sonnet-latest` – legacy Sonnet iteration.
     #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet46 instead.")]
@@ -82,6 +85,7 @@ pub enum Model {
 #[allow(deprecated)]
 fn model_to_string(model: Model) -> String {
     match model {
+        Model::ClaudeOpus48 => "claude-opus-4-8".to_string(),
         Model::ClaudeOpus47 => "claude-opus-4-7".to_string(),
         Model::ClaudeSonnet46 => "claude-sonnet-4-6".to_string(),
         Model::ClaudeHaiku45 => "claude-haiku-4-5".to_string(),
