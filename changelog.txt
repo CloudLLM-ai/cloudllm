@@ -1,3 +1,31 @@
+0.15.5 MAY/28/2026
+  - feat: Add GPT-5.5 OpenAI model variants
+    - [ADDED] `Model::GPT55`, `GPT55Mini`, `GPT55Nano`, `GPT55Pro` mapped to "gpt-5.5", "gpt-5.5-mini", etc.
+    - Deprecated all GPT-5.4 variants (GPT54*) with migration notes to GPT55 equivalents
+    - Extended `tests/openai_models_tests.rs` with coverage for new variants and legacy deprecation warnings
+  - feat: Add Anthropic Claude Opus 4.8
+    - [ADDED] `Model::ClaudeOpus48` mapped to "claude-opus-4-8"
+    - Deprecated `ClaudeOpus47` and all prior Opus variants (4.7/4.6/4.5/4.1/4.0) pointing to 4.8
+    - Updated deprecation notes consistently across the enum
+  - feat(grok): Expand Grok model enum with 2026 frontier variants
+    - [ADDED] Grok 4 series: `Grok4`, `Grok4Latest`, `Grok4_0709`, `Grok4Fast`, `Grok4FastReasoning`, `Grok4FastNonReasoning`
+    - [ADDED] Grok 4.1 fast variants: `Grok41FastReasoning`, `Grok41FastNonReasoning`
+    - [ADDED] `Grok43`, `Grok43Latest`
+    - [ADDED] `GrokBuild01` (`grok-build-0.1`) for one-shot / RALPH-style agent usage
+    - Updated `breakout_game_ralph` example to use GrokBuild01
+  - feat: Upgrade OpenAI image generation default to gpt-image-2
+    - [ADDED] `ImageModel::GPTImage2` → "gpt-image-2" (latest 2026 model)
+    - `OpenAIClient::generate_image()` and related paths now default to gpt-image-2
+    - Updated display names from "DALL-E 3" to "gpt-image-2", docs, examples, and all assertions
+  - feat(cloudllm_mcp 0.3.x): Add full Server-Sent Events (SSE) support for streamable HTTP
+    - Introduced `SseBroadcaster`, `SseEventHandler`, `SseMessage` types in mcp crate
+    - New router variant `streamable_http_router_with_sse` enabling GET text/event-stream and POST event broadcasting
+    - 42 new integration tests in `mcp/tests/sse_tests.rs` covering broadcasting, errors, headers, etc.
+    - Bumped mcp to 0.3.0, followed by 0.3.1 (Clone derive) and 0.3.2
+    - Updated README with SSE usage documentation
+  - fix: Corrected image generation doctests and test assertions post gpt-image-2 upgrade
+  - chore: Version bumps, dependency updates, and release prep for 0.15.5
+
 0.15.2 APR/26/2026
  - feat(cloudllm_mcp 0.2.1): Update MCP streamable HTTP transport to protocol version 2025-11-25
    - `CURRENT_MCP_PROTOCOL_VERSION` changed from `"2025-06-18"` to `"2025-11-25"`
