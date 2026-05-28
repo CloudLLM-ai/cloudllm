@@ -143,18 +143,30 @@ pub fn image_model_to_string(model: ImageModel) -> String {
 /// Official model identifiers supported by OpenAI's Chat Completions API.
 #[allow(non_camel_case_types)]
 pub enum Model {
+    /// `gpt-5.5` – Latest GPT-5 generation model.
+    GPT55,
+    /// `gpt-5.5-mini` – Lower-cost GPT-5.5 tier with reduced latency.
+    GPT55Mini,
+    /// `gpt-5.5-nano` – Smallest GPT-5.5 tier optimized for cost and latency.
+    GPT55Nano,
+    /// `gpt-5.5-pro` – High-capability model for tough problems requiring harder thinking.
+    GPT55Pro,
     /// `gpt-5.4` – Latest GPT-5 generation model.
+    #[deprecated(since = "0.15.0", note = "Use GPT55 instead.")]
     GPT54,
     /// `gpt-5.4-mini` – Lower-cost GPT-5.4 tier with reduced latency.
+    #[deprecated(since = "0.15.0", note = "Use GPT55Mini instead.")]
     GPT54Mini,
     /// `gpt-5.4-nano` – Smallest GPT-5.4 tier optimized for cost and latency.
+    #[deprecated(since = "0.15.0", note = "Use GPT55Nano instead.")]
     GPT54Nano,
     /// `gpt-5.4-pro` – High-capability model for tough problems requiring harder thinking.
+    #[deprecated(since = "0.15.0", note = "Use GPT55Pro instead.")]
     GPT54Pro,
     /// `gpt-5.3-chat-latest` – ChatGPT's production deployment of GPT-5.3.
     GPT53ChatLatest,
     /// `gpt-5.2` – Complex reasoning, broad world knowledge, and code-heavy or multi-step agentic tasks.
-    #[deprecated(since = "0.15.0", note = "Use GPT54 instead.")]
+    #[deprecated(since = "0.15.0", note = "Use GPT55 instead.")]
     GPT52,
     /// `gpt-5.2-chat-latest` – ChatGPT's production deployment of GPT-5.2.
     GPT52ChatLatest,
@@ -230,6 +242,10 @@ pub enum Model {
 #[allow(deprecated)]
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT55 => "gpt-5.5".to_string(),
+        Model::GPT55Mini => "gpt-5.5-mini".to_string(),
+        Model::GPT55Nano => "gpt-5.5-nano".to_string(),
+        Model::GPT55Pro => "gpt-5.5-pro".to_string(),
         Model::GPT54 => "gpt-5.4".to_string(),
         Model::GPT54Mini => "gpt-5.4-mini".to_string(),
         Model::GPT54Nano => "gpt-5.4-nano".to_string(),
