@@ -236,8 +236,7 @@ async fn test_discover_tools_from_primary() {
 
 #[test]
 fn test_to_json_schema_string() {
-    let param =
-        ToolParameter::new("q", ToolParameterType::String).with_description("Search query");
+    let param = ToolParameter::new("q", ToolParameterType::String).with_description("Search query");
     let schema = param.to_json_schema();
     assert_eq!(schema["type"], "string");
     assert_eq!(schema["description"], "Search query");
@@ -265,8 +264,8 @@ fn test_to_json_schema_boolean() {
 
 #[test]
 fn test_to_json_schema_array_with_items() {
-    let param = ToolParameter::new("ids", ToolParameterType::Array)
-        .with_items(ToolParameterType::Integer);
+    let param =
+        ToolParameter::new("ids", ToolParameterType::Array).with_items(ToolParameterType::Integer);
     let schema = param.to_json_schema();
     assert_eq!(schema["type"], "array");
     assert_eq!(schema["items"]["type"], "integer");

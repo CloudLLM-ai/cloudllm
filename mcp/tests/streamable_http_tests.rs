@@ -36,9 +36,7 @@ impl ToolProtocol for EchoProtocol {
     async fn list_tools(
         &self,
     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(vec![
-            ToolMetadata::new("echo", "Echo parameters back"),
-        ])
+        Ok(vec![ToolMetadata::new("echo", "Echo parameters back")])
     }
 
     async fn get_tool_metadata(
@@ -54,8 +52,8 @@ impl ToolProtocol for EchoProtocol {
 }
 
 fn make_router(skip_origin: bool) -> axum::Router {
-    let config = StreamableHttpConfig::new("test-server", "0.1.0")
-        .with_skip_origin_validation(skip_origin);
+    let config =
+        StreamableHttpConfig::new("test-server", "0.1.0").with_skip_origin_validation(skip_origin);
     streamable_http_router(
         &HttpServerConfig {
             addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
@@ -72,10 +70,7 @@ fn client_addr() -> std::net::SocketAddr {
     std::net::SocketAddr::from(([127, 0, 0, 1], 12345))
 }
 
-async fn post_json(
-    router: &axum::Router,
-    body: serde_json::Value,
-) -> (StatusCode, String) {
+async fn post_json(router: &axum::Router, body: serde_json::Value) -> (StatusCode, String) {
     let mut req = Request::builder()
         .method(Method::POST)
         .uri("/")
@@ -224,8 +219,7 @@ async fn test_lan_origin_blocked_by_default() {
         "method": "ping",
         "params": {}
     });
-    let (status, text) =
-        post_json_with_origin(&router, body, "http://192.168.1.50:3000").await;
+    let (status, text) = post_json_with_origin(&router, body, "http://192.168.1.50:3000").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let response: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert!(response["error"]["message"]
@@ -243,8 +237,7 @@ async fn test_lan_origin_allowed_when_skip_validation_enabled() {
         "method": "ping",
         "params": {}
     });
-    let (status, _) =
-        post_json_with_origin(&router, body, "http://192.168.1.50:3000").await;
+    let (status, _) = post_json_with_origin(&router, body, "http://192.168.1.50:3000").await;
     assert_eq!(status, StatusCode::OK);
 }
 

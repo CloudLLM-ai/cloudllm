@@ -30,7 +30,8 @@ use tokio_stream::StreamExt;
 pub const CURRENT_MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Legacy MCP protocol versions still accepted for compatibility.
-pub const SUPPORTED_MCP_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+pub const SUPPORTED_MCP_PROTOCOL_VERSIONS: &[&str] =
+    &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// Configuration for a standard streamable HTTP MCP endpoint.
 ///
@@ -148,7 +149,10 @@ impl SseMessage {
         if let Some(ref id) = self.id {
             out.push_str(&format!("id: {}\n", id));
         }
-        out.push_str(&format!("data: {}\n\n", serde_json::to_string(&self.data).unwrap_or_default()));
+        out.push_str(&format!(
+            "data: {}\n\n",
+            serde_json::to_string(&self.data).unwrap_or_default()
+        ));
         out
     }
 }
@@ -187,18 +191,31 @@ impl SseBroadcaster {
                 "event": "tool_list_requested",
                 "client_addr": client_addr
             }),
-            McpEvent::ToolListReturned { client_addr, tool_count } => json!({
+            McpEvent::ToolListReturned {
+                client_addr,
+                tool_count,
+            } => json!({
                 "event": "tool_list_returned",
                 "client_addr": client_addr,
                 "tool_count": tool_count
             }),
-            McpEvent::ToolCallReceived { client_addr, tool_name, parameters } => json!({
+            McpEvent::ToolCallReceived {
+                client_addr,
+                tool_name,
+                parameters,
+            } => json!({
                 "event": "tool_call_received",
                 "client_addr": client_addr,
                 "tool_name": tool_name,
                 "parameters": parameters
             }),
-            McpEvent::ToolCallCompleted { client_addr, tool_name, success, error, duration_ms } => json!({
+            McpEvent::ToolCallCompleted {
+                client_addr,
+                tool_name,
+                success,
+                error,
+                duration_ms,
+            } => json!({
                 "event": "tool_call_completed",
                 "client_addr": client_addr,
                 "tool_name": tool_name,
@@ -206,19 +223,30 @@ impl SseBroadcaster {
                 "error": error,
                 "duration_ms": duration_ms
             }),
-            McpEvent::ToolError { source, tool_name, error, duration_ms } => json!({
+            McpEvent::ToolError {
+                source,
+                tool_name,
+                error,
+                duration_ms,
+            } => json!({
                 "event": "tool_error",
                 "source": source,
                 "tool_name": tool_name,
                 "error": error,
                 "duration_ms": duration_ms
             }),
-            McpEvent::RequestRejected { client_addr, reason } => json!({
+            McpEvent::RequestRejected {
+                client_addr,
+                reason,
+            } => json!({
                 "event": "request_rejected",
                 "client_addr": client_addr,
                 "reason": reason
             }),
-            McpEvent::ConnectionInitialized { endpoint, tool_count } => json!({
+            McpEvent::ConnectionInitialized {
+                endpoint,
+                tool_count,
+            } => json!({
                 "event": "connection_initialized",
                 "endpoint": endpoint,
                 "tool_count": tool_count
@@ -227,13 +255,20 @@ impl SseBroadcaster {
                 "event": "connection_closed",
                 "endpoint": endpoint
             }),
-            McpEvent::ToolsDiscovered { endpoint, tool_count, tool_names } => json!({
+            McpEvent::ToolsDiscovered {
+                endpoint,
+                tool_count,
+                tool_names,
+            } => json!({
                 "event": "tools_discovered",
                 "endpoint": endpoint,
                 "tool_count": tool_count,
                 "tool_names": tool_names
             }),
-            McpEvent::CacheHit { endpoint, tool_count } => json!({
+            McpEvent::CacheHit {
+                endpoint,
+                tool_count,
+            } => json!({
                 "event": "cache_hit",
                 "endpoint": endpoint,
                 "tool_count": tool_count
@@ -242,13 +277,23 @@ impl SseBroadcaster {
                 "event": "cache_expired",
                 "endpoint": endpoint
             }),
-            McpEvent::RemoteToolCallStarted { endpoint, tool_name, parameters } => json!({
+            McpEvent::RemoteToolCallStarted {
+                endpoint,
+                tool_name,
+                parameters,
+            } => json!({
                 "event": "remote_tool_call_started",
                 "endpoint": endpoint,
                 "tool_name": tool_name,
                 "parameters": parameters
             }),
-            McpEvent::RemoteToolCallCompleted { endpoint, tool_name, success, error, duration_ms } => json!({
+            McpEvent::RemoteToolCallCompleted {
+                endpoint,
+                tool_name,
+                success,
+                error,
+                duration_ms,
+            } => json!({
                 "event": "remote_tool_call_completed",
                 "endpoint": endpoint,
                 "tool_name": tool_name,
@@ -271,7 +316,12 @@ impl SseEventHandler {
     /// Create a new SSE event handler with a broadcaster of the given size.
     pub fn new(buffer_size: usize) -> (Self, SseBroadcaster) {
         let broadcaster = SseBroadcaster::new(buffer_size);
-        (Self { broadcaster: broadcaster.clone() }, broadcaster)
+        (
+            Self {
+                broadcaster: broadcaster.clone(),
+            },
+            broadcaster,
+        )
     }
 }
 
@@ -584,10 +634,7 @@ async fn streamable_http_get_handler(
             ("content-type", "text/event-stream"),
             ("cache-control", "no-cache"),
             ("connection", "keep-alive"),
-            (
-                "MCP-Protocol-Version",
-                CURRENT_MCP_PROTOCOL_VERSION,
-            ),
+            ("MCP-Protocol-Version", CURRENT_MCP_PROTOCOL_VERSION),
         ],
         axum::body::Body::from_stream(stream),
     )
@@ -598,15 +645,17 @@ fn sse_event_stream(
     broadcaster: SseBroadcaster,
 ) -> Pin<Box<dyn Stream<Item = Result<String, std::convert::Infallible>> + Send>> {
     let rx = broadcaster.subscribe();
-    Box::pin(tokio_stream::wrappers::BroadcastStream::new(rx).then(|msg| async move {
-        match msg {
-            Ok(sse_msg) => Ok(sse_msg.format()),
-            Err(_) => Ok(format!(
-                "event: warning\ndata: {}\n\n",
-                json!({"message": "SSE stream closed"})
-            )),
-        }
-    }))
+    Box::pin(
+        tokio_stream::wrappers::BroadcastStream::new(rx).then(|msg| async move {
+            match msg {
+                Ok(sse_msg) => Ok(sse_msg.format()),
+                Err(_) => Ok(format!(
+                    "event: warning\ndata: {}\n\n",
+                    json!({"message": "SSE stream closed"})
+                )),
+            }
+        }),
+    )
 }
 
 fn broadcast_jsonrpc_result(
@@ -894,10 +943,7 @@ fn tool_to_mcp_json(tool: crate::protocol::ToolMetadata) -> Value {
     }
     // 2025-11-25: execution object with taskSupport (defaults to "optional" for tools that
     // support async execution via the MCP task mechanism).
-    object.insert(
-        "execution".to_string(),
-        json!({"taskSupport": "optional"}),
-    );
+    object.insert("execution".to_string(), json!({"taskSupport": "optional"}));
     Value::Object(object)
 }
 

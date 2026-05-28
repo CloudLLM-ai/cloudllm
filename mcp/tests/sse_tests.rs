@@ -40,9 +40,7 @@ impl ToolProtocol for EchoProtocol {
     async fn list_tools(
         &self,
     ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(vec![
-            ToolMetadata::new("echo", "Echo parameters back"),
-        ])
+        Ok(vec![ToolMetadata::new("echo", "Echo parameters back")])
     }
 
     async fn get_tool_metadata(
@@ -110,10 +108,7 @@ fn make_router_without_sse() -> axum::Router {
     )
 }
 
-async fn post_json(
-    router: &axum::Router,
-    body: serde_json::Value,
-) -> (StatusCode, String) {
+async fn post_json(router: &axum::Router, body: serde_json::Value) -> (StatusCode, String) {
     let mut req = Request::builder()
         .method(Method::POST)
         .uri("/")
@@ -123,7 +118,9 @@ async fn post_json(
     req.extensions_mut().insert(ConnectInfo(client_addr()));
     let response = router.clone().oneshot(req).await.unwrap();
     let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     (status, String::from_utf8(bytes.to_vec()).unwrap())
 }
 
@@ -262,9 +259,16 @@ async fn test_broadcaster_all_event_types() {
     let mut rx = broadcaster.subscribe();
 
     let events = vec![
-        McpEvent::ServerStarted { addr: "127.0.0.1:8080".to_string() },
-        McpEvent::ToolListRequested { client_addr: "10.0.0.1".to_string() },
-        McpEvent::ToolListReturned { client_addr: "10.0.0.1".to_string(), tool_count: 5 },
+        McpEvent::ServerStarted {
+            addr: "127.0.0.1:8080".to_string(),
+        },
+        McpEvent::ToolListRequested {
+            client_addr: "10.0.0.1".to_string(),
+        },
+        McpEvent::ToolListReturned {
+            client_addr: "10.0.0.1".to_string(),
+            tool_count: 5,
+        },
         McpEvent::ToolCallReceived {
             client_addr: "10.0.0.1".to_string(),
             tool_name: "test".to_string(),
@@ -391,14 +395,18 @@ async fn test_sse_event_handler_multiple_events() {
     let (handler, broadcaster) = SseEventHandler::new(32);
     let mut rx = broadcaster.subscribe();
 
-    handler.on_mcp_event(&McpEvent::ToolListRequested {
-        client_addr: "1.2.3.4".to_string(),
-    }).await;
+    handler
+        .on_mcp_event(&McpEvent::ToolListRequested {
+            client_addr: "1.2.3.4".to_string(),
+        })
+        .await;
 
-    handler.on_mcp_event(&McpEvent::ToolListReturned {
-        client_addr: "1.2.3.4".to_string(),
-        tool_count: 10,
-    }).await;
+    handler
+        .on_mcp_event(&McpEvent::ToolListReturned {
+            client_addr: "1.2.3.4".to_string(),
+            tool_count: 10,
+        })
+        .await;
 
     let msg1 = tokio::time::timeout(Duration::from_millis(100), rx.recv())
         .await
@@ -427,9 +435,14 @@ async fn test_get_without_sse_returns_method_not_allowed() {
     req.extensions_mut().insert(ConnectInfo(client_addr()));
     let response = router.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert!(body["error"].as_str().unwrap().contains("SSE stream is not enabled"));
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("SSE stream is not enabled"));
 }
 
 #[tokio::test]
@@ -447,16 +460,36 @@ async fn test_get_with_sse_returns_event_stream() {
     let response = router.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(content_type, "text/event-stream");
 
-    let cache_control = response.headers().get("cache-control").unwrap().to_str().unwrap();
+    let cache_control = response
+        .headers()
+        .get("cache-control")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(cache_control, "no-cache");
 
-    let connection = response.headers().get("connection").unwrap().to_str().unwrap();
+    let connection = response
+        .headers()
+        .get("connection")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(connection, "keep-alive");
 
-    let mcp_version = response.headers().get("MCP-Protocol-Version").unwrap().to_str().unwrap();
+    let mcp_version = response
+        .headers()
+        .get("MCP-Protocol-Version")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(mcp_version, CURRENT_MCP_PROTOCOL_VERSION);
 }
 
@@ -475,10 +508,7 @@ async fn test_sse_stream_receives_broadcast_messages() {
     let response = router.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    broadcaster.send(SseMessage::with_event(
-        "test_ping",
-        json!({"ping": true}),
-    ));
+    broadcaster.send(SseMessage::with_event("test_ping", json!({"ping": true})));
 
     let body = response.into_body();
     let buf = read_sse_stream_with_timeout(body, Duration::from_secs(2)).await;
@@ -568,7 +598,10 @@ async fn test_sse_stream_error_event_from_failed_request() {
 
     assert_eq!(msg.event, Some("error".to_string()));
     assert_eq!(msg.data["error"]["code"], -32601);
-    assert!(msg.data["error"]["message"].as_str().unwrap().contains("Method not found"));
+    assert!(msg.data["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Method not found"));
 }
 
 #[tokio::test]
@@ -669,9 +702,13 @@ fn test_sse_format_data_line_prefix() {
 fn test_sse_format_valid_json_in_data() {
     let msg = SseMessage::with_event("test", json!({"arr": [1,2,3], "obj": {"a": "b"}}));
     let formatted = msg.format();
-    let data_line = formatted.lines().find(|l| l.starts_with("data: ")).expect("data line");
+    let data_line = formatted
+        .lines()
+        .find(|l| l.starts_with("data: "))
+        .expect("data line");
     let data_line = data_line.strip_prefix("data: ").expect("prefix");
-    let parsed: serde_json::Value = serde_json::from_str(data_line).expect("data should be valid JSON");
+    let parsed: serde_json::Value =
+        serde_json::from_str(data_line).expect("data should be valid JSON");
     assert_eq!(parsed["arr"][0], 1);
     assert_eq!(parsed["obj"]["a"], "b");
 }
@@ -744,10 +781,7 @@ fn test_sse_message_array_value() {
 
 #[test]
 fn test_sse_message_nested_object() {
-    let msg = SseMessage::with_event(
-        "nested",
-        json!({"outer": {"inner": {"deep": "value"}}}),
-    );
+    let msg = SseMessage::with_event("nested", json!({"outer": {"inner": {"deep": "value"}}}));
     let formatted = msg.format();
     assert!(formatted.contains("event: nested"));
     assert!(formatted.contains("\"deep\":\"value\""));
@@ -855,7 +889,10 @@ async fn test_post_tools_call_broadcasts_sse_event() {
 
     assert_eq!(sse_msg.event, Some("tool_called".to_string()));
     assert_eq!(sse_msg.data["method"], "tools/call");
-    assert!(sse_msg.data["client_addr"].as_str().unwrap().contains("127.0.0.1"));
+    assert!(sse_msg.data["client_addr"]
+        .as_str()
+        .unwrap()
+        .contains("127.0.0.1"));
 }
 
 #[tokio::test]
