@@ -347,8 +347,7 @@ impl ToolMetadata {
 
     /// Builds a [`ToolDefinition`] (JSON Schema) from this metadata.
     ///
-    /// The resulting [`ToolDefinition`] is ready to be passed to
-    /// [`ClientWrapper::send_message`](crate::client_wrapper::ClientWrapper::send_message)
+    /// The resulting [`ToolDefinition`] is ready to be passed to an MCP client
     /// as part of the `tools` slice.  Parameters marked `required` are collected into the
     /// JSON Schema `"required"` array automatically.
     ///

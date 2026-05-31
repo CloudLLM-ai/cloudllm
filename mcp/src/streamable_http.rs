@@ -547,6 +547,7 @@ async fn streamable_http_post_handler(
             client_addr: addr,
             route: state.transport.endpoint_path.clone(),
             action: message.method.clone().unwrap_or_default(),
+            payload: message.params.clone(),
         },
     ) {
         return json_error_response(

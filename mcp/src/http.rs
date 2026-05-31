@@ -73,6 +73,25 @@ impl std::fmt::Debug for HttpServerConfig {
 }
 
 /// Per-request context passed to a dynamic bearer-token authorizer.
+///
+/// The MCP runtime builds this value before dispatching a request to the
+/// protocol implementation. Servers can inspect it to make authorization
+/// decisions that depend on more than the raw token string.
+///
+/// # Payload shape
+///
+/// `payload` is deliberately transport-shaped:
+///
+/// - streamable HTTP JSON-RPC requests receive the `params` object, such as
+///   `{ "name": "tool_name", "arguments": { ... } }` for `tools/call`.
+/// - legacy `/tools/execute` requests receive the full request body, usually
+///   `{ "tool": "tool_name", "parameters": { ... } }`.
+/// - metadata-style routes such as `/tools/list` and `/resources/list` receive
+///   `None` when there is no useful body to authorize.
+///
+/// Server crates keep ownership of policy. For example, a memory server can
+/// inspect tool arguments inside `payload` and allow a token for one chain while
+/// denying the same token for another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BearerAuthContext {
     /// Client socket address reported by the HTTP framework.
@@ -81,6 +100,11 @@ pub struct BearerAuthContext {
     pub route: String,
     /// MCP method or legacy action being authorized.
     pub action: String,
+    /// Parsed request payload or JSON-RPC params, when available.
+    ///
+    /// This value is cloned from the already-parsed request body so authorizers
+    /// do not need to parse JSON a second time.
+    pub payload: Option<serde_json::Value>,
 }
 
 /// Dynamic bearer-token authorization hook for MCP HTTP transports.
@@ -88,13 +112,34 @@ pub struct BearerAuthContext {
 /// Implement this trait when a server needs revocable tokens, scoped access,
 /// or token lookup from durable storage instead of a single static configured
 /// secret.
+///
+/// # Examples
+///
+/// ```
+/// use mcp::{BearerAuthContext, BearerTokenAuthorizer};
+///
+/// struct ToolListOnly;
+///
+/// impl BearerTokenAuthorizer for ToolListOnly {
+///     fn authorize_bearer_token(&self, token: &str, context: &BearerAuthContext) -> bool {
+///         token == "good-token" && context.action == "tools/list"
+///     }
+/// }
+/// ```
 pub trait BearerTokenAuthorizer: Send + Sync {
     /// Return `true` when a request without a bearer token should be allowed.
+    ///
+    /// The default is fail-closed. Override this only when the embedding server
+    /// has an explicit runtime mode where unauthenticated requests are expected.
     fn allow_missing_bearer_token(&self, _context: &BearerAuthContext) -> bool {
         false
     }
 
     /// Return `true` when `token` is allowed for `context`.
+    ///
+    /// Implementations should avoid logging raw token values. If comparing
+    /// against stored secrets, prefer constant-time hash comparison in the
+    /// server crate.
     fn authorize_bearer_token(&self, token: &str, context: &BearerAuthContext) -> bool;
 }
 
@@ -287,6 +332,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 client_addr: addr,
                                 route: "/tools/list".to_string(),
                                 action: "tools/list".to_string(),
+                                payload: None,
                             },
                         ) {
                             return (
@@ -363,6 +409,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 client_addr: addr,
                                 route: "/tools/execute".to_string(),
                                 action: "tools/execute".to_string(),
+                                payload: Some(payload.clone()),
                             },
                         ) {
                             return (
@@ -450,6 +497,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 client_addr: addr,
                                 route: "/resources/list".to_string(),
                                 action: "resources/list".to_string(),
+                                payload: None,
                             },
                         ) {
                             return (
@@ -509,6 +557,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 client_addr: addr,
                                 route: "/resources/read".to_string(),
                                 action: "resources/read".to_string(),
+                                payload: Some(payload.clone()),
                             },
                         ) {
                             return (

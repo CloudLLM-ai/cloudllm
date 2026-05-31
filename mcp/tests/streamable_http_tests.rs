@@ -56,7 +56,12 @@ struct TestBearerAuthorizer;
 
 impl BearerTokenAuthorizer for TestBearerAuthorizer {
     fn authorize_bearer_token(&self, token: &str, context: &BearerAuthContext) -> bool {
-        token == "good-token" && context.action == "tools/list"
+        token == "good-token"
+            && context.action == "tools/list"
+            && context
+                .payload
+                .as_ref()
+                .is_some_and(|payload| payload.as_object().is_some_and(|object| object.is_empty()))
     }
 }
 
