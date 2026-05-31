@@ -84,6 +84,7 @@ fn make_router_with_sse() -> (axum::Router, SseBroadcaster) {
         &HttpServerConfig {
             addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
             bearer_token: None,
+            bearer_authorizer: None,
             ip_filter: IpFilter::new(),
             event_handler: None,
         },
@@ -100,6 +101,7 @@ fn make_router_without_sse() -> axum::Router {
         &HttpServerConfig {
             addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
             bearer_token: None,
+            bearer_authorizer: None,
             ip_filter: IpFilter::new(),
             event_handler: None,
         },

@@ -8,6 +8,7 @@
 
 use crate::builder_utils::IpFilter;
 use crate::events::{McpEvent, McpEventHandler};
+use crate::http::{BearerAuthContext, BearerTokenAuthorizer};
 use crate::protocol::{ToolError, ToolProtocol};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -343,6 +344,7 @@ struct StreamableHttpState {
 #[derive(Clone)]
 struct StreamableHttpRuntimeConfig {
     bearer_token: Option<String>,
+    bearer_authorizer: Option<Arc<dyn BearerTokenAuthorizer>>,
     ip_filter: IpFilter,
     skip_origin_validation: bool,
 }
@@ -423,6 +425,7 @@ struct JsonRpcResponse {
 ///     &HttpServerConfig {
 ///         addr: std::net::SocketAddr::from(([127, 0, 0, 1], 9471)),
 ///         bearer_token: None,
+///         bearer_authorizer: None,
 ///         ip_filter: IpFilter::new(),
 ///         event_handler: None,
 ///     },
@@ -487,6 +490,7 @@ pub fn streamable_http_router(
 ///     &HttpServerConfig {
 ///         addr: std::net::SocketAddr::from(([127, 0, 0, 1], 9471)),
 ///         bearer_token: None,
+///         bearer_authorizer: None,
 ///         ip_filter: IpFilter::new(),
 ///         event_handler: None,
 ///     },
@@ -506,6 +510,7 @@ pub fn streamable_http_router_with_sse(
         protocol,
         http_config: StreamableHttpRuntimeConfig {
             bearer_token: http_config.bearer_token.clone(),
+            bearer_authorizer: http_config.bearer_authorizer.clone(),
             ip_filter: http_config.ip_filter.clone(),
             skip_origin_validation: transport.skip_origin_validation,
         },
@@ -535,7 +540,15 @@ async fn streamable_http_post_handler(
     headers: HeaderMap,
     Json(message): Json<JsonRpcRequest>,
 ) -> Response {
-    if !authorize(&state.http_config, &headers, addr.ip()) {
+    if !authorize(
+        &state.http_config,
+        &headers,
+        BearerAuthContext {
+            client_addr: addr,
+            route: state.transport.endpoint_path.clone(),
+            action: message.method.clone().unwrap_or_default(),
+        },
+    ) {
         return json_error_response(
             StatusCode::UNAUTHORIZED,
             None,
@@ -842,25 +855,39 @@ async fn handle_jsonrpc_request(
 fn authorize(
     config: &StreamableHttpRuntimeConfig,
     headers: &HeaderMap,
-    ip: std::net::IpAddr,
+    context: BearerAuthContext,
 ) -> bool {
-    if !config.ip_filter.is_allowed(ip) {
+    if !config.ip_filter.is_allowed(context.client_addr.ip()) {
         return false;
     }
 
-    match config.bearer_token.as_deref() {
-        None => true,
-        Some(expected) => {
-            let provided = headers
-                .get("Authorization")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer "))
-                .unwrap_or("");
-            let expected_hash = Sha256::digest(expected.as_bytes());
-            let provided_hash = Sha256::digest(provided.as_bytes());
-            expected_hash.ct_eq(&provided_hash).into()
+    if config.bearer_token.is_none() && config.bearer_authorizer.is_none() {
+        return true;
+    }
+
+    let Some(provided) = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+    else {
+        return config
+            .bearer_authorizer
+            .as_ref()
+            .is_some_and(|auth| auth.allow_missing_bearer_token(&context));
+    };
+
+    if let Some(expected) = config.bearer_token.as_deref() {
+        let expected_hash = Sha256::digest(expected.as_bytes());
+        let provided_hash = Sha256::digest(provided.as_bytes());
+        if bool::from(expected_hash.ct_eq(&provided_hash)) {
+            return true;
         }
     }
+
+    config
+        .bearer_authorizer
+        .as_ref()
+        .is_some_and(|auth| auth.authorize_bearer_token(provided, &context))
 }
 
 fn validate_origin(config: &StreamableHttpRuntimeConfig, headers: &HeaderMap) -> bool {

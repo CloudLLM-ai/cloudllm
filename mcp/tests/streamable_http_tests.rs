@@ -9,6 +9,7 @@ use axum::body::to_bytes;
 use axum::extract::connect_info::ConnectInfo;
 use axum::http::{Method, Request, StatusCode};
 use mcp::http::HttpServerConfig;
+use mcp::http::{BearerAuthContext, BearerTokenAuthorizer};
 use mcp::streamable_http::{
     streamable_http_router, StreamableHttpConfig, CURRENT_MCP_PROTOCOL_VERSION,
     SUPPORTED_MCP_PROTOCOL_VERSIONS,
@@ -51,6 +52,14 @@ impl ToolProtocol for EchoProtocol {
     }
 }
 
+struct TestBearerAuthorizer;
+
+impl BearerTokenAuthorizer for TestBearerAuthorizer {
+    fn authorize_bearer_token(&self, token: &str, context: &BearerAuthContext) -> bool {
+        token == "good-token" && context.action == "tools/list"
+    }
+}
+
 fn make_router(skip_origin: bool) -> axum::Router {
     let config =
         StreamableHttpConfig::new("test-server", "0.1.0").with_skip_origin_validation(skip_origin);
@@ -58,6 +67,23 @@ fn make_router(skip_origin: bool) -> axum::Router {
         &HttpServerConfig {
             addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
             bearer_token: None,
+            bearer_authorizer: None,
+            ip_filter: IpFilter::new(),
+            event_handler: None,
+        },
+        &config,
+        Arc::new(EchoProtocol),
+    )
+}
+
+fn make_router_with_authorizer() -> axum::Router {
+    let config =
+        StreamableHttpConfig::new("test-server", "0.1.0").with_skip_origin_validation(true);
+    streamable_http_router(
+        &HttpServerConfig {
+            addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            bearer_token: None,
+            bearer_authorizer: Some(Arc::new(TestBearerAuthorizer)),
             ip_filter: IpFilter::new(),
             event_handler: None,
         },
@@ -75,6 +101,28 @@ async fn post_json(router: &axum::Router, body: serde_json::Value) -> (StatusCod
         .method(Method::POST)
         .uri("/")
         .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(client_addr()));
+    let response = router.clone().oneshot(req).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    (status, String::from_utf8(bytes.to_vec()).unwrap())
+}
+
+async fn post_json_with_auth(
+    router: &axum::Router,
+    body: serde_json::Value,
+    auth: Option<&str>,
+) -> (StatusCode, String) {
+    let mut builder = Request::builder()
+        .method(Method::POST)
+        .uri("/")
+        .header("content-type", "application/json");
+    if let Some(auth) = auth {
+        builder = builder.header("authorization", auth);
+    }
+    let mut req = builder
         .body(axum::body::Body::from(body.to_string()))
         .unwrap();
     req.extensions_mut().insert(ConnectInfo(client_addr()));
@@ -153,6 +201,28 @@ async fn test_initialize_with_legacy_client_version_accepted() {
     req.extensions_mut().insert(ConnectInfo(client_addr()));
     let response = router.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_dynamic_bearer_authorizer_controls_streamable_http_requests() {
+    let router = make_router_with_authorizer();
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let (missing, _) = post_json_with_auth(&router, body.clone(), None).await;
+    assert_eq!(missing, StatusCode::UNAUTHORIZED);
+
+    let (wrong, _) = post_json_with_auth(&router, body.clone(), Some("Bearer bad-token")).await;
+    assert_eq!(wrong, StatusCode::UNAUTHORIZED);
+
+    let (ok, text) = post_json_with_auth(&router, body, Some("Bearer good-token")).await;
+    assert_eq!(ok, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(response["result"]["tools"].is_array());
 }
 
 #[tokio::test]

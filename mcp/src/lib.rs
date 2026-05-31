@@ -21,7 +21,10 @@ pub use builder::MCPServerBuilder;
 pub use builder_utils::{AuthConfig, IpFilter};
 pub use client::McpClientProtocol;
 pub use events::{McpEvent, McpEventHandler};
-pub use http::{HttpServerAdapter, HttpServerConfig, HttpServerInstance};
+pub use http::{
+    BearerAuthContext, BearerTokenAuthorizer, HttpServerAdapter, HttpServerConfig,
+    HttpServerInstance,
+};
 pub use protocol::{
     Tool, ToolDefinition, ToolError, ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol,
     ToolRegistry, ToolResult,

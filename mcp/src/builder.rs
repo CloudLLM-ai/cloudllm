@@ -127,6 +127,7 @@ impl MCPServerBuilder {
                 HttpServerConfig {
                     addr,
                     bearer_token,
+                    bearer_authorizer: None,
                     ip_filter: self.ip_filter,
                     event_handler: self.event_handler,
                 },

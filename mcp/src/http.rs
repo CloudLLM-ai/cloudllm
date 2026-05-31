@@ -36,6 +36,12 @@ pub struct HttpServerConfig {
     pub addr: SocketAddr,
     /// Optional bearer token for authentication
     pub bearer_token: Option<String>,
+    /// Optional dynamic bearer-token authorizer.
+    ///
+    /// When present, this authorizer is consulted after the static
+    /// [`bearer_token`](Self::bearer_token) check. A request is accepted when
+    /// either configured mechanism accepts the supplied bearer token.
+    pub bearer_authorizer: Option<Arc<dyn BearerTokenAuthorizer>>,
     /// IP filter controlling which client addresses are allowed
     pub ip_filter: IpFilter,
     /// Optional event handler for MCP server lifecycle and request events
@@ -47,6 +53,7 @@ impl Clone for HttpServerConfig {
         Self {
             addr: self.addr,
             bearer_token: self.bearer_token.clone(),
+            bearer_authorizer: self.bearer_authorizer.clone(),
             ip_filter: self.ip_filter.clone(),
             event_handler: self.event_handler.clone(),
         }
@@ -57,11 +64,38 @@ impl std::fmt::Debug for HttpServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpServerConfig")
             .field("addr", &self.addr)
-            .field("bearer_token", &self.bearer_token)
+            .field("has_bearer_token", &self.bearer_token.is_some())
+            .field("has_bearer_authorizer", &self.bearer_authorizer.is_some())
             .field("ip_filter", &self.ip_filter)
             .field("has_event_handler", &self.event_handler.is_some())
             .finish()
     }
+}
+
+/// Per-request context passed to a dynamic bearer-token authorizer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BearerAuthContext {
+    /// Client socket address reported by the HTTP framework.
+    pub client_addr: SocketAddr,
+    /// HTTP route that received the request.
+    pub route: String,
+    /// MCP method or legacy action being authorized.
+    pub action: String,
+}
+
+/// Dynamic bearer-token authorization hook for MCP HTTP transports.
+///
+/// Implement this trait when a server needs revocable tokens, scoped access,
+/// or token lookup from durable storage instead of a single static configured
+/// secret.
+pub trait BearerTokenAuthorizer: Send + Sync {
+    /// Return `true` when a request without a bearer token should be allowed.
+    fn allow_missing_bearer_token(&self, _context: &BearerAuthContext) -> bool {
+        false
+    }
+
+    /// Return `true` when `token` is allowed for `context`.
+    fn authorize_bearer_token(&self, token: &str, context: &BearerAuthContext) -> bool;
 }
 
 /// A running HTTP server instance
@@ -150,38 +184,64 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
     use sha2::{Digest, Sha256};
     use subtle::ConstantTimeEq;
 
-    /// Validate the Authorization header against the configured bearer token.
+    fn bearer_from_headers(headers: &HeaderMap) -> Option<&str> {
+        headers
+            .get("Authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+    }
+
+    /// Validate the Authorization header against static or dynamic bearer auth.
     ///
-    /// Returns `true` when no token is configured (open server) or when the
-    /// provided `Bearer <token>` matches the expected token. Uses
+    /// Returns `true` when neither auth mechanism is configured (open server),
+    /// when the supplied `Bearer <token>` matches the static token, or when the
+    /// dynamic authorizer accepts it. Static comparison uses
     /// `subtle::ConstantTimeEq` on SHA-256 digests so the compiler cannot
     /// short-circuit the comparison and leak token length via timing.
-    fn check_auth(expected_token: &Option<String>, headers: &HeaderMap) -> bool {
-        match expected_token.as_deref() {
-            None => true,
-            Some(expected) => {
-                let provided = headers
-                    .get("Authorization")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|v| v.strip_prefix("Bearer "))
-                    .unwrap_or("");
-                let expected_hash = Sha256::digest(expected.as_bytes());
-                let provided_hash = Sha256::digest(provided.as_bytes());
-                expected_hash.ct_eq(&provided_hash).into()
+    fn check_auth(
+        expected_token: &Option<String>,
+        authorizer: &Option<Arc<dyn BearerTokenAuthorizer>>,
+        headers: &HeaderMap,
+        context: BearerAuthContext,
+    ) -> bool {
+        if expected_token.is_none() && authorizer.is_none() {
+            return true;
+        }
+
+        let Some(provided) = bearer_from_headers(headers) else {
+            return authorizer
+                .as_ref()
+                .is_some_and(|auth| auth.allow_missing_bearer_token(&context));
+        };
+
+        if let Some(expected) = expected_token.as_deref() {
+            let expected_hash = Sha256::digest(expected.as_bytes());
+            let provided_hash = Sha256::digest(provided.as_bytes());
+            if bool::from(expected_hash.ct_eq(&provided_hash)) {
+                return true;
             }
         }
+
+        authorizer
+            .as_ref()
+            .is_some_and(|auth| auth.authorize_bearer_token(provided, &context))
     }
 
     let bearer_token = Arc::new(config.bearer_token.clone());
+    let bearer_authorizer = Arc::new(config.bearer_authorizer.clone());
     let ip_filter = Arc::new(config.ip_filter.clone());
 
     let token_list = bearer_token.clone();
+    let authz_list = bearer_authorizer.clone();
     let ips_list = ip_filter.clone();
     let token_exec = bearer_token.clone();
+    let authz_exec = bearer_authorizer.clone();
     let ips_exec = ip_filter.clone();
     let token_res_list = bearer_token.clone();
+    let authz_res_list = bearer_authorizer.clone();
     let ips_res_list = ip_filter.clone();
     let token_res_read = bearer_token.clone();
+    let authz_res_read = bearer_authorizer.clone();
     let ips_res_read = ip_filter.clone();
 
     let eh_list = config.event_handler.clone();
@@ -198,6 +258,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
             post(
                 move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
                     let token = token_list.clone();
+                    let authz = authz_list.clone();
                     let allowed = ips_list.clone();
                     let proto = protocol_list.clone();
                     let eh = eh_list.clone();
@@ -218,7 +279,16 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 .into_response();
                         }
 
-                        if !check_auth(&token, &headers) {
+                        if !check_auth(
+                            &token,
+                            &authz,
+                            &headers,
+                            BearerAuthContext {
+                                client_addr: addr,
+                                route: "/tools/list".to_string(),
+                                action: "tools/list".to_string(),
+                            },
+                        ) {
                             return (
                                 StatusCode::UNAUTHORIZED,
                                 Json(json!({"error": "Unauthorized"})),
@@ -264,6 +334,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                       headers: HeaderMap,
                       Json(payload): Json<serde_json::Value>| {
                     let token = token_exec.clone();
+                    let authz = authz_exec.clone();
                     let allowed = ips_exec.clone();
                     let proto = protocol_exec.clone();
                     let eh = eh_exec.clone();
@@ -284,7 +355,16 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 .into_response();
                         }
 
-                        if !check_auth(&token, &headers) {
+                        if !check_auth(
+                            &token,
+                            &authz,
+                            &headers,
+                            BearerAuthContext {
+                                client_addr: addr,
+                                route: "/tools/execute".to_string(),
+                                action: "tools/execute".to_string(),
+                            },
+                        ) {
                             return (
                                 StatusCode::UNAUTHORIZED,
                                 Json(json!({"error": "Unauthorized"})),
@@ -350,6 +430,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
             post(
                 move |ConnectInfo(addr): ConnectInfo<SocketAddr>, headers: HeaderMap| {
                     let token = token_res_list.clone();
+                    let authz = authz_res_list.clone();
                     let allowed = ips_res_list.clone();
                     let proto = protocol_res_list.clone();
                     async move {
@@ -361,7 +442,16 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 .into_response();
                         }
 
-                        if !check_auth(&token, &headers) {
+                        if !check_auth(
+                            &token,
+                            &authz,
+                            &headers,
+                            BearerAuthContext {
+                                client_addr: addr,
+                                route: "/resources/list".to_string(),
+                                action: "resources/list".to_string(),
+                            },
+                        ) {
                             return (
                                 StatusCode::UNAUTHORIZED,
                                 Json(json!({"error": "Unauthorized"})),
@@ -399,6 +489,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                       headers: HeaderMap,
                       Json(payload): Json<serde_json::Value>| {
                     let token = token_res_read.clone();
+                    let authz = authz_res_read.clone();
                     let allowed = ips_res_read.clone();
                     let proto = protocol_res_read.clone();
                     async move {
@@ -410,7 +501,16 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 .into_response();
                         }
 
-                        if !check_auth(&token, &headers) {
+                        if !check_auth(
+                            &token,
+                            &authz,
+                            &headers,
+                            BearerAuthContext {
+                                client_addr: addr,
+                                route: "/resources/read".to_string(),
+                                action: "resources/read".to_string(),
+                            },
+                        ) {
                             return (
                                 StatusCode::UNAUTHORIZED,
                                 Json(json!({"error": "Unauthorized"})),
