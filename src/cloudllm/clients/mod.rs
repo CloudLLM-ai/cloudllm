@@ -9,3 +9,4 @@ pub mod claude;
 pub mod gemini;
 pub mod grok;
 pub mod openai;
+pub mod openrouter;
