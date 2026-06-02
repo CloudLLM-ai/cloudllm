@@ -25,7 +25,7 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 * **Stateful Sessions**: A [`LLMSession`](https://docs.rs/cloudllm/latest/cloudllm/struct.LLMSession.html) for
   managing conversation history with context trimming and token accounting,
 * **Provider Flexibility**: Unified [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/index.html)
-  trait for OpenAI, Claude, Gemini, Grok, and custom OpenAI-compatible endpoints.
+  trait for OpenAI, Claude, Gemini, Grok, OpenRouter, and custom OpenAI-compatible endpoints.
 
 The entire public API is documented with _compilable_ examples—run `cargo doc --open` to browse the
 crate-level manual.
@@ -447,10 +447,11 @@ CloudLLM ships wrappers for popular OpenAI-compatible services:
 | Anthropic Claude | `cloudllm::clients::claude` | `ClaudeClient::new_with_model_enum` |
 | Google Gemini | `cloudllm::clients::gemini` | `GeminiClient::new_with_model_enum` |
 | xAI Grok | `cloudllm::clients::grok` | `GrokClient::new_with_model_enum` |
+| OpenRouter (300+ models) | `cloudllm::clients::openrouter` | `OpenRouterClient::new_with_model_enum`, `OpenRouterClient::new_with_model_str` |
 
 Providers share the [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/trait.ClientWrapper.html)
-contract, so you can swap them without changing downstream code. As of v0.11.1, all four
-providers (OpenAI, Claude, Grok, Gemini) support **native tool calling** via the
+contract, so you can swap them without changing downstream code. As of v0.15.6, all five
+providers (OpenAI, Claude, Grok, Gemini, OpenRouter) support **native tool calling** via the
 `tools: Option<Vec<ToolDefinition>>` parameter on `send_message`.
 
 ```rust,no_run

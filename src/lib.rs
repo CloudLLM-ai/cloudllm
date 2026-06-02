@@ -17,7 +17,7 @@
 //!   multiple agents with Parallel, RoundRobin, Moderated, Hierarchical, Debate, Ralph, or
 //!   AnthropicAgentTeams patterns
 //! * **Provider Flexibility**: [`ClientWrapper`] trait implemented for OpenAI, Anthropic Claude,
-//!   Google Gemini, xAI Grok, and custom OpenAI-compatible endpoints
+//!   Google Gemini, xAI Grok, OpenRouter (any of 300+ upstream models), and custom OpenAI-compatible endpoints
 //!
 //! The crate aims to provide documentation-quality examples for every public API.  These
 //! examples are kept up to date and are written to compile under `cargo test --doc`.
@@ -118,9 +118,10 @@
 //!
 //! ### Provider Abstraction
 //!
-//! Each cloud provider (OpenAI, Anthropic/Claude, Google Gemini, xAI Grok, and custom OpenAI-
-//! compatible endpoints) is exposed as a `ClientWrapper` implementation.  All wrappers share
-//! the same ergonomics for synchronous calls, streaming, and token accounting.
+//! Each cloud provider (OpenAI, Anthropic/Claude, Google Gemini, xAI Grok, OpenRouter, and
+//! custom OpenAI-compatible endpoints) is exposed as a `ClientWrapper` implementation.
+//! All wrappers share the same ergonomics for synchronous calls, streaming, and token
+//! accounting.
 //!
 //! ### Multi-Agent Orchestration
 //!

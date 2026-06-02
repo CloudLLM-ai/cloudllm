@@ -321,6 +321,28 @@ cargo run --example openai_web_search_example
 
 ---
 
+### OpenRouter Basic Example
+**File**: `openrouter_basic.rs`
+
+Minimal `LLMSession` wired to [OpenRouter](https://openrouter.ai) and the
+MiniMax M3 model — the migration target when OpenAI costs are no longer
+sustainable. The `OpenRouterClient` exposes a strongly-typed `Model` enum
+covering the top-50 most popular OpenRouter slugs plus `MinimaxM3`, and a
+`new_with_model_str` escape hatch for anything else.
+
+**Demonstrates**:
+- OpenRouter client construction with a typed model
+- Plugging an OpenRouter client into `LLMSession`
+- Reading back token usage from `get_last_usage`
+
+**Setup**:
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+cargo run --example openrouter_basic
+```
+
+---
+
 ### Memory Session with Snapshots
 **File**: `memory_session_with_snapshots.rs`
 
@@ -491,6 +513,7 @@ cargo build --examples
 | `ANTHROPIC_API_KEY` | Claude models | breakout_game_ralph, breakout_game_agent_teams, digimon_vs_pokemon_debate, anthropic_teams |
 | `GROK_API_KEY` | Grok models | agent_panel_with_moderator_and_access_to_tools, interactive_session |
 | `GEMINI_API_KEY` | Google Gemini | (optional, if enabled) |
+| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic |
 | `RUST_LOG` | All examples | Set to debug, info, or trace for logging |
 
 ### API Key Format
@@ -498,6 +521,7 @@ cargo build --examples
 - **Grok (xAI)**: `xai-...`
 - **Anthropic**: `claude-...`
 - **Gemini**: API key from Google Cloud
+- **OpenRouter**: `sk-or-...` (from <https://openrouter.ai/keys>)
 
 All examples run without actual API keys (default to placeholders), but won't make external API calls without valid credentials.
 
