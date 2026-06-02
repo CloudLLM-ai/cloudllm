@@ -1,4 +1,4 @@
-0.15.6 IN-PROGRESS
+0.15.6 JUN/02/2026
   - feat(openrouter): add OpenRouterClient with top-50 Model enum
     - [ADDED] `cloudllm::clients::openrouter::OpenRouterClient` implementing `ClientWrapper`
       for OpenRouter's OpenAI-compatible API (base URL `https://openrouter.ai/api/v1`)
@@ -18,7 +18,16 @@
   - docs(openrouter): document OpenRouter in lib.rs, README, and examples/README
     - [DOCS] Listed OpenRouter in the provider table on `src/lib.rs` and `README.md`,
       added env-var entry and example section to `examples/README.md`
-  - 
+  - feat(mcp): unify bearer-token required error response across transports
+    - [ADDED] `BEARER_TOKEN_REQUIRED_MESSAGE` `pub const` + `bearer_token_required_body()`
+      helper in `mcp/src/http.rs`, consumed by both the legacy
+      (`/tools/list`, `/tools/execute`, `/resources/list`, `/resources/read`) and
+      streamable-HTTP transports so clients see a consistent, actionable 401 body
+      (`error_description` + `hint` pointing at the bearer-token CLI) regardless of
+      which endpoint they hit
+  - chore(mcp): bump `cloudllm_mcp` sub-crate to 0.3.5
+    - Version bump on the `mcp/` workspace member; main `Cargo.toml`'s dependency
+      spec on `cloudllm_mcp` is bumped from `0.3.4` → `0.3.5` in lockstep
 
 0.15.5 MAY/28/2026
   - feat: Add GPT-5.5 OpenAI model variants
