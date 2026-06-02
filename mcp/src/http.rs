@@ -30,6 +30,32 @@ use std::sync::Arc;
 #[cfg(feature = "server")]
 use axum::Router;
 
+/// Standard error body returned when a request is rejected because of a missing
+/// or invalid bearer token.
+///
+/// Returned in two shapes:
+/// - `Legacy` — flat `{ "error": "Unauthorized", "message": "..." }` for the
+///   `/tools/list`, `/tools/execute`, `/resources/list`, `/resources/read`
+///   legacy endpoints so they remain a superset of the previous wire format.
+/// - `Rpc` — the JSON-RPC 2.0 error object used by streamable-HTTP transports.
+pub const BEARER_TOKEN_REQUIRED_MESSAGE: &str =
+    "This MCP endpoint requires a Bearer token in the `Authorization: Bearer <token>` header. \
+     Either supply a valid token, or set the server's `MENTISDB_BEARER_TOKEN_ACCESS=false` to \
+     disable bearer-token enforcement for the daemon.";
+
+/// Build a flat JSON body returned for bearer-token rejections on legacy
+/// (`/tools/list`, `/tools/execute`, `/resources/list`, `/resources/read`)
+/// endpoints.
+#[cfg(feature = "server")]
+fn bearer_token_required_body() -> serde_json::Value {
+    serde_json::json!({
+        "error": "Unauthorized",
+        "message": BEARER_TOKEN_REQUIRED_MESSAGE,
+        "error_description": BEARER_TOKEN_REQUIRED_MESSAGE,
+        "hint": "Send `Authorization: Bearer <token>` with a token issued by `mentisdb bearertoken create --alias <name>`.",
+    })
+}
+
 /// Configuration for an HTTP MCP server
 pub struct HttpServerConfig {
     /// Socket address to bind to (e.g., "127.0.0.1:8080")
@@ -335,10 +361,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 payload: None,
                             },
                         ) {
-                            return (
-                                StatusCode::UNAUTHORIZED,
-                                Json(json!({"error": "Unauthorized"})),
-                            )
+                            return (StatusCode::UNAUTHORIZED, Json(bearer_token_required_body()))
                                 .into_response();
                         }
 
@@ -412,10 +435,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 payload: Some(payload.clone()),
                             },
                         ) {
-                            return (
-                                StatusCode::UNAUTHORIZED,
-                                Json(json!({"error": "Unauthorized"})),
-                            )
+                            return (StatusCode::UNAUTHORIZED, Json(bearer_token_required_body()))
                                 .into_response();
                         }
 
@@ -500,10 +520,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 payload: None,
                             },
                         ) {
-                            return (
-                                StatusCode::UNAUTHORIZED,
-                                Json(json!({"error": "Unauthorized"})),
-                            )
+                            return (StatusCode::UNAUTHORIZED, Json(bearer_token_required_body()))
                                 .into_response();
                         }
 
@@ -560,10 +577,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 payload: Some(payload.clone()),
                             },
                         ) {
-                            return (
-                                StatusCode::UNAUTHORIZED,
-                                Json(json!({"error": "Unauthorized"})),
-                            )
+                            return (StatusCode::UNAUTHORIZED, Json(bearer_token_required_body()))
                                 .into_response();
                         }
 

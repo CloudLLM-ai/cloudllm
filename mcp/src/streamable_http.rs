@@ -554,8 +554,11 @@ async fn streamable_http_post_handler(
             StatusCode::UNAUTHORIZED,
             None,
             -32001,
-            "Unauthorized".to_string(),
-            None,
+            crate::http::BEARER_TOKEN_REQUIRED_MESSAGE.to_string(),
+            Some(json!({
+                "error_description": crate::http::BEARER_TOKEN_REQUIRED_MESSAGE,
+                "hint": "Send `Authorization: Bearer <token>` with a token issued by the server's bearer-token CLI.",
+            })),
         );
     }
 
