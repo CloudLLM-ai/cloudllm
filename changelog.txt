@@ -1,3 +1,25 @@
+0.15.6 IN-PROGRESS
+  - feat(openrouter): add OpenRouterClient with top-50 Model enum
+    - [ADDED] `cloudllm::clients::openrouter::OpenRouterClient` implementing `ClientWrapper`
+      for OpenRouter's OpenAI-compatible API (base URL `https://openrouter.ai/api/v1`)
+    - [ADDED] Strongly typed `Model` enum with the top-50 most popular OpenRouter models
+      (May 2026 snapshot) plus `Model::MinimaxM3` for the MiniMax M3 migration target
+    - [ADDED] `new_with_model_enum`, `new_with_model_str`, `new_with_base_url`,
+      `new_with_base_url_and_model_enum` constructors (mirrors `GrokClient` / `GeminiClient`)
+    - [ADDED] Native tool calling path through `send_with_native_tools`; streaming path
+      uses `/api/v1/chat/completions` directly (not the plain `/v1/chat/completions` that
+      `OpenAIClient` is hardcoded to, so it does not compose that wrapper)
+  - test(openrouter): add slug mapping, base-URL normalisation, and gated live smoke test
+    - [ADDED] `tests/openrouter_tests.rs` covering slug mapping for every variant,
+      base-URL normalisation, model name exposure, enum-arity guard, and a gated live
+      smoke test keyed off `OPENROUTER_API_KEY`
+  - feat(example): add openrouter_basic example wiring LLMSession to MiniMax M3
+    - [ADDED] `examples/openrouter_basic.rs` showing `LLMSession` + M3
+  - docs(openrouter): document OpenRouter in lib.rs, README, and examples/README
+    - [DOCS] Listed OpenRouter in the provider table on `src/lib.rs` and `README.md`,
+      added env-var entry and example section to `examples/README.md`
+  - 
+
 0.15.5 MAY/28/2026
   - feat: Add GPT-5.5 OpenAI model variants
     - [ADDED] `Model::GPT55`, `GPT55Mini`, `GPT55Nano`, `GPT55Pro` mapped to "gpt-5.5", "gpt-5.5-mini", etc.
