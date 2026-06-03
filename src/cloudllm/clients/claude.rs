@@ -143,6 +143,10 @@ impl ClientWrapper for ClaudeClient {
         &self.model
     }
 
+    fn provider_name(&self) -> &str {
+        "Claude"
+    }
+
     /// Delegates to the inner [`OpenAIClient`] (which routes to native tool calling when
     /// `tools` is non-empty).
     ///

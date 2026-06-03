@@ -544,6 +544,10 @@ impl ClientWrapper for OpenAIClient {
         &self.model
     }
 
+    fn provider_name(&self) -> &str {
+        "OpenAI"
+    }
+
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
     }

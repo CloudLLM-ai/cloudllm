@@ -41,6 +41,10 @@
 //!         &self.model
 //!     }
 //!
+//!     fn provider_name(&self) -> &str {
+//!         "MyHosted"
+//!     }
+//!
 //!     async fn send_message(
 //!         &self,
 //!         messages: &[Message],

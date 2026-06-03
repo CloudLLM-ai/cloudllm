@@ -1,3 +1,22 @@
+0.15.7
+  - feat(client_wrapper): add LLMClientInfo trait + provider_name() on every client
+    - [ADDED] `cloudllm::client_wrapper::LLMClientInfo` trait exposing
+      `llm_provider_name()`, `llm_model_name()`, and `llm_tools()` on any
+      `Arc<dyn ClientWrapper>`. Re-exported at the crate root as
+      `cloudllm::LLMClientInfo`.
+    - [ADDED] `ClientWrapper::provider_name(&self) -> &str` returning the upstream
+      provider slug. Overridden by every client wrapper: `OpenAIClient` →
+      `"OpenAI"`, `OpenRouterClient` → `"OpenRouter"`, `GrokClient` → `"Grok"`,
+      `GeminiClient` → `"Gemini"`, `ClaudeClient` → `"Claude"`.
+    - [ADDED] `ClientWrapper::tools(&self) -> Vec<&str>` with a default empty
+      implementation so `LLMClientInfo::llm_tools()` can be answered uniformly
+      without per-client override work today.
+  - These are additive and source-compatible. Existing callers do not need to
+    change anything; downstream code that wants to render a chat-friendly
+    `(provider, model)` label (e.g. uninews' "Extrayendo con uninews usando …"
+    message) can now switch to `LLMClientInfo` instead of hardcoding model
+    names.
+
 0.15.6 JUN/02/2026
   - feat(openrouter): add OpenRouterClient with top-50 Model enum
     - [ADDED] `cloudllm::clients::openrouter::OpenRouterClient` implementing `ClientWrapper`

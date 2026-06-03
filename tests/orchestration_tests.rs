@@ -27,6 +27,10 @@ impl ClientWrapper for MockClient {
         &self.name
     }
 
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
     async fn get_last_usage(&self) -> Option<TokenUsage> {
         None
     }
@@ -195,6 +199,10 @@ async fn test_agent_with_tool_execution() {
             "tool-mock"
         }
 
+        fn provider_name(&self) -> &str {
+            "mock"
+        }
+
         async fn get_last_usage(&self) -> Option<TokenUsage> {
             None
         }
@@ -263,6 +271,10 @@ async fn test_debate_mode_convergence() {
 
         fn model_name(&self) -> &str {
             "converging-mock"
+        }
+
+        fn provider_name(&self) -> &str {
+            "mock"
         }
 
         async fn get_last_usage(&self) -> Option<TokenUsage> {
@@ -345,6 +357,10 @@ async fn test_ralph_mode_completion() {
 
         fn model_name(&self) -> &str {
             "ralph-mock"
+        }
+
+        fn provider_name(&self) -> &str {
+            "mock"
         }
 
         async fn get_last_usage(&self) -> Option<TokenUsage> {
@@ -503,6 +519,10 @@ async fn test_hub_routing_no_duplication() {
 
         fn model_name(&self) -> &str {
             "counting-mock"
+        }
+
+        fn provider_name(&self) -> &str {
+            "mock"
         }
 
         async fn get_last_usage(&self) -> Option<TokenUsage> {

@@ -76,6 +76,10 @@ impl ClientWrapper for SequentialMockClient {
         "mock-sequential"
     }
 
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
     async fn get_last_usage(&self) -> Option<TokenUsage> {
         None
     }

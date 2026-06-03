@@ -81,6 +81,10 @@ impl ClientWrapper for MockClient {
         "mock-model"
     }
 
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.usage)
     }

@@ -420,6 +420,10 @@ impl ClientWrapper for GeminiClient {
         &self.model
     }
 
+    fn provider_name(&self) -> &str {
+        "Gemini"
+    }
+
     /// Send a synchronous message to the Gemini endpoint.
     ///
     /// When `tools` is `Some` and non-empty the request is forwarded to

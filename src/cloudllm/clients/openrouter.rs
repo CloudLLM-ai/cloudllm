@@ -343,6 +343,10 @@ impl ClientWrapper for OpenRouterClient {
         &self.model
     }
 
+    fn provider_name(&self) -> &str {
+        "OpenRouter"
+    }
+
     /// Send a chat completion, routing to native tool calling when `tools` is non-empty.
     ///
     /// When `tools` is `Some` and non-empty the request is forwarded to

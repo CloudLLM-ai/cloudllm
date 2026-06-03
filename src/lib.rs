@@ -301,8 +301,8 @@ pub mod cloudllm;
 pub use cloudllm::agent::Agent;
 pub use cloudllm::client_wrapper;
 pub use cloudllm::client_wrapper::{
-    ClientWrapper, Message, MessageChunk, MessageChunkStream, MessageStreamFuture, NativeToolCall,
-    Role, ToolDefinition,
+    ClientWrapper, LLMClientInfo, Message, MessageChunk, MessageChunkStream, MessageStreamFuture,
+    NativeToolCall, Role, ToolDefinition,
 };
 pub use cloudllm::clients;
 pub use cloudllm::config::CloudLLMConfig;

@@ -215,6 +215,10 @@ impl ClientWrapper for GrokClient {
         &self.model
     }
 
+    fn provider_name(&self) -> &str {
+        "Grok"
+    }
+
     /// Send a chat completion, routing to native tool calling when `tools` is non-empty.
     ///
     /// When `tools` is `Some` and non-empty the request is forwarded to

@@ -32,6 +32,10 @@ impl ClientWrapper for MockClient {
         "mock"
     }
 
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
     async fn get_last_usage(&self) -> Option<TokenUsage> {
         None
     }
@@ -168,6 +172,10 @@ impl ClientWrapper for MultiToolMockClient {
 
     fn model_name(&self) -> &str {
         "mock-native-tools"
+    }
+
+    fn provider_name(&self) -> &str {
+        "mock"
     }
 
     async fn get_last_usage(&self) -> Option<TokenUsage> {

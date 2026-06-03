@@ -246,6 +246,20 @@ pub trait ClientWrapper: Send + Sync {
     /// Return the identifier used to select the upstream model (e.g. `"gpt-4.1"`).
     fn model_name(&self) -> &str;
 
+    /// Return the upstream provider slug (e.g. `"OpenAI"`, `"OpenRouter"`, `"Grok"`,
+    /// `"Gemini"`, `"Claude"`).  Used by [`LLMClientInfo`] to display
+    /// human-readable labels in chat notifications and log lines.
+    fn provider_name(&self) -> &str;
+
+    /// Return the native tool names that have been configured on the session,
+    /// in the order they were registered.  Defaults to an empty list when the
+    /// provider was not given a [`ToolDefinition`] set.  Implemented by
+    /// [`LLMClientInfo`] wrappers that hold on to the original registration
+    /// list.
+    fn tools(&self) -> Vec<&str> {
+        Vec::new()
+    }
+
     /// Hook to retrieve usage from the most recent [`ClientWrapper::send_message`] call.
     ///
     /// Wrappers that propagate token accounting should override [`ClientWrapper::usage_slot`].
@@ -264,5 +278,58 @@ pub trait ClientWrapper: Send + Sync {
     /// can surface the recorded values to callers.
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         None
+    }
+}
+
+/// Composable introspection surface for any CloudLLM client.
+///
+/// Every `Arc<dyn ClientWrapper>` also implements `LLMClientInfo`, so
+/// downstream code can ask the same three questions of any provider without
+/// having to downcast to a concrete client type:
+///
+/// * `llm_provider_name()` — the upstream provider slug (e.g. `"OpenRouter"`).
+/// * `llm_model_name()`    — the model identifier forwarded to that provider.
+/// * `llm_tools()`         — native tool names the session was configured with
+///   (e.g. `["web_search"]`).
+///
+/// # Example
+///
+/// ```no_run
+/// use std::sync::Arc;
+/// use cloudllm::client_wrapper::{ClientWrapper, LLMClientInfo};
+/// use cloudllm::clients::openrouter::OpenRouterClient;
+///
+/// let key = std::env::var("OPENROUTER_API_KEY").expect("OPENROUTER_API_KEY");
+/// let client: Arc<dyn ClientWrapper> = Arc::new(
+///     OpenRouterClient::new_with_model_str(&key, "qwen/qwen3.7-max"),
+/// );
+/// println!(
+///     "uninews routed through {} ({})",
+///     client.llm_provider_name().unwrap_or("unknown"),
+///     client.llm_model_name().unwrap_or("unknown"),
+/// );
+/// ```
+pub trait LLMClientInfo {
+    /// Provider slug, e.g. `"OpenAI"`, `"OpenRouter"`, `"Grok"`, `"Gemini"`, `"Claude"`.
+    fn llm_provider_name(&self) -> Option<&str>;
+
+    /// Model identifier forwarded to the provider.
+    fn llm_model_name(&self) -> Option<&str>;
+
+    /// Native tool names configured on the session (empty when none).
+    fn llm_tools(&self) -> Vec<&str>;
+}
+
+impl LLMClientInfo for Arc<dyn ClientWrapper> {
+    fn llm_provider_name(&self) -> Option<&str> {
+        Some(self.provider_name())
+    }
+
+    fn llm_model_name(&self) -> Option<&str> {
+        Some(self.model_name())
+    }
+
+    fn llm_tools(&self) -> Vec<&str> {
+        self.tools()
     }
 }
