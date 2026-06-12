@@ -140,7 +140,7 @@ pub async fn send_and_track(
         chat_arguments = chat_arguments.with_grok_tools(grok_tools);
     }
 
-    let response = api.create_chat(chat_arguments, url_path).await;
+    let response = api.create_chat(chat_arguments, url_path.clone()).await;
 
     match response {
         Ok(response) => {
@@ -157,9 +157,17 @@ pub async fn send_and_track(
             Ok(response.choices[0].message.content.clone())
         }
         Err(err) => {
+            // Log the model + URL path on top of the underlying openai-rust2
+            // error so operators can tell which endpoint / model failed
+            // without grepping the call site. openai-rust2 >= 1.7.4 already
+            // includes the HTTP status and a truncated raw body in `err`,
+            // so this gives us a fully contextualized error message.
+            let endpoint = url_path.as_deref().unwrap_or("(default /v1/chat/completions)");
             if log::log_enabled!(log::Level::Error) {
                 log::error!(
-                    "cloudllm::clients::common::send_and_track(...): OpenAI API Error: {}",
+                    "cloudllm::clients::common::send_and_track(...): OpenAI API Error: model={} endpoint={} error={}",
+                    model,
+                    endpoint,
                     err
                 );
             }

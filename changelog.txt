@@ -1,3 +1,20 @@
+0.15.8 JUN/12/2026
+  - fix(clients): include the model name and endpoint path in
+    `send_and_track` error logging. The previous log line just printed the
+    underlying openai-rust2 error string, which (with old openai-rust2) was
+    the bare reqwest "error decoding response body" — impossible to triage
+    without knowing which model/endpoint was hit.
+  - fix(clients): require openai-rust2 >= 1.7.4, which surfaces the HTTP
+    status code and the (truncated) raw response body in every body-read
+    or JSON-parse error and treats 200-branch body-decode failures as
+    transient (retries up to max_retries with exponential backoff). This
+    unblocks reliable recovery from connection resets and truncated
+    streams that previously surfaced as a single fatal "Error al enviar
+    mensaje al LLM" with zero diagnostic context.
+  - These are source-compatible for direct consumers of the `ClientWrapper`
+    trait. Library users that pin `openai-rust2` independently will get a
+    Cargo resolution error and can loosen / upgrade their pin.
+
 0.15.7
   - feat(client_wrapper): add LLMClientInfo trait + provider_name() on every client
     - [ADDED] `cloudllm::client_wrapper::LLMClientInfo` trait exposing

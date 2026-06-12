@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "cloudllm"
-version = "0.15.7"
+version = "0.15.8"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, multi-agent orchestration, and MentisDB-backed durable memory."
@@ -17,7 +17,11 @@ tokio = { version = "1.48.0", features = ["full"] }
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
 # https://github.com/gubatron/openai-rust
-openai-rust2 = "1.7.2"
+# 1.7.4+ is required: older versions bubble up reqwest's bare
+# "error decoding response body" with no status / body context, which makes
+# transport-level failures (connection reset, truncated stream, non-UTF-8
+# bytes) undiagnosable from cloudllm's log line.
+openai-rust2 = ">=1.7.4, <2"
 
 async-trait = "0.1.89"
 log = "0.4.28"
