@@ -30,3 +30,5 @@ run_streaming_example
 *_delete_me*.md
 *_temp*.md
 temp_*.md
+# Test output binaries
+*.bin

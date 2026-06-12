@@ -1,3 +1,13 @@
+0.15.9 JUN/12/2026
+  - chore(deps): require openai-rust2 >= 1.7.5 (was >= 1.7.4). 1.7.5
+    carries the same body-context error fix as 1.7.4 but is built on the
+    current upstream baseline (shared HTTP client + connection pooling
+    from 1.7.3). 1.7.4 remains on crates.io for compatibility, but 1.7.5
+    is the recommended pin.
+  - 0.15.8 is functionally equivalent (same body-context error fix,
+    same model + endpoint logging in send_and_track); superseded by
+    0.15.9 for the tighter dependency floor.
+
 0.15.8 JUN/12/2026
   - fix(clients): include the model name and endpoint path in
     `send_and_track` error logging. The previous log line just printed the
