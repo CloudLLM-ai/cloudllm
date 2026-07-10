@@ -338,14 +338,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             eprintln!("  3. Run the example again:");
             eprintln!("     cargo run --example breakout_game_ralph");
             eprintln!("\nExpected runtime: 30-50 minutes (10 iterations × 4 agents × 2-3 min per LLM call)");
-            eprintln!("Expected cost: varies (using grok-build-0.1)\n");
+            eprintln!("Expected cost: varies (using grok-4.5)\n");
             std::process::exit(1);
         }
     };
 
     println!("\n{}", "=".repeat(80));
     println!("  RALPH Orchestration Mode — Atari Breakout Game Builder");
-    println!("  Using model: grok-build-0.1 (Grok Build 0.1)");
+    println!("  Using model: grok-4.5 (Grok 4.5)");
     println!("{}\n", "=".repeat(80));
 
     // ── Shared Memory + Custom Tools ──────────────────────────────────────
@@ -532,12 +532,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // ── Agents ──────────────────────────────────────────────────────────────
 
-    let make_client = || {
-        Arc::new(GrokClient::new_with_model_enum(
-            &api_key,
-            GrokModel::GrokBuild01,
-        ))
-    };
+    let make_client = || Arc::new(GrokClient::new_with_model_enum(&api_key, GrokModel::Grok45));
 
     let architect = Agent::new("game-architect", "Game Architect", make_client())
         .with_expertise("HTML5 structure, CSS layout, Canvas setup")
