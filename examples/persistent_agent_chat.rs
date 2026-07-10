@@ -72,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )
     .await?;
 
-    let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT54));
+    let client = Arc::new(OpenAIClient::new_with_model_enum(&api_key, Model::GPT56Sol));
     let mut agent = Agent::new("persistent-chat", "Persistent Chat Agent", client)
         .with_expertise(
             "Long-running user collaboration, durable memory management, coding, shell, HTTP, and file operations",
