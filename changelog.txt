@@ -1,3 +1,23 @@
+0.15.10 JUL/10/2026
+  - feat(openai): add GPT-5.6 Sol / Terra / Luna model enums
+    - [ADDED] `Model::GPT56Sol` → `"gpt-5.6-sol"` (frontier flagship)
+    - [ADDED] `Model::GPT56` → `"gpt-5.6"` (alias that routes to Sol)
+    - [ADDED] `Model::GPT56Terra` → `"gpt-5.6-terra"` (balanced intelligence/cost)
+    - [ADDED] `Model::GPT56Luna` → `"gpt-5.6-luna"` (cost-sensitive / high-volume)
+    - Deprecated `GPT55` / `GPT55Mini` / `GPT55Nano` / `GPT55Pro` with migration
+      notes to the GPT-5.6 Sol/Terra/Luna family
+  - feat(grok): add Grok 4.5 model enums
+    - [ADDED] `Model::Grok45` → `"grok-4.5"` (most intelligent/fastest; 500k context)
+    - [ADDED] `Model::Grok45Latest` → `"grok-4.5-latest"`
+    - Exported `model_to_string` as `pub` (mirrors OpenAI / OpenRouter)
+  - test(models): gated live loadability coverage for new OpenAI + Grok variants
+    - Extended `tests/openai_models_tests.rs` with GPT-5.6 slug mapping, client
+      construction, and live smoke tests (skips without `OPEN_AI_SECRET`)
+    - [ADDED] `tests/grok_models_tests.rs` for Grok 4.5 slug mapping, client
+      construction, and live smoke tests (skips without `XAI_API_KEY`)
+  - feat(example): breakout RALPH agents now use `Grok45` instead of `GrokBuild01`
+    - `examples/breakout_game_ralph.rs` so runners exercise the new frontier model
+
 0.15.9 JUN/12/2026
   - chore(deps): require openai-rust2 >= 1.7.5 (was >= 1.7.4). 1.7.5
     carries the same body-context error fix as 1.7.4 but is built on the
