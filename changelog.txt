@@ -17,6 +17,16 @@
       construction, and live smoke tests (skips without `XAI_API_KEY`)
   - feat(example): breakout RALPH agents now use `Grok45` instead of `GrokBuild01`
     - `examples/breakout_game_ralph.rs` so runners exercise the new frontier model
+  - chore(deps): upgrade `mentisdb` from `0.4` to `0.10`
+    - Re-exports now surface `BinaryStorageAdapter` + `StorageAdapterKind`
+      (replaces removed `JsonlStorageAdapter`; JSONL is legacy-only upstream)
+    - Call sites modernized to `MentisDb::open_with_key` (chain key identity)
+    - `persistent_agent_chat` uses `StorageAdapterKind::Binary` and the new
+      `start_mcp_server` return shape `(ServerHandle, SseBroadcaster)`
+    - Docs/config text updated from "JSONL chain files" to binary `.tcbin`
+  - chore(deps): require `openai-rust2` >= 1.7.6 (was >= 1.7.5)
+    - Picks up refreshed dependency floors, clippy-clean suite, and
+      skip-friendly live tests from openai-rust2 1.7.6
 
 0.15.9 JUN/12/2026
   - chore(deps): require openai-rust2 >= 1.7.5 (was >= 1.7.4). 1.7.5
