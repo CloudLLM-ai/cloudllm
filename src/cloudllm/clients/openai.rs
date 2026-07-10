@@ -143,30 +143,42 @@ pub fn image_model_to_string(model: ImageModel) -> String {
 /// Official model identifiers supported by OpenAI's Chat Completions API.
 #[allow(non_camel_case_types)]
 pub enum Model {
-    /// `gpt-5.5` – Latest GPT-5 generation model.
+    /// `gpt-5.6-sol` – Frontier GPT-5.6 model for complex professional work (flagship).
+    GPT56Sol,
+    /// `gpt-5.6` – Alias that routes to GPT-5.6 Sol.
+    GPT56,
+    /// `gpt-5.6-terra` – GPT-5.6 tier that balances intelligence and cost.
+    GPT56Terra,
+    /// `gpt-5.6-luna` – GPT-5.6 tier optimized for cost-sensitive, high-volume workloads.
+    GPT56Luna,
+    /// `gpt-5.5` – Previous GPT-5 generation model.
+    #[deprecated(since = "0.15.10", note = "Use GPT56Sol (or GPT56) instead.")]
     GPT55,
     /// `gpt-5.5-mini` – Lower-cost GPT-5.5 tier with reduced latency.
+    #[deprecated(since = "0.15.10", note = "Use GPT56Terra instead.")]
     GPT55Mini,
     /// `gpt-5.5-nano` – Smallest GPT-5.5 tier optimized for cost and latency.
+    #[deprecated(since = "0.15.10", note = "Use GPT56Luna instead.")]
     GPT55Nano,
     /// `gpt-5.5-pro` – High-capability model for tough problems requiring harder thinking.
+    #[deprecated(since = "0.15.10", note = "Use GPT56Sol instead.")]
     GPT55Pro,
-    /// `gpt-5.4` – Latest GPT-5 generation model.
-    #[deprecated(since = "0.15.0", note = "Use GPT55 instead.")]
+    /// `gpt-5.4` – Older GPT-5 generation model.
+    #[deprecated(since = "0.15.0", note = "Use GPT56Sol instead.")]
     GPT54,
     /// `gpt-5.4-mini` – Lower-cost GPT-5.4 tier with reduced latency.
-    #[deprecated(since = "0.15.0", note = "Use GPT55Mini instead.")]
+    #[deprecated(since = "0.15.0", note = "Use GPT56Terra instead.")]
     GPT54Mini,
     /// `gpt-5.4-nano` – Smallest GPT-5.4 tier optimized for cost and latency.
-    #[deprecated(since = "0.15.0", note = "Use GPT55Nano instead.")]
+    #[deprecated(since = "0.15.0", note = "Use GPT56Luna instead.")]
     GPT54Nano,
     /// `gpt-5.4-pro` – High-capability model for tough problems requiring harder thinking.
-    #[deprecated(since = "0.15.0", note = "Use GPT55Pro instead.")]
+    #[deprecated(since = "0.15.0", note = "Use GPT56Sol instead.")]
     GPT54Pro,
     /// `gpt-5.3-chat-latest` – ChatGPT's production deployment of GPT-5.3.
     GPT53ChatLatest,
     /// `gpt-5.2` – Complex reasoning, broad world knowledge, and code-heavy or multi-step agentic tasks.
-    #[deprecated(since = "0.15.0", note = "Use GPT55 instead.")]
+    #[deprecated(since = "0.15.0", note = "Use GPT56Sol instead.")]
     GPT52,
     /// `gpt-5.2-chat-latest` – ChatGPT's production deployment of GPT-5.2.
     GPT52ChatLatest,
@@ -242,6 +254,10 @@ pub enum Model {
 #[allow(deprecated)]
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT56Sol => "gpt-5.6-sol".to_string(),
+        Model::GPT56 => "gpt-5.6".to_string(),
+        Model::GPT56Terra => "gpt-5.6-terra".to_string(),
+        Model::GPT56Luna => "gpt-5.6-luna".to_string(),
         Model::GPT55 => "gpt-5.5".to_string(),
         Model::GPT55Mini => "gpt-5.5-mini".to_string(),
         Model::GPT55Nano => "gpt-5.5-nano".to_string(),
