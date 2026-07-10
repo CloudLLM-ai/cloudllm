@@ -37,10 +37,11 @@ use std::path::PathBuf;
 /// };
 /// ```
 pub struct CloudLLMConfig {
-    /// Directory where the default MentisDb JSONL storage adapter stores
-    /// chain files.
+    /// Directory where the default MentisDb binary storage adapter stores
+    /// chain files (`.tcbin`).
     ///
-    /// Passed to [`MentisDb::open`](crate::MentisDb::open) as the
+    /// Passed to [`MentisDb::open_with_key`](crate::MentisDb::open_with_key)
+    /// (or the legacy [`MentisDb::open`](crate::MentisDb::open)) as the
     /// `chain_dir` argument.
     pub mentisdb_dir: PathBuf,
 }

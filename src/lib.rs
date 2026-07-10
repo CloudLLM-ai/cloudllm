@@ -314,8 +314,8 @@ pub use cloudllm::llm_session::LLMSession;
 pub use mcp;
 pub use mentisdb;
 pub use mentisdb::{
-    JsonlStorageAdapter, MentisDb, StorageAdapter, Thought, ThoughtInput, ThoughtQuery,
-    ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
+    BinaryStorageAdapter, MentisDb, StorageAdapter, StorageAdapterKind, Thought, ThoughtInput,
+    ThoughtQuery, ThoughtRelation, ThoughtRelationKind, ThoughtRole, ThoughtType,
 };
 
 // Re-export tool protocol and orchestration functionality

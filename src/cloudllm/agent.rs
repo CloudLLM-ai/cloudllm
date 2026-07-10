@@ -331,9 +331,7 @@ impl Agent {
     /// use tokio::sync::RwLock;
     ///
     /// let chain = Arc::new(RwLock::new(
-    ///     MentisDb::open(
-    ///         &PathBuf::from("chains"), "a1", "Agent", Some("ML"), None,
-    ///     ).unwrap()
+    ///     MentisDb::open_with_key(PathBuf::from("chains"), "a1").unwrap()
     /// ));
     ///
     /// let agent = Agent::new(
@@ -547,7 +545,7 @@ impl Agent {
     ///
     /// # async {
     /// let chain = Arc::new(RwLock::new(
-    ///     MentisDb::open(&PathBuf::from("/tmp/ch"), "a1", "Agent", None, None).unwrap()
+    ///     MentisDb::open_with_key(PathBuf::from("/tmp/ch"), "a1").unwrap()
     /// ));
     /// let agent = Agent::new(
     ///     "a1", "Agent",
@@ -615,9 +613,7 @@ impl Agent {
     ///
     /// // Assume a chain was previously populated
     /// let chain = Arc::new(RwLock::new(
-    ///     MentisDb::open(
-    ///         &PathBuf::from("chains"), "a1", "Agent", Some("ML"), None,
-    ///     ).unwrap()
+    ///     MentisDb::open_with_key(PathBuf::from("chains"), "a1").unwrap()
     /// ));
     ///
     /// let agent = Agent::resume_from_chain(
@@ -683,9 +679,7 @@ impl Agent {
     /// use tokio::sync::RwLock;
     ///
     /// let chain = Arc::new(RwLock::new(
-    ///     MentisDb::open(
-    ///         &PathBuf::from("chains"), "a1", "Agent", None, None,
-    ///     ).unwrap()
+    ///     MentisDb::open_with_key(PathBuf::from("chains"), "a1").unwrap()
     /// ));
     ///
     /// let agent = Agent::resume_from_latest(

@@ -14,7 +14,7 @@ fn unique_chain_dir() -> PathBuf {
 #[test]
 fn test_mentisdb_create_and_append() {
     let dir = unique_chain_dir();
-    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open_with_key(&dir, "agent1").unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Found pattern A")
@@ -40,14 +40,7 @@ fn test_mentisdb_disk_persistence() {
 
     // Write and drop
     {
-        let mut chain = MentisDb::open(
-            &dir,
-            "persist_agent",
-            "Persist Analyst",
-            Some("persist_data"),
-            None,
-        )
-        .unwrap();
+        let mut chain = MentisDb::open_with_key(&dir, "persist_agent").unwrap();
         chain
             .append("persist_agent", ThoughtType::Finding, "Persisted finding")
             .unwrap();
@@ -57,14 +50,7 @@ fn test_mentisdb_disk_persistence() {
     }
 
     // Reopen
-    let chain = MentisDb::open(
-        &dir,
-        "persist_agent",
-        "Persist Analyst",
-        Some("persist_data"),
-        None,
-    )
-    .unwrap();
+    let chain = MentisDb::open_with_key(&dir, "persist_agent").unwrap();
     assert_eq!(chain.thoughts().len(), 2);
     assert_eq!(chain.thoughts()[0].content, "Persisted finding");
     assert_eq!(chain.thoughts()[1].content, "Checkpoint 1");
@@ -75,7 +61,7 @@ fn test_mentisdb_disk_persistence() {
 #[test]
 fn test_mentisdb_hash_integrity() {
     let dir = unique_chain_dir();
-    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open_with_key(&dir, "agent1").unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Entry 1")
@@ -95,7 +81,7 @@ fn test_mentisdb_hash_integrity() {
 #[test]
 fn test_mentisdb_resolve_context() {
     let dir = unique_chain_dir();
-    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open_with_key(&dir, "agent1").unwrap();
 
     // #0: Finding
     chain
@@ -144,12 +130,19 @@ fn test_mentisdb_filename_determinism() {
     // Different chain key -> different filename
     let f4 = chain_filename("id2", "Name", Some("exp"), Some("pers"));
     assert_ne!(f1, f4);
+
+    // Default storage is binary (.tcbin)
+    assert!(
+        f1.ends_with(".tcbin"),
+        "expected binary extension, got {}",
+        f1
+    );
 }
 
 #[test]
 fn test_mentisdb_bootstrap_prompt() {
     let dir = unique_chain_dir();
-    let mut chain = MentisDb::open(&dir, "agent1", "Analyst", Some("data"), None).unwrap();
+    let mut chain = MentisDb::open_with_key(&dir, "agent1").unwrap();
 
     chain
         .append("agent1", ThoughtType::Finding, "Key insight")

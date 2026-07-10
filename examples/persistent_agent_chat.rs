@@ -2,7 +2,7 @@
 //!
 //! By default this example starts a local MentisDB MCP server on an
 //! ephemeral localhost port, then creates a GPT-5.4 CloudLLM agent with:
-//! - remote MentisDB memory tools over MCP
+//! - remote MentisDB memory tools over MCP (binary storage by default)
 //! - local memory, bash, HTTP, calculator, and filesystem tools
 //!
 //! The agent restores prior memory on startup and persists each completed turn
@@ -46,12 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mentisdb_endpoint = if let Ok(endpoint) = env::var("MENTISDB_MCP_ENDPOINT") {
         endpoint
     } else {
-        let server = start_mcp_server(
+        let (server, _sse) = start_mcp_server(
             SocketAddr::from(([127, 0, 0, 1], 0)),
             MentisDbServiceConfig::new(
                 chain_dir.clone(),
                 chain_key.clone(),
-                mentisdb::StorageAdapterKind::Jsonl,
+                mentisdb::StorageAdapterKind::Binary,
             ),
         )
         .await?;
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     agent.set_system_prompt(&system_prompt);
 
     println!("Persistent Agent Chat");
-    println!("Model: gpt-5.4");
+    println!("Model: gpt-5.6-sol");
     println!("MentisDB MCP endpoint: {}", mentisdb_endpoint);
     println!("MentisDB directory: {}", chain_dir.display());
     println!("MentisDB chain key: {}", chain_key);

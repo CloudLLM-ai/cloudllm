@@ -102,7 +102,7 @@ async fn test_agent_with_mentisdb() {
     let dir = std::env::temp_dir().join(format!("cloudllm_agent_tc_test_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
 
-    let chain = MentisDb::open(&dir, "agent1", "Agent", None, None).unwrap();
+    let chain = MentisDb::open_with_key(&dir, "agent1").unwrap();
     let chain = Arc::new(RwLock::new(chain));
 
     let client: Arc<dyn ClientWrapper> = Arc::new(MockClient {

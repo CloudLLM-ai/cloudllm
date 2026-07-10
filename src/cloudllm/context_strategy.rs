@@ -213,7 +213,7 @@ impl ContextStrategy for TrimStrategy {
 ///
 /// # async {
 /// let chain = Arc::new(RwLock::new(
-///     MentisDb::open(&PathBuf::from("/tmp/chains"), "a1", "Agent", None, None).unwrap()
+///     MentisDb::open_with_key(PathBuf::from("/tmp/chains"), "a1").unwrap()
 /// ));
 ///
 /// let agent = Agent::new(
