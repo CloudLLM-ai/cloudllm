@@ -104,7 +104,7 @@ pub struct GrokClient {
     base_url: String,
 }
 
-/// Grok model identifiers available as of May 2026.
+/// Grok model identifiers available as of July 2026.
 pub enum Model {
     /// `grok-2` – production Grok 2 multi-modal model.
     Grok2,
@@ -138,16 +138,20 @@ pub enum Model {
     Grok41FastReasoning,
     /// `grok-4-1-fast-non-reasoning` - frontier multimodal model without reasoning, supports server_tools
     Grok41FastNonReasoning,
-    /// `grok-4.3` – most intelligent and fastest Grok model (May 2026).
+    /// `grok-4.3` – Grok 4.3 release (May 2026).
     Grok43,
     /// `grok-4.3-latest` – latest Grok 4.3 drop.
     Grok43Latest,
+    /// `grok-4.5` – most intelligent and fastest Grok model (July 2026); 500k context.
+    Grok45,
+    /// `grok-4.5-latest` – latest Grok 4.5 drop (also aliased as `grok-build-latest` upstream).
+    Grok45Latest,
     /// `grok-build-0.1` – Grok build 0.1 model (xai/grok-build-0.1).
     GrokBuild01,
 }
 
 /// Convert a [`Model`] variant into the identifier expected by the xAI API.
-fn model_to_string(model: Model) -> String {
+pub fn model_to_string(model: Model) -> String {
     match model {
         Model::Grok2 => "grok-2".to_string(),
         Model::Grok2Latest => "grok-2-latest".to_string(),
@@ -167,6 +171,8 @@ fn model_to_string(model: Model) -> String {
         Model::Grok41FastNonReasoning => "grok-4-1-fast-non-reasoning".to_string(),
         Model::Grok43 => "grok-4.3".to_string(),
         Model::Grok43Latest => "grok-4.3-latest".to_string(),
+        Model::Grok45 => "grok-4.5".to_string(),
+        Model::Grok45Latest => "grok-4.5-latest".to_string(),
         Model::GrokBuild01 => "grok-build-0.1".to_string(),
     }
 }
