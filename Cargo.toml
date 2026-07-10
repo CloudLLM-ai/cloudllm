@@ -16,14 +16,11 @@ documentation = "https://docs.rs/cloudllm/latest/cloudllm/"
 tokio = { version = "1.48.0", features = ["full"] }
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
-# https://github.com/gubatron/openai-rust
-# 1.7.5+ is required: older versions bubble up reqwest's bare
-# "error decoding response body" with no status / body context, which makes
-# transport-level failures (connection reset, truncated stream, non-UTF-8
-# bytes) undiagnosable from cloudllm's log line. 1.7.5 also adds the
-# retry-on-transient-failure path inside create_chat (body-decode, 429,
-# 5xx) that recovers from the very failure mode this changelog describes.
-openai-rust2 = ">=1.7.5, <2"
+# https://github.com/cloudllm-ai/openai-rust
+# 1.7.6+ is required: body-decode errors include status + truncated body,
+# create_chat retries transient 200-stream / 429 / 5xx failures, and the
+# 0.12.28 reqwest floor stays type-compatible with cloudllm's shared client.
+openai-rust2 = ">=1.7.6, <2"
 
 async-trait = "0.1.89"
 log = "0.4.28"
@@ -42,7 +39,9 @@ urlencoding = "2.1.3"
 axum = { version = "0.8.7", optional = true }
 tower = { version = "0.5.2", optional = true }
 uuid = { version = "1.10", features = ["v4"] }
-mentisdb = "0.4"
+# 0.10+ is the current binary-storage MentisDB line. 0.4 was the last
+# pre-modern series cloudllm targeted; Jsonl is legacy-only upstream.
+mentisdb = "0.10"
 mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.3.5", features = ["server"] }
 
 [dev-dependencies]
