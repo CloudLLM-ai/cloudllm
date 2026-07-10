@@ -162,7 +162,9 @@ pub async fn send_and_track(
             // without grepping the call site. openai-rust2 >= 1.7.4 already
             // includes the HTTP status and a truncated raw body in `err`,
             // so this gives us a fully contextualized error message.
-            let endpoint = url_path.as_deref().unwrap_or("(default /v1/chat/completions)");
+            let endpoint = url_path
+                .as_deref()
+                .unwrap_or("(default /v1/chat/completions)");
             if log::log_enabled!(log::Level::Error) {
                 log::error!(
                     "cloudllm::clients::common::send_and_track(...): OpenAI API Error: model={} endpoint={} error={}",
