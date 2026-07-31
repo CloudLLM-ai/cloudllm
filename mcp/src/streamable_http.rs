@@ -688,6 +688,7 @@ fn broadcast_jsonrpc_result(
         "tools/call" => "tool_called",
         "resources/list" => "resources_listed",
         "resources/read" => "resource_read",
+        "resources/templates/list" => "resource_templates_listed",
         _ => method,
     };
     broadcaster.send(SseMessage::with_event(
@@ -847,6 +848,10 @@ async fn handle_jsonrpc_request(
                 ]
             }))
         }
+        // FastMCP / MCP clients probe templates after resources/list. MentisDB
+        // (and other resource servers without templates) must return an empty
+        // list with HTTP 200 rather than method-not-found / 400.
+        "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
         _ => Err((
             StatusCode::BAD_REQUEST,
             -32601,

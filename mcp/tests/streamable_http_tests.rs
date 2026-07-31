@@ -452,3 +452,22 @@ async fn test_unknown_method_returns_bad_request() {
         .unwrap()
         .contains("Method not found"));
 }
+
+#[tokio::test]
+async fn test_resources_templates_list_returns_empty_ok() {
+    let router = make_router(false);
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "resources/templates/list",
+        "params": {}
+    });
+    let (status, text) = post_json(&router, body).await;
+    assert_eq!(status, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(response.get("error").is_none());
+    assert_eq!(
+        response["result"]["resourceTemplates"],
+        json!([])
+    );
+}

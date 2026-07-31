@@ -1,3 +1,13 @@
+0.15.11 (unreleased) — cloudllm_mcp 0.3.6
+  - fix(mcp): emit MCP-valid ResourceMetadata on resources/list
+    - [ADDED] required `name` on `ResourceMetadata` (derived from URI path
+      segment; override with `with_name`)
+    - serde wire keys: `mimeType` (was `mime_type`), `_meta` (was `metadata`);
+      deserialize still accepts legacy snake_case aliases
+    - [ADDED] `resources/templates/list` → HTTP 200 `{ "resourceTemplates": [] }`
+      so FastMCP template probes do not get method-not-found / 400
+    - unit + streamable_http tests cover wire shape and empty templates list
+
 0.15.10 JUL/10/2026
   - feat(openai): add GPT-5.6 Sol / Terra / Luna model enums
     - [ADDED] `Model::GPT56Sol` → `"gpt-5.6-sol"` (frontier flagship)
