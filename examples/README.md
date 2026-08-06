@@ -8,6 +8,30 @@ All examples use `cargo run --example <name>` and can run with placeholder API k
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
+### Pac-Man — RALPH Mode (OpenRouter / DeepSeek V4 Flash)
+**File**: `pacman_game_ralph.rs` ⭐ **FEATURED**
+
+Complete 18-task classic Pac-Man build via RALPH, driven by OpenRouter
+`deepseek/deepseek-v4-flash-0731`.
+
+**Demonstrates**:
+- RALPH orchestration with task completion markers
+- 4 specialized agents (maze architect, Pac-Man programmer, ghost AI engineer, audio/VFX)
+- **Authentic per-color ghost AI** in the PRD: Blinky chase, Pinky ambush (+ UP quirk),
+  Inky flank via Blinky, Clyde shy 8-tile rule; scatter/chase cycles; frightened/eaten house return
+- Starter HTML + Read-Modify-Write via shared Memory + `write_game_file`
+- OpenRouter client with DeepSeek V4 Flash (0731 snapshot)
+
+**Setup**:
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+cargo run --example pacman_game_ralph
+```
+
+**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph.html`
+
+---
+
 ### Atari Breakout — RALPH Mode
 **File**: `breakout_game_ralph.rs` ⭐ **FEATURED**
 
@@ -513,7 +537,7 @@ cargo build --examples
 | `ANTHROPIC_API_KEY` | Claude models | breakout_game_ralph, breakout_game_agent_teams, digimon_vs_pokemon_debate, anthropic_teams |
 | `GROK_API_KEY` | Grok models | agent_panel_with_moderator_and_access_to_tools, interactive_session |
 | `GEMINI_API_KEY` | Google Gemini | (optional, if enabled) |
-| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic |
+| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph |
 | `RUST_LOG` | All examples | Set to debug, info, or trace for logging |
 
 ### API Key Format
