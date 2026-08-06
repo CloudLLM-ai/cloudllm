@@ -25,7 +25,6 @@ openai-rust2 = ">=1.7.6, <2"
 async-trait = "0.1.89"
 log = "0.4.28"
 env_logger = "0.11.8"
-bumpalo = "3.19.0"
 lazy_static = "1.5.0"
 reqwest = { version = "0.12.24", features = ["json"] }
 futures-util = "0.3.31"

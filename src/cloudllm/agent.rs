@@ -716,7 +716,7 @@ impl Agent {
     /// forked agents are typically short-lived.
     ///
     /// This replaces `Clone` — `Agent` is intentionally not `Clone` because
-    /// cloning a full `LLMSession` (with its bumpalo arena) would be expensive
+    /// cloning a full `LLMSession` would copy conversation history and be expensive
     /// and semantically misleading.
     ///
     /// # Example
@@ -1913,10 +1913,8 @@ impl Agent {
 
 // SAFETY: Agent is Send + Sync because:
 // - All public methods that access mutable state use proper synchronization (Arc<RwLock>)
-// - LLMSession's arena (bumpalo::Bump) makes it !Sync, but generate_with_tokens only
-//   accesses session.client() (which is Arc<dyn ClientWrapper>) — never mutating the arena
-// - Box<dyn ContextStrategy> is bounded by Send + Sync
-// - The Bump allocator is never accessed across thread boundaries through &self methods
+// - generate_with_tokens only accesses session.client() (Arc<dyn ClientWrapper>)
+//   and never mutates session history through &self methods
 unsafe impl Send for Agent {}
 unsafe impl Sync for Agent {}
 

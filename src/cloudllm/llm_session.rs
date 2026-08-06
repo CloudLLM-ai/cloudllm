@@ -52,7 +52,6 @@
 
 use crate::client_wrapper;
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role, ToolDefinition};
-use bumpalo::Bump;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -65,6 +64,8 @@ pub struct LLMSession {
     conversation_history: Vec<Message>,
     /// Cached token estimates for each entry in `conversation_history`.
     cached_token_counts: Vec<usize>,
+    /// Running sum of `cached_token_counts` (avoids O(n) re-sum on every trim check).
+    history_token_total: usize,
     /// Hard limit on context window size in tokens.
     max_tokens: usize,
     /// Sum of prompt tokens consumed across the session (as reported by the provider).
@@ -73,8 +74,6 @@ pub struct LLMSession {
     total_output_tokens: usize,
     /// Total tokens consumed combining input and output counts.
     total_token_count: usize,
-    /// Arena allocator used to back message content allocations without repeated heap traffic.
-    arena: Bump,
     /// Scratch buffer reused when assembling the request payload sent to the provider.
     request_buffer: Vec<Message>,
 }
@@ -86,16 +85,9 @@ impl LLMSession {
     /// provider.  The session will proactively prune conversation history to remain within that
     /// limit.
     pub fn new(client: Arc<dyn ClientWrapper>, system_prompt: String, max_tokens: usize) -> Self {
-        let arena = Bump::new();
-
-        // Allocate system prompt in arena and create Arc<str> from it
-        let system_prompt_str = arena.alloc_str(&system_prompt);
-        let system_prompt_arc: Arc<str> = Arc::from(system_prompt_str);
-
-        // Create the system prompt message
         let system_prompt_message = Message {
             role: Role::System,
-            content: system_prompt_arc,
+            content: Arc::from(system_prompt),
             tool_calls: vec![],
         };
 
@@ -104,11 +96,11 @@ impl LLMSession {
             system_prompt: system_prompt_message,
             conversation_history: Vec::new(),
             cached_token_counts: Vec::new(),
+            history_token_total: 0,
             max_tokens,
             total_input_tokens: 0,
             total_output_tokens: 0,
             total_token_count: 0,
-            arena,
             request_buffer: Vec::new(),
         }
     }
@@ -204,19 +196,14 @@ impl LLMSession {
         content: String,
         tools: Option<Vec<ToolDefinition>>,
     ) -> Result<Option<crate::client_wrapper::MessageChunkStream>, Box<dyn std::error::Error>> {
-        // Allocate message content in arena and create Arc<str>
-        let content_str = self.arena.alloc_str(&content);
-        let content_arc: Arc<str> = Arc::from(content_str);
-
         let message = Message {
             role,
-            content: content_arc,
+            content: Arc::from(content),
             tool_calls: vec![],
         };
         self.push_history_message(message);
         self.trim_history_to_fit();
 
-        // Build request buffer
         self.request_buffer.clear();
         self.request_buffer
             .reserve(1 + self.conversation_history.len());
@@ -224,19 +211,18 @@ impl LLMSession {
         self.request_buffer
             .extend_from_slice(&self.conversation_history);
 
-        // Get the streaming response
         let stream_result = self
             .client
             .send_message_stream(&self.request_buffer, tools)
             .await?;
 
-        // If streaming is not supported, remove the message we added
         if stream_result.is_none() {
+            if let Some(tokens) = self.cached_token_counts.pop() {
+                self.history_token_total = self.history_token_total.saturating_sub(tokens);
+            }
             self.conversation_history.pop();
-            self.cached_token_counts.pop();
         }
 
-        // Return the stream (caller will handle accumulating and adding to history if needed)
         Ok(stream_result)
     }
 
@@ -245,13 +231,9 @@ impl LLMSession {
     /// Note that changing the system prompt does **not** attempt to re-estimate token usage –
     /// the provided prompt should respect the configured `max_tokens` limit.
     pub fn set_system_prompt(&mut self, prompt: String) {
-        // Allocate prompt in arena and create Arc<str>
-        let prompt_str = self.arena.alloc_str(&prompt);
-        let prompt_arc: Arc<str> = Arc::from(prompt_str);
-
         self.system_prompt = Message {
             role: Role::System,
-            content: prompt_arc,
+            content: Arc::from(prompt),
             tool_calls: vec![],
         };
     }
@@ -360,12 +342,13 @@ impl LLMSession {
     pub fn clear_history(&mut self) {
         self.conversation_history.clear();
         self.cached_token_counts.clear();
+        self.history_token_total = 0;
     }
 
     /// Add a message to history without sending it to the LLM.
     ///
-    /// The content is allocated in the session's arena and its token count
-    /// is cached, just like messages added via
+    /// Content is stored as a single `Arc<str>` (one heap allocation) and its
+    /// token count is cached, just like messages added via
     /// [`send_message`](LLMSession::send_message).  Use this to inject
     /// [`MentisDb`](crate::MentisDb) context into a fresh or cleared
     /// session.
@@ -400,11 +383,9 @@ impl LLMSession {
         content: String,
         tool_calls: Vec<crate::client_wrapper::NativeToolCall>,
     ) {
-        let content_str = self.arena.alloc_str(&content);
-        let content_arc: Arc<str> = Arc::from(content_str);
         let message = Message {
             role,
-            content: content_arc,
+            content: Arc::from(content),
             tool_calls,
         };
         self.push_history_message(message);
@@ -435,7 +416,7 @@ impl LLMSession {
     /// assert!(session.estimated_history_tokens() > 0);
     /// ```
     pub fn estimated_history_tokens(&self) -> usize {
-        self.cached_token_counts.iter().sum()
+        self.history_token_total
     }
 
     pub(crate) async fn send_current_history(
@@ -456,16 +437,21 @@ impl LLMSession {
             .send_message(&self.request_buffer, tools)
             .await?;
 
+        // Cheap Arc/Vec shell clone for the caller; content stays shared with history
+        // until/if a post-call trim drops this turn under extreme window pressure.
         let response_to_return = response.clone();
         self.push_history_message(response);
 
         if let Some(usage) = self.client.get_last_usage().await {
-            self.total_input_tokens = usage.input_tokens;
-            self.total_output_tokens = usage.output_tokens;
-            self.total_token_count = usage.total_tokens;
+            self.total_input_tokens = self.total_input_tokens.saturating_add(usage.input_tokens);
+            self.total_output_tokens = self
+                .total_output_tokens
+                .saturating_add(usage.output_tokens);
+            self.total_token_count = self.total_token_count.saturating_add(usage.total_tokens);
 
-            if self.total_token_count > self.max_tokens {
-                let mut excess = self.total_token_count - self.max_tokens;
+            // Provider totals for *this* call approximate context pressure.
+            if usage.total_tokens > self.max_tokens {
+                let mut excess = usage.total_tokens - self.max_tokens;
                 while excess > 0 && !self.conversation_history.is_empty() {
                     let removed = self.trim_oldest_message_group();
                     if removed == 0 {
@@ -483,11 +469,12 @@ impl LLMSession {
         let token_count = estimate_message_token_count(&message);
         self.conversation_history.push(message);
         self.cached_token_counts.push(token_count);
+        self.history_token_total = self.history_token_total.saturating_add(token_count);
     }
 
     fn trim_history_to_fit(&mut self) {
         let system_prompt_tokens = estimate_message_token_count(&self.system_prompt);
-        let mut estimated_total = system_prompt_tokens + self.estimated_history_tokens();
+        let mut estimated_total = system_prompt_tokens + self.history_token_total;
 
         while estimated_total > self.max_tokens && !self.conversation_history.is_empty() {
             let removed = self.trim_oldest_message_group();
@@ -547,6 +534,7 @@ impl LLMSession {
 
         let removed_tokens: usize = self.cached_token_counts.drain(0..remove_count).sum();
         self.conversation_history.drain(0..remove_count);
+        self.history_token_total = self.history_token_total.saturating_sub(removed_tokens);
         removed_tokens
     }
 }
