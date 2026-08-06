@@ -33,7 +33,7 @@ impl ClientWrapper for SequentialMockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let index = self.call_count.fetch_add(1, Ordering::SeqCst);
         let response = self
@@ -96,7 +96,7 @@ impl ClientWrapper for InspectingClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let found = messages.iter().any(|message| {
             message

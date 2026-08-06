@@ -174,7 +174,7 @@ impl ClientWrapper for ClaudeClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        tools: Option<Vec<ToolDefinition>>,
+        tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn Error>> {
         self.delegate_client.send_message(messages, tools).await
     }

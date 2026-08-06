@@ -147,7 +147,7 @@ impl LLMSession {
         &mut self,
         role: Role,
         content: String,
-        tools: Option<Vec<ToolDefinition>>,
+        tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         self.inject_message(role, content);
         self.send_current_history(tools).await
@@ -194,7 +194,7 @@ impl LLMSession {
         &mut self,
         role: Role,
         content: String,
-        tools: Option<Vec<ToolDefinition>>,
+        tools: Option<&[ToolDefinition]>,
     ) -> Result<Option<crate::client_wrapper::MessageChunkStream>, Box<dyn std::error::Error>> {
         let message = Message {
             role,
@@ -421,7 +421,7 @@ impl LLMSession {
 
     pub(crate) async fn send_current_history(
         &mut self,
-        tools: Option<Vec<ToolDefinition>>,
+        tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         self.trim_history_to_fit();
 

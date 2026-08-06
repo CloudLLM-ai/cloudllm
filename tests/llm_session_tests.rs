@@ -42,7 +42,7 @@ impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Record how many messages were sent
         let mut count_guard = self.last_message_count.lock().await;

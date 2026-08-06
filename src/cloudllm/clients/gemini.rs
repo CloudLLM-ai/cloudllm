@@ -455,7 +455,7 @@ impl ClientWrapper for GeminiClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        tools: Option<Vec<ToolDefinition>>,
+        tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         // Route to native tool calling when tools are provided
         if let Some(tool_defs) = tools.filter(|t| !t.is_empty()) {
@@ -464,7 +464,7 @@ impl ClientWrapper for GeminiClient {
                 &self.api_key,
                 &self.model,
                 messages,
-                &tool_defs,
+                tool_defs,
                 get_shared_http_client(),
                 &self.token_usage,
             )

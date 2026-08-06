@@ -515,6 +515,16 @@ impl Tool {
         &self.metadata
     }
 
+    /// Clone the underlying protocol handle (cheap `Arc` bump).
+    ///
+    /// Callers that need to drop a registry lock before awaiting tool I/O
+    /// should resolve the protocol via this accessor (or
+    /// [`ToolRegistry::resolve_executor`]) and then call
+    /// [`ToolProtocol::execute`] directly.
+    pub fn protocol(&self) -> Arc<dyn ToolProtocol> {
+        Arc::clone(&self.protocol)
+    }
+
     /// Execute the tool using the configured protocol.
     pub async fn execute(
         &self,
@@ -630,6 +640,10 @@ pub struct ToolRegistry {
     protocols: HashMap<String, Arc<dyn ToolProtocol>>,
     /// Primary protocol (for backwards compatibility with single-protocol code)
     primary_protocol: Option<Arc<dyn ToolProtocol>>,
+    /// Cached native tool definitions (invalidated on registry mutation).
+    cached_defs: std::sync::Mutex<Option<Arc<Vec<ToolDefinition>>>>,
+    /// Cached textual tool catalog for prompt injection (invalidated on mutation).
+    cached_catalog: std::sync::Mutex<Option<Arc<str>>>,
 }
 
 impl ToolRegistry {
@@ -647,6 +661,8 @@ impl ToolRegistry {
                 m
             },
             primary_protocol: Some(protocol),
+            cached_defs: std::sync::Mutex::new(None),
+            cached_catalog: std::sync::Mutex::new(None),
         }
     }
 
@@ -659,6 +675,17 @@ impl ToolRegistry {
             tool_to_protocol: HashMap::new(),
             protocols: HashMap::new(),
             primary_protocol: None,
+            cached_defs: std::sync::Mutex::new(None),
+            cached_catalog: std::sync::Mutex::new(None),
+        }
+    }
+
+    fn invalidate_caches(&self) {
+        if let Ok(mut g) = self.cached_defs.lock() {
+            *g = None;
+        }
+        if let Ok(mut g) = self.cached_catalog.lock() {
+            *g = None;
         }
     }
 
@@ -752,6 +779,7 @@ impl ToolRegistry {
                 .insert(tool_name, protocol_name.to_string());
         }
 
+        self.invalidate_caches();
         Ok(())
     }
 
@@ -772,17 +800,23 @@ impl ToolRegistry {
             self.tools.remove(&tool_name);
             self.tool_to_protocol.remove(&tool_name);
         }
+        self.invalidate_caches();
     }
 
     /// Insert or replace a tool definition (for manual tool registration).
     pub fn add_tool(&mut self, tool: Tool) {
         self.tools.insert(tool.metadata.name.clone(), tool);
+        self.invalidate_caches();
     }
 
     /// Remove a tool by name returning the owned entry if present.
     pub fn remove_tool(&mut self, name: &str) -> Option<Tool> {
         self.tool_to_protocol.remove(name);
-        self.tools.remove(name)
+        let removed = self.tools.remove(name);
+        if removed.is_some() {
+            self.invalidate_caches();
+        }
+        removed
     }
 
     /// Borrow a tool by name.
@@ -825,6 +859,7 @@ impl ToolRegistry {
                 self.tool_to_protocol
                     .insert(tool_name, "primary".to_string());
             }
+            self.invalidate_caches();
             Ok(())
         } else {
             Err("No primary protocol available".into())
@@ -841,18 +876,33 @@ impl ToolRegistry {
         self.protocols.keys().map(|s| s.as_str()).collect()
     }
 
+    /// Resolve a tool's name and protocol handle without executing it.
+    ///
+    /// Callers holding a registry `RwLock` should use this to clone the `Arc`
+    /// protocol out, drop the lock, then await [`ToolProtocol::execute`].
+    pub fn resolve_executor(
+        &self,
+        tool_name: &str,
+    ) -> Option<(String, Arc<dyn ToolProtocol>)> {
+        self.tools.get(tool_name).map(|tool| {
+            (
+                tool.metadata.name.clone(),
+                Arc::clone(&tool.protocol),
+            )
+        })
+    }
+
     /// Execute a named tool with serialized parameters.
     pub async fn execute_tool(
         &self,
         tool_name: &str,
         parameters: serde_json::Value,
     ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
-        let tool = self
-            .tools
-            .get(tool_name)
+        let (name, protocol) = self
+            .resolve_executor(tool_name)
             .ok_or_else(|| ToolError::NotFound(tool_name.to_string()))?;
 
-        tool.execute(parameters).await
+        protocol.execute(&name, parameters).await
     }
 
     /// Borrow the primary protocol implementation (for single-protocol mode).
@@ -908,10 +958,87 @@ impl ToolRegistry {
     /// # }
     /// ```
     pub fn to_tool_definitions(&self) -> Vec<ToolDefinition> {
-        self.tools
+        (*self.cached_tool_definitions()).clone()
+    }
+
+    /// Cached native tool definitions shared across LLM round-trips.
+    ///
+    /// Invalidated automatically when tools/protocols are added or removed.
+    pub fn cached_tool_definitions(&self) -> Arc<Vec<ToolDefinition>> {
+        if let Ok(guard) = self.cached_defs.lock() {
+            if let Some(cached) = guard.as_ref() {
+                return Arc::clone(cached);
+            }
+        }
+        let defs: Vec<ToolDefinition> = self
+            .tools
             .values()
             .map(|t| t.metadata.to_tool_definition())
-            .collect()
+            .collect();
+        let arc = Arc::new(defs);
+        if let Ok(mut guard) = self.cached_defs.lock() {
+            *guard = Some(Arc::clone(&arc));
+        }
+        arc
+    }
+
+    /// Cached textual tool catalog for prompt injection.
+    ///
+    /// Includes tool names, descriptions, and parameter summaries. Empty when
+    /// the registry has no tools. Invalidated on registry mutation.
+    pub fn tool_catalog_text(&self) -> Arc<str> {
+        if let Ok(guard) = self.cached_catalog.lock() {
+            if let Some(cached) = guard.as_ref() {
+                return Arc::clone(cached);
+            }
+        }
+        let catalog = if self.tools.is_empty() {
+            String::new()
+        } else {
+            let mut out = String::with_capacity(self.tools.len() * 128);
+            out.push_str("\n\nYou have access to the following tools:\n");
+            for tool_metadata in self.list_tools() {
+                out.push_str("- ");
+                out.push_str(&tool_metadata.name);
+                out.push_str(": ");
+                out.push_str(&tool_metadata.description);
+                out.push('\n');
+                if !tool_metadata.parameters.is_empty() {
+                    out.push_str("  Parameters:\n");
+                    for param in &tool_metadata.parameters {
+                        out.push_str("    - ");
+                        out.push_str(&param.name);
+                        out.push_str(" (");
+                        out.push_str(param_type_label(&param.param_type));
+                        out.push_str("): ");
+                        out.push_str(param.description.as_deref().unwrap_or("No description"));
+                        out.push('\n');
+                    }
+                }
+            }
+            out.push_str(
+                "\nTo use a tool, respond with a JSON object in the following format:\n\
+                 {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
+                 After tool execution, I'll provide the result and you can continue.\n",
+            );
+            out
+        };
+        let arc: Arc<str> = Arc::from(catalog);
+        if let Ok(mut guard) = self.cached_catalog.lock() {
+            *guard = Some(Arc::clone(&arc));
+        }
+        arc
+    }
+}
+
+fn param_type_label(t: &ToolParameterType) -> &'static str {
+    match t {
+        ToolParameterType::String => "string",
+        ToolParameterType::Number => "number",
+        ToolParameterType::Integer => "integer",
+        ToolParameterType::Boolean => "boolean",
+        ToolParameterType::Array => "array",
+        ToolParameterType::Object => "object",
     }
 }
 

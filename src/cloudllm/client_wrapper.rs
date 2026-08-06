@@ -219,7 +219,7 @@ pub trait ClientWrapper: Send + Sync {
     async fn send_message(
         &self,
         messages: &[Message],
-        tools: Option<Vec<ToolDefinition>>,
+        tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn Error>>;
 
     /// Request a streaming response from the provider.
@@ -238,7 +238,7 @@ pub trait ClientWrapper: Send + Sync {
     fn send_message_stream<'a>(
         &'a self,
         _messages: &'a [Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> MessageStreamFuture<'a> {
         Box::pin(async { Ok(None) })
     }

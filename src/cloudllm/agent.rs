@@ -883,49 +883,27 @@ impl Agent {
         })
         .await;
 
-        // Build native tool definitions from the registry
-        let tool_defs: Vec<ToolDefinition> = {
+        // Snapshot tool defs + textual catalog once under a short read lock.
+        let (tool_defs, tool_catalog) = {
             let registry = self.tool_registry.read().await;
-            registry.to_tool_definitions()
+            (
+                registry.cached_tool_definitions(),
+                registry.tool_catalog_text(),
+            )
         };
-        let tools: Option<Vec<ToolDefinition>> = if tool_defs.is_empty() {
+        let tools: Option<&[ToolDefinition]> = if tool_defs.is_empty() {
             None
         } else {
-            Some(tool_defs)
+            Some(tool_defs.as_slice())
         };
 
         // Always include a textual tool summary in the prompt. Native tool definitions
         // remain enabled when available, but the text description keeps behavior
         // consistent for mocks, debugging, and providers that still rely on prompt
         // guidance.
-        let mut message_with_tools = user_message.to_string();
-        let registry = self.tool_registry.read().await;
-        let registry_tools = registry.list_tools();
-        if !registry_tools.is_empty() {
-            message_with_tools.push_str("\n\nYou have access to the following tools:\n");
-            for tool_metadata in registry_tools {
-                message_with_tools.push_str(&format!(
-                    "- {}: {}\n",
-                    tool_metadata.name, tool_metadata.description
-                ));
-                if !tool_metadata.parameters.is_empty() {
-                    message_with_tools.push_str("  Parameters:\n");
-                    for param in &tool_metadata.parameters {
-                        message_with_tools.push_str(&format!(
-                            "    - {} ({:?}): {}\n",
-                            param.name,
-                            param.param_type,
-                            param.description.as_deref().unwrap_or("No description")
-                        ));
-                    }
-                }
-            }
-            message_with_tools.push_str(
-                "\nTo use a tool, respond with a JSON object in the following format:\n\
-                 {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-                 After tool execution, I'll provide the result and you can continue.\n",
-            );
-        }
+        let mut message_with_tools = String::with_capacity(user_message.len() + tool_catalog.len());
+        message_with_tools.push_str(user_message);
+        message_with_tools.push_str(&tool_catalog);
 
         // Tool execution loop
         let max_tool_iterations = 5;
@@ -1044,10 +1022,19 @@ impl Agent {
                     .await;
 
                     let tool_result = {
-                        let registry = self.tool_registry.read().await;
-                        registry
-                            .execute_tool(&tool_call.name, tool_call.parameters)
-                            .await
+                        let executor = {
+                            let registry = self.tool_registry.read().await;
+                            registry.resolve_executor(&tool_call.name)
+                        };
+                        match executor {
+                            Some((name, protocol)) => {
+                                protocol.execute(&name, tool_call.parameters).await
+                            }
+                            None => Err(Box::new(crate::tool_protocol::ToolError::NotFound(
+                                tool_call.name.clone(),
+                            ))
+                                as Box<dyn Error + Send + Sync>),
+                        }
                     };
 
                     let (tool_result_message, tool_success, tool_error, tool_output) =
@@ -1058,7 +1045,7 @@ impl Agent {
                                         format!(
                                             "Tool '{}' executed successfully. Result: {}",
                                             tool_call.name,
-                                            serde_json::to_string_pretty(&result.output)
+                                            serde_json::to_string(&result.output)
                                                 .unwrap_or_else(|_| format!("{:?}", result.output))
                                         ),
                                         true,
@@ -1214,10 +1201,19 @@ impl Agent {
                 .await;
 
                 let tool_result = {
-                    let registry = self.tool_registry.read().await;
-                    registry
-                        .execute_tool(&tool_call.name, tool_call.parameters)
-                        .await
+                    let executor = {
+                        let registry = self.tool_registry.read().await;
+                        registry.resolve_executor(&tool_call.name)
+                    };
+                    match executor {
+                        Some((name, protocol)) => {
+                            protocol.execute(&name, tool_call.parameters).await
+                        }
+                        None => Err(Box::new(crate::tool_protocol::ToolError::NotFound(
+                            tool_call.name.clone(),
+                        ))
+                            as Box<dyn Error + Send + Sync>),
+                    }
                 };
 
                 let (tool_result_message, tool_success, tool_error, tool_output) =
@@ -1228,7 +1224,7 @@ impl Agent {
                                     format!(
                                         "Tool '{}' executed successfully. Result: {}",
                                         tool_call.name,
-                                        serde_json::to_string_pretty(&result.output)
+                                        serde_json::to_string(&result.output)
                                             .unwrap_or_else(|_| format!("{:?}", result.output))
                                     ),
                                     true,
@@ -1464,55 +1460,34 @@ impl Agent {
 
         let augmented_system = self.augment_system_prompt(system_prompt);
 
-        // Build native tool definitions from the registry
-        let gwt_tool_defs: Vec<ToolDefinition> = {
+        // Snapshot tool defs + textual catalog once under a short read lock.
+        let (gwt_tool_defs, gwt_tool_catalog) = {
             let registry = self.tool_registry.read().await;
-            registry.to_tool_definitions()
+            (
+                registry.cached_tool_definitions(),
+                registry.tool_catalog_text(),
+            )
         };
-        let gwt_tools: Option<Vec<ToolDefinition>> = if gwt_tool_defs.is_empty() {
+        let gwt_tools: Option<&[ToolDefinition]> = if gwt_tool_defs.is_empty() {
             None
         } else {
-            Some(gwt_tool_defs)
+            Some(gwt_tool_defs.as_slice())
         };
 
-        // Build message array
-        let mut messages = Vec::new();
+        // Build message array with reserved capacity for history + tool rounds.
+        let mut messages = Vec::with_capacity(conversation_history.len() + 8);
 
         // Always include a textual tool summary in the system prompt. Native tool
         // definitions remain enabled when available, but the text description keeps
         // prompt behavior stable across clients and tests.
-        let mut system_with_tools = augmented_system.clone();
-        let registry = self.tool_registry.read().await;
-        let registry_tools = registry.list_tools();
-        if !registry_tools.is_empty() {
-            system_with_tools.push_str("\n\nYou have access to the following tools:\n");
-            for tool_metadata in registry_tools {
-                system_with_tools.push_str(&format!(
-                    "- {}: {}\n",
-                    tool_metadata.name, tool_metadata.description
-                ));
-                if !tool_metadata.parameters.is_empty() {
-                    system_with_tools.push_str("  Parameters:\n");
-                    for param in &tool_metadata.parameters {
-                        system_with_tools.push_str(&format!(
-                            "    - {} ({:?}): {}\n",
-                            param.name,
-                            param.param_type,
-                            param.description.as_deref().unwrap_or("No description")
-                        ));
-                    }
-                }
-            }
-            system_with_tools.push_str(
-                "\nTo use a tool, respond with a JSON object in the following format:\n\
-                 {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {...}}}\n\
-                 After tool execution, I'll provide the result and you can continue.\n",
-            );
-        }
+        let mut system_with_tools =
+            String::with_capacity(augmented_system.len() + gwt_tool_catalog.len());
+        system_with_tools.push_str(&augmented_system);
+        system_with_tools.push_str(&gwt_tool_catalog);
 
         messages.push(Message {
             role: Role::System,
-            content: Arc::from(system_with_tools.as_str()),
+            content: Arc::from(system_with_tools),
             tool_calls: vec![],
         });
 
@@ -1639,10 +1614,19 @@ impl Agent {
                     .await;
 
                     let tool_result = {
-                        let registry = self.tool_registry.read().await;
-                        registry
-                            .execute_tool(&tool_call.name, tool_call.parameters)
-                            .await
+                        let executor = {
+                            let registry = self.tool_registry.read().await;
+                            registry.resolve_executor(&tool_call.name)
+                        };
+                        match executor {
+                            Some((name, protocol)) => {
+                                protocol.execute(&name, tool_call.parameters).await
+                            }
+                            None => Err(Box::new(crate::tool_protocol::ToolError::NotFound(
+                                tool_call.name.clone(),
+                            ))
+                                as Box<dyn Error + Send + Sync>),
+                        }
                     };
 
                     let (tool_result_message, gwt_tool_success, gwt_tool_error, gwt_tool_output) =
@@ -1653,7 +1637,7 @@ impl Agent {
                                         format!(
                                             "Tool '{}' executed successfully. Result: {}",
                                             tool_call.name,
-                                            serde_json::to_string_pretty(&result.output)
+                                            serde_json::to_string(&result.output)
                                                 .unwrap_or_else(|_| format!("{:?}", result.output))
                                         ),
                                         true,
@@ -1740,10 +1724,19 @@ impl Agent {
                 .await;
 
                 let tool_result = {
-                    let registry = self.tool_registry.read().await;
-                    registry
-                        .execute_tool(&tool_call.name, tool_call.parameters)
-                        .await
+                    let executor = {
+                        let registry = self.tool_registry.read().await;
+                        registry.resolve_executor(&tool_call.name)
+                    };
+                    match executor {
+                        Some((name, protocol)) => {
+                            protocol.execute(&name, tool_call.parameters).await
+                        }
+                        None => Err(Box::new(crate::tool_protocol::ToolError::NotFound(
+                            tool_call.name.clone(),
+                        ))
+                            as Box<dyn Error + Send + Sync>),
+                    }
                 };
 
                 let (tool_result_message, gwt_tool_success, gwt_tool_error, gwt_tool_output) =
@@ -1754,7 +1747,7 @@ impl Agent {
                                     format!(
                                         "Tool '{}' executed successfully. Result: {}",
                                         tool_call.name,
-                                        serde_json::to_string_pretty(&result.output)
+                                        serde_json::to_string(&result.output)
                                             .unwrap_or_else(|_| format!("{:?}", result.output))
                                     ),
                                     true,

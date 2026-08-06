@@ -19,7 +19,7 @@ impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         Ok(Message {
             role: Role::Assistant,
@@ -139,7 +139,7 @@ impl ClientWrapper for MultiToolMockClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let mut requests = self.requests.lock().unwrap();
         requests.push(messages.to_vec());

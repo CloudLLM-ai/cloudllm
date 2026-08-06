@@ -14,7 +14,7 @@ impl ClientWrapper for MockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         Ok(Message {
             role: Role::Assistant,
@@ -155,7 +155,7 @@ async fn test_agent_with_tool_execution() {
         async fn send_message(
             &self,
             messages: &[Message],
-            tools: Option<Vec<ToolDefinition>>,
+            tools: Option<&[ToolDefinition]>,
         ) -> Result<Message, Box<dyn std::error::Error>> {
             let mut count = self.call_count.lock().await;
             *count += 1;
@@ -240,7 +240,7 @@ async fn test_debate_mode_convergence() {
         async fn send_message(
             &self,
             _messages: &[Message],
-            _tools: Option<Vec<ToolDefinition>>,
+            _tools: Option<&[ToolDefinition]>,
         ) -> Result<Message, Box<dyn std::error::Error>> {
             let mut count = self.call_count.lock().await;
             *count += 1;
@@ -338,7 +338,7 @@ async fn test_ralph_mode_completion() {
         async fn send_message(
             &self,
             _messages: &[Message],
-            _tools: Option<Vec<ToolDefinition>>,
+            _tools: Option<&[ToolDefinition]>,
         ) -> Result<Message, Box<dyn std::error::Error>> {
             let mut count = self.call_count.lock().await;
             *count += 1;
@@ -506,7 +506,7 @@ async fn test_hub_routing_no_duplication() {
         async fn send_message(
             &self,
             messages: &[Message],
-            _tools: Option<Vec<ToolDefinition>>,
+            _tools: Option<&[ToolDefinition]>,
         ) -> Result<Message, Box<dyn std::error::Error>> {
             let mut counts = self.message_counts.lock().await;
             counts.push(messages.len());

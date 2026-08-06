@@ -379,7 +379,7 @@ impl ClientWrapper for OpenRouterClient {
     async fn send_message(
         &self,
         messages: &[Message],
-        tools: Option<Vec<ToolDefinition>>,
+        tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn Error>> {
         if let Some(tool_defs) = tools.filter(|t| !t.is_empty()) {
             return send_with_native_tools(
@@ -387,7 +387,7 @@ impl ClientWrapper for OpenRouterClient {
                 &self.api_key,
                 &self.model,
                 messages,
-                &tool_defs,
+                tool_defs,
                 get_shared_http_client(),
                 &self.token_usage,
             )
@@ -446,7 +446,7 @@ impl ClientWrapper for OpenRouterClient {
     fn send_message_stream<'a>(
         &'a self,
         messages: &'a [Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
         Box::pin(async move {
             let mut formatted_messages = Vec::with_capacity(messages.len());

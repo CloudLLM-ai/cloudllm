@@ -57,7 +57,7 @@ impl ClientWrapper for SequentialMockClient {
     async fn send_message(
         &self,
         _messages: &[Message],
-        _tools: Option<Vec<ToolDefinition>>,
+        _tools: Option<&[ToolDefinition]>,
     ) -> Result<Message, Box<dyn std::error::Error>> {
         let count = self.call_count.fetch_add(1, Ordering::SeqCst);
         let response = if count == 0 {

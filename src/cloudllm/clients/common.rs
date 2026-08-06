@@ -48,7 +48,7 @@
 //!     async fn send_message(
 //!         &self,
 //!         messages: &[Message],
-//!         _tools: Option<Vec<ToolDefinition>>,
+//!         _tools: Option<&[ToolDefinition]>,
 //!     ) -> Result<Message, Box<dyn std::error::Error>> {
 //!         let formatted = messages
 //!             .iter()
