@@ -49,7 +49,7 @@ pub struct ClaudeClient {
 
 /// Anthropic Claude models available through the compatibility layer (Aug 2026 snapshot).
 pub enum Model {
-    /// `claude-opus-5-0` – Opus 5 flagship for complex reasoning and agentic coding.
+    /// `claude-opus-5` – Opus 5 flagship for complex reasoning and agentic coding.
     ClaudeOpus5,
     /// `claude-opus-4-8` – previous Opus flagship.
     #[deprecated(since = "0.15.11", note = "Use ClaudeOpus5 instead.")]
@@ -88,7 +88,7 @@ pub enum Model {
 #[allow(deprecated)]
 fn model_to_string(model: Model) -> String {
     match model {
-        Model::ClaudeOpus5 => "claude-opus-5-0".to_string(),
+        Model::ClaudeOpus5 => "claude-opus-5".to_string(),
         Model::ClaudeOpus48 => "claude-opus-4-8".to_string(),
         Model::ClaudeOpus47 => "claude-opus-4-7".to_string(),
         Model::ClaudeSonnet46 => "claude-sonnet-4-6".to_string(),

@@ -8,7 +8,7 @@
     - [ADDED] `Model::ClaudeOpus5` → `anthropic/claude-opus-5`
     - (`Model::MinimaxM3` → `minimax/minimax-m3` already present)
     - Enum arity 51 → 55; openrouter slug tests updated
-  - feat(claude): add native `Model::ClaudeOpus5` → `claude-opus-5-0`
+  - feat(claude): add native `Model::ClaudeOpus5` → `claude-opus-5`
     - New flagship on the Anthropic client; `ClaudeOpus48` deprecated in favor of it
     - OpenRouter-only models (Kimi K3, Qwen 3.8 Max, Muse Spark) stay on OpenRouter
   - feat(example): `pacman_game_ralph` — RALPH Pac-Man builder on OpenRouter
