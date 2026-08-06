@@ -1,3 +1,18 @@
+0.15.11 IN-PROGRESS (performance pass — not published)
+  - perf(session): drop bumpalo arena; single Arc::from(String) content; running
+    history_token_total; accumulate provider token usage across turns
+  - perf(tools/protocols): clone AsyncToolFunction Arc out of RwLock before await
+    (CustomTool + OpenAIFunctions) so long tools no longer serialize the registry
+  - chore(release): [profile.release] lto="thin", codegen-units=1
+  - perf(agent/registry): cache Arc tool definitions + prompt catalog on ToolRegistry;
+    ClientWrapper/LLMSession take Option<&[ToolDefinition]> (no per-hop schema clone);
+    agent resolves protocol Arc and drops registry lock before tool I/O; compact JSON
+    for tool results (drop to_string_pretty)
+  - perf(orchestration): single Arc content construction; take/restore mode (no deep
+    clone of Ralph/Teams pools); Arc shared prompts on parallel fanout; lean Jaccard
+  - perf(tools): calculator thread-local eval context; memory TTL eviction via BTreeMap
+    index; tokio::fs for filesystem read/write/append; planner uses cached catalog
+
 0.15.10 JUL/10/2026
   - feat(openai): add GPT-5.6 Sol / Terra / Luna model enums
     - [ADDED] `Model::GPT56Sol` → `"gpt-5.6-sol"` (frontier flagship)
