@@ -117,7 +117,7 @@ pub enum Model {
     /// `tencent/hy3-preview` – Tencent's Mixture-of-Experts preview tuned for
     /// agentic workflows.
     TencentHy3Preview,
-    /// `deepseek/deepseek-v4-flash` – DeepSeek v4 fast tier.
+    /// `deepseek/deepseek-v4-flash-0731` – DeepSeek v4 Flash (2026-07-31 snapshot).
     DeepSeekV4Flash,
     /// `anthropic/claude-opus-4.7` – Anthropic Opus 4.7.
     ClaudeOpus47,
@@ -215,6 +215,14 @@ pub enum Model {
     Llama318bInstruct,
     /// `x-ai/grok-4.3` – xAI Grok 4.3 via OpenRouter.
     Grok43,
+    /// `moonshotai/kimi-k3` – Moonshot Kimi K3.
+    MoonshotKimiK3,
+    /// `qwen/qwen3.8-max` – Qwen 3.8 Max.
+    Qwen38Max,
+    /// `meta/muse-spark-1.2` – Meta Muse Spark 1.2.
+    MetaMuseSpark12,
+    /// `anthropic/claude-opus-5` – Anthropic Claude Opus 5.
+    ClaudeOpus5,
 }
 
 /// Convert a [`Model`] variant into its OpenRouter `vendor/model` slug.
@@ -222,7 +230,7 @@ pub fn model_to_string(model: Model) -> String {
     match model {
         Model::MinimaxM3 => "minimax/minimax-m3".to_string(),
         Model::TencentHy3Preview => "tencent/hy3-preview".to_string(),
-        Model::DeepSeekV4Flash => "deepseek/deepseek-v4-flash".to_string(),
+        Model::DeepSeekV4Flash => "deepseek/deepseek-v4-flash-0731".to_string(),
         Model::ClaudeOpus47 => "anthropic/claude-opus-4.7".to_string(),
         Model::ClaudeSonnet46 => "anthropic/claude-sonnet-4.6".to_string(),
         Model::OpenRouterOwlAlpha => "openrouter/owl-alpha".to_string(),
@@ -271,6 +279,10 @@ pub fn model_to_string(model: Model) -> String {
         Model::PoolsideLagunaXs2 => "poolside/laguna-xs.2".to_string(),
         Model::Llama318bInstruct => "meta-llama/llama-3.1-8b-instruct".to_string(),
         Model::Grok43 => "x-ai/grok-4.3".to_string(),
+        Model::MoonshotKimiK3 => "moonshotai/kimi-k3".to_string(),
+        Model::Qwen38Max => "qwen/qwen3.8-max".to_string(),
+        Model::MetaMuseSpark12 => "meta/muse-spark-1.2".to_string(),
+        Model::ClaudeOpus5 => "anthropic/claude-opus-5".to_string(),
     }
 }
 

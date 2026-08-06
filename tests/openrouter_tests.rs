@@ -17,7 +17,7 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
     let expected: &[(Model, &str)] = &[
         (Model::MinimaxM3, "minimax/minimax-m3"),
         (Model::TencentHy3Preview, "tencent/hy3-preview"),
-        (Model::DeepSeekV4Flash, "deepseek/deepseek-v4-flash"),
+        (Model::DeepSeekV4Flash, "deepseek/deepseek-v4-flash-0731"),
         (Model::ClaudeOpus47, "anthropic/claude-opus-4.7"),
         (Model::ClaudeSonnet46, "anthropic/claude-sonnet-4.6"),
         (Model::OpenRouterOwlAlpha, "openrouter/owl-alpha"),
@@ -72,9 +72,13 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::PoolsideLagunaXs2, "poolside/laguna-xs.2"),
         (Model::Llama318bInstruct, "meta-llama/llama-3.1-8b-instruct"),
         (Model::Grok43, "x-ai/grok-4.3"),
+        (Model::MoonshotKimiK3, "moonshotai/kimi-k3"),
+        (Model::Qwen38Max, "qwen/qwen3.8-max"),
+        (Model::MetaMuseSpark12, "meta/muse-spark-1.2"),
+        (Model::ClaudeOpus5, "anthropic/claude-opus-5"),
     ];
 
-    assert_eq!(expected.len(), 51, "test fixture must cover every variant");
+    assert_eq!(expected.len(), 55, "test fixture must cover every variant");
 
     for (variant, slug) in expected {
         assert_eq!(model_to_string(*variant), *slug);
