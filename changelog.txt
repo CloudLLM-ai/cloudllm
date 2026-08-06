@@ -1,17 +1,49 @@
-0.15.11 IN-PROGRESS (performance pass — not published)
+0.15.11 AUG/05/2026 (performance pass — not published)
+  - feat(openrouter): DeepSeek V4 Flash slug → `deepseek/deepseek-v4-flash-0731`;
+    add Moonshot Kimi K3, Qwen 3.8 Max, Meta Muse Spark 1.2, Claude Opus 5
+    - `Model::DeepSeekV4Flash` now maps to `deepseek/deepseek-v4-flash-0731`
+    - [ADDED] `Model::MoonshotKimiK3` → `moonshotai/kimi-k3`
+    - [ADDED] `Model::Qwen38Max` → `qwen/qwen3.8-max`
+    - [ADDED] `Model::MetaMuseSpark12` → `meta/muse-spark-1.2`
+    - [ADDED] `Model::ClaudeOpus5` → `anthropic/claude-opus-5`
+    - (`Model::MinimaxM3` → `minimax/minimax-m3` already present)
+    - Enum arity 51 → 55; openrouter slug tests updated
+  - feat(claude): add native `Model::ClaudeOpus5` → `claude-opus-5-0`
+    - New flagship on the Anthropic client; `ClaudeOpus48` deprecated in favor of it
+    - OpenRouter-only models (Kimi K3, Qwen 3.8 Max, Muse Spark) stay on OpenRouter
+  - feat(example): `pacman_game_ralph` — RALPH Pac-Man builder on OpenRouter
+    DeepSeek V4 Flash (0731) with classic Blinky/Pinky/Inky/Clyde AI PRD tasks
   - perf(session): drop bumpalo arena; single Arc::from(String) content; running
     history_token_total; accumulate provider token usage across turns
+    - Removed dual Bump→Arc copy that retained every message forever after clear/trim
+    - Dropped unused `bumpalo` dependency
   - perf(tools/protocols): clone AsyncToolFunction Arc out of RwLock before await
     (CustomTool + OpenAIFunctions) so long tools no longer serialize the registry
-  - chore(release): [profile.release] lto="thin", codegen-units=1
+  - chore(release): [profile.release] lto="thin", codegen-units=1, opt-level=3
   - perf(agent/registry): cache Arc tool definitions + prompt catalog on ToolRegistry;
     ClientWrapper/LLMSession take Option<&[ToolDefinition]> (no per-hop schema clone);
     agent resolves protocol Arc and drops registry lock before tool I/O; compact JSON
     for tool results (drop to_string_pretty)
+    - [ADDED] `Tool::protocol()`, `ToolRegistry::resolve_executor`,
+      `cached_tool_definitions()`, `tool_catalog_text()`
   - perf(orchestration): single Arc content construction; take/restore mode (no deep
     clone of Ralph/Teams pools); Arc shared prompts on parallel fanout; lean Jaccard
+    (`&str` word sets over one lowercase buffer)
   - perf(tools): calculator thread-local eval context; memory TTL eviction via BTreeMap
-    index; tokio::fs for filesystem read/write/append; planner uses cached catalog
+    index (not full-store scan); tokio::fs for filesystem read/write/append; planner
+    uses cached catalog; extension whitelist lowercased once at construction
+  - chore(deps): bump direct dependency floors (safe set only)
+    - tokio 1.48 → 1.53.1; async-trait 0.1.89 → 0.1.91; log 0.4.28 → 0.4.33
+    - env_logger 0.11.8 → 0.11.11; futures-util 0.3.31 → 0.3.33
+    - serde 1.0.228 → 1.0.229; serde_json 1.0.145 → 1.0.151
+    - chrono 0.4 → 0.4.45; evalexpr 13.0 → 13.1.0; subtle 2 → 2.6.1
+    - axum 0.8.7 → 0.8.9; tower 0.5.2 → 0.5.3; uuid 1.10 → 1.24.0
+    - mentisdb 0.10 → 0.10.5; tempfile 3.23 → 3.27; tokio-stream 0.1 → 0.1.19
+    - reqwest floor 0.12.24 → 0.12.28 (still 0.12.x)
+    - intentionally NOT upgraded:
+      - reqwest 0.13 — openai-rust2 still exposes 0.12 Client types for the shared pool
+      - openai-rust2 — already at latest 1.7.6
+      - sha2 0.11 — breaking digest-crate bump; stay on 0.10 until callers migrate
 
 0.15.10 JUL/10/2026
   - feat(openai): add GPT-5.6 Sol / Terra / Luna model enums

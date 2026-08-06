@@ -13,7 +13,7 @@ license = "MIT"
 documentation = "https://docs.rs/cloudllm/latest/cloudllm/"
 
 [dependencies]
-tokio = { version = "1.48.0", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
 # https://github.com/cloudllm-ai/openai-rust
@@ -22,29 +22,32 @@ tokio = { version = "1.48.0", features = ["full"] }
 # 0.12.28 reqwest floor stays type-compatible with cloudllm's shared client.
 openai-rust2 = ">=1.7.6, <2"
 
-async-trait = "0.1.89"
-log = "0.4.28"
-env_logger = "0.11.8"
+async-trait = "0.1.91"
+log = "0.4.33"
+env_logger = "0.11.11"
 lazy_static = "1.5.0"
-reqwest = { version = "0.12.24", features = ["json"] }
-futures-util = "0.3.31"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-chrono = { version = "0.4", features = ["serde"] }
-evalexpr = "13.0.0"
+# Stay on reqwest 0.12.x — openai-rust2 exposes reqwest 0.12 Client types for the
+# shared pool. Do NOT bump to 0.13 until openai-rust2 does (type incompatibility).
+reqwest = { version = "0.12.28", features = ["json"] }
+futures-util = "0.3.33"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+chrono = { version = "0.4.45", features = ["serde"] }
+evalexpr = "13.1.0"
+# sha2 0.11 is a breaking digest-crate bump; stay on 0.10 until callers migrate.
 sha2 = "0.10"
-subtle = "2"
+subtle = "2.6.1"
 urlencoding = "2.1.3"
-axum = { version = "0.8.7", optional = true }
-tower = { version = "0.5.2", optional = true }
-uuid = { version = "1.10", features = ["v4"] }
+axum = { version = "0.8.9", optional = true }
+tower = { version = "0.5.3", optional = true }
+uuid = { version = "1.24.0", features = ["v4"] }
 # 0.10+ is the current binary-storage MentisDB line. 0.4 was the last
 # pre-modern series cloudllm targeted; Jsonl is legacy-only upstream.
-mentisdb = "0.10"
+mentisdb = "0.10.5"
 mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.3.5", features = ["server"] }
 
 [dev-dependencies]
-tempfile = "3.23"
+tempfile = "3.27.0"
 
 [features]
 # MCP Server builder with HTTP support (requires axum and tower)
