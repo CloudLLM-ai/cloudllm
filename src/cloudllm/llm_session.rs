@@ -444,9 +444,7 @@ impl LLMSession {
 
         if let Some(usage) = self.client.get_last_usage().await {
             self.total_input_tokens = self.total_input_tokens.saturating_add(usage.input_tokens);
-            self.total_output_tokens = self
-                .total_output_tokens
-                .saturating_add(usage.output_tokens);
+            self.total_output_tokens = self.total_output_tokens.saturating_add(usage.output_tokens);
             self.total_token_count = self.total_token_count.saturating_add(usage.total_tokens);
 
             // Provider totals for *this* call approximate context pressure.

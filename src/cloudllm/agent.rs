@@ -927,7 +927,7 @@ impl Agent {
 
         let response = self
             .session
-            .send_message(Role::User, message_with_tools, tools.clone())
+            .send_message(Role::User, message_with_tools, tools)
             .await
             .map_err(|e| {
                 Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -1117,7 +1117,7 @@ impl Agent {
 
                 let follow_up = self
                     .session
-                    .send_current_history(tools.clone())
+                    .send_current_history(tools)
                     .await
                     .map_err(|e| {
                         Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -1211,8 +1211,7 @@ impl Agent {
                         }
                         None => Err(Box::new(crate::tool_protocol::ToolError::NotFound(
                             tool_call.name.clone(),
-                        ))
-                            as Box<dyn Error + Send + Sync>),
+                        )) as Box<dyn Error + Send + Sync>),
                     }
                 };
 
@@ -1289,7 +1288,7 @@ impl Agent {
 
                 let follow_up = self
                     .session
-                    .send_message(Role::User, tool_result_message, tools.clone())
+                    .send_message(Role::User, tool_result_message, tools)
                     .await
                     .map_err(|e| {
                         Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -1532,7 +1531,7 @@ impl Agent {
             let response = self
                 .session
                 .client()
-                .send_message(&messages, gwt_tools.clone())
+                .send_message(&messages, gwt_tools)
                 .await
                 .map_err(|e| {
                     Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
@@ -1734,8 +1733,7 @@ impl Agent {
                         }
                         None => Err(Box::new(crate::tool_protocol::ToolError::NotFound(
                             tool_call.name.clone(),
-                        ))
-                            as Box<dyn Error + Send + Sync>),
+                        )) as Box<dyn Error + Send + Sync>),
                     }
                 };
 

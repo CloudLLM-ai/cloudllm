@@ -2524,7 +2524,8 @@ impl Orchestration {
 
                         if is_completed {
                             for task_id in &task_ids {
-                                if claimed_tasks.get(task_id).map(|a| a.as_str()) == Some(agent_id.as_str())
+                                if claimed_tasks.get(task_id).map(|a| a.as_str())
+                                    == Some(agent_id.as_str())
                                     && !completed_tasks.contains(task_id)
                                 {
                                     completed_tasks.insert(task_id.clone());

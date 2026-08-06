@@ -51,7 +51,7 @@ fn test_claude_client() {
     let Some(secret_key) = required_env_or_skip("CLAUDE_API_KEY") else {
         return;
     };
-    let client = ClaudeClient::new_with_model_enum(&secret_key, claude::Model::ClaudeSonnet46);
+    let client = ClaudeClient::new_with_model_enum(&secret_key, claude::Model::ClaudeSonnet5);
     let mut llm_session: crate::LLMSession = crate::LLMSession::new(
         std::sync::Arc::new(client),
         "You are a helpful assistant.".to_string(),

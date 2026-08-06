@@ -169,12 +169,7 @@ impl FileSystemTool {
     /// Set allowed file extensions (e.g., ["txt", "pdf", "md"])
     pub fn with_allowed_extensions(mut self, extensions: Vec<String>) -> Self {
         // Store lowercased once so hot-path checks avoid per-call to_lowercase.
-        self.allowed_extensions = Some(
-            extensions
-                .into_iter()
-                .map(|e| e.to_lowercase())
-                .collect(),
-        );
+        self.allowed_extensions = Some(extensions.into_iter().map(|e| e.to_lowercase()).collect());
         self
     }
 

@@ -90,8 +90,10 @@ async fn test_token_usage_accumulates_across_turns() {
         .await
         .unwrap();
     let after_two = session.token_usage();
-    assert!(after_two.total_tokens >= after_one.total_tokens * 2
-        || after_two.input_tokens > after_one.input_tokens);
+    assert!(
+        after_two.total_tokens >= after_one.total_tokens * 2
+            || after_two.input_tokens > after_one.input_tokens
+    );
 }
 
 #[test]

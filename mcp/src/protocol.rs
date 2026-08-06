@@ -880,16 +880,10 @@ impl ToolRegistry {
     ///
     /// Callers holding a registry `RwLock` should use this to clone the `Arc`
     /// protocol out, drop the lock, then await [`ToolProtocol::execute`].
-    pub fn resolve_executor(
-        &self,
-        tool_name: &str,
-    ) -> Option<(String, Arc<dyn ToolProtocol>)> {
-        self.tools.get(tool_name).map(|tool| {
-            (
-                tool.metadata.name.clone(),
-                Arc::clone(&tool.protocol),
-            )
-        })
+    pub fn resolve_executor(&self, tool_name: &str) -> Option<(String, Arc<dyn ToolProtocol>)> {
+        self.tools
+            .get(tool_name)
+            .map(|tool| (tool.metadata.name.clone(), Arc::clone(&tool.protocol)))
     }
 
     /// Execute a named tool with serialized parameters.

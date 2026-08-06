@@ -172,7 +172,7 @@ impl ClientWrapper for ClaudeClient {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = ClaudeClient::new_with_model_enum(
     ///     &std::env::var("ANTHROPIC_KEY")?,
-    ///     Model::ClaudeSonnet46,
+    ///     Model::ClaudeSonnet5,
     /// );
     /// let resp = client.send_message(
     ///     &[Message { role: Role::User, content: Arc::from("Hello"), tool_calls: vec![] }],
