@@ -168,7 +168,13 @@ impl FileSystemTool {
 
     /// Set allowed file extensions (e.g., ["txt", "pdf", "md"])
     pub fn with_allowed_extensions(mut self, extensions: Vec<String>) -> Self {
-        self.allowed_extensions = Some(extensions);
+        // Store lowercased once so hot-path checks avoid per-call to_lowercase.
+        self.allowed_extensions = Some(
+            extensions
+                .into_iter()
+                .map(|e| e.to_lowercase())
+                .collect(),
+        );
         self
     }
 
@@ -271,7 +277,7 @@ impl FileSystemTool {
         if let Some(allowed) = &self.allowed_extensions {
             if let Some(ext) = path.extension() {
                 let ext_str = ext.to_string_lossy().to_lowercase();
-                if !allowed.iter().any(|a| a.to_lowercase() == ext_str) {
+                if !allowed.iter().any(|a| a == &ext_str) {
                     return Err(FileSystemError::ExtensionNotAllowed(format!(
                         "Extension .{} not allowed",
                         ext_str
@@ -295,7 +301,8 @@ impl FileSystemTool {
             return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
-        let content = fs::read_to_string(&safe_path).map_err(|e| {
+        // Async I/O so multi-agent tool calls don't block the tokio worker.
+        let content = tokio::fs::read_to_string(&safe_path).await.map_err(|e| {
             Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
         })?;
 
@@ -315,14 +322,13 @@ impl FileSystemTool {
             return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
-        // Ensure parent directory exists
         if let Some(parent) = safe_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
                 Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
             })?;
         }
 
-        fs::write(&safe_path, content).map_err(|e| {
+        tokio::fs::write(&safe_path, content).await.map_err(|e| {
             Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
         })?;
 
@@ -342,23 +348,23 @@ impl FileSystemTool {
             return Err(Box::new(FileSystemError::IsDirectory(path.to_string())));
         }
 
-        // Ensure parent directory exists
         if let Some(parent) = safe_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
                 Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
             })?;
         }
 
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&safe_path)
+            .await
             .map_err(|e| {
                 Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
             })?;
 
-        file.write_all(content.as_bytes()).map_err(|e| {
+        file.write_all(content.as_bytes()).await.map_err(|e| {
             Box::new(FileSystemError::IOError(e.to_string())) as Box<dyn Error + Send + Sync>
         })?;
 

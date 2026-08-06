@@ -933,7 +933,7 @@ impl Planner for BasicPlanner {
                         format!(
                             "Tool '{}' executed successfully. Result: {}",
                             tool_call.name,
-                            serde_json::to_string_pretty(&result.output)
+                            serde_json::to_string(&result.output)
                                 .unwrap_or_else(|_| format!("{:?}", result.output))
                         )
                     } else {
@@ -1183,55 +1183,17 @@ fn build_memory_prompt(user_message: &str, entries: &[MemoryEntry]) -> String {
 /// # }
 /// ```
 fn append_tool_prompt(mut message: String, tools: &ToolRegistry) -> String {
-    let tool_list = tools.list_tools();
-    if tool_list.is_empty() {
+    // Reuse the registry's cached catalog (invalidated on tool mutation).
+    let catalog = tools.tool_catalog_text();
+    if catalog.is_empty() {
         return message;
     }
-
+    message.reserve(catalog.len() + 64);
     message.push_str("\n\n");
     message.push_str("═══════════════════════════════════════════════════════════\n");
-    message.push_str(&format!("AVAILABLE TOOLS ({} total):\n", tool_list.len()));
-    message.push_str("═══════════════════════════════════════════════════════════\n\n");
-
-    for (idx, tool_metadata) in tool_list.iter().enumerate() {
-        message.push_str(&format!(
-            "[{}] {}\n    {}\n",
-            idx + 1,
-            tool_metadata.name,
-            tool_metadata.description
-        ));
-
-        if !tool_metadata.parameters.is_empty() {
-            message.push_str("    Parameters:\n");
-            for param in &tool_metadata.parameters {
-                let required = if param.required { " [REQUIRED]" } else { "" };
-                message.push_str(&format!(
-                    "      • {} ({}){}\n        {}\n",
-                    param.name,
-                    format!("{:?}", param.param_type).to_lowercase(),
-                    required,
-                    param.description.as_deref().unwrap_or("(no description)")
-                ));
-            }
-        }
-        message.push('\n');
-    }
-
-    message.push_str("═══════════════════════════════════════════════════════════\n");
-    message.push_str("TOOL USAGE FORMAT:\n");
-    message.push_str("═══════════════════════════════════════════════════════════\n\n");
-    message.push_str("To invoke a tool, respond with EXACTLY this JSON structure:\n\n");
-    message.push_str("  {\"tool_call\": {\"name\": \"tool_name\", \"parameters\": {\"param1\": \"value1\", \"param2\": \"value2\"}}}\n\n");
-    message.push_str("Examples:\n");
-    message.push_str(
-        "  {\"tool_call\": {\"name\": \"calculator\", \"parameters\": {\"expr\": \"2+2\"}}}\n",
-    );
-    message.push_str("  {\"tool_call\": {\"name\": \"read_file\", \"parameters\": {\"path\": \"/home/user/data.txt\"}}}\n\n");
-    message.push_str(
-        "After I execute the tool, I'll provide the result and you can continue working.\n",
-    );
-    message.push_str("You may call multiple tools sequentially in a single response.\n");
-
+    message.push_str("AVAILABLE TOOLS:\n");
+    message.push_str("═══════════════════════════════════════════════════════════");
+    message.push_str(&catalog);
     message
 }
 

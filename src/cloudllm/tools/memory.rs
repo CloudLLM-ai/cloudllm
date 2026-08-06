@@ -142,28 +142,29 @@ impl Memory {
         let store: Arc<Mutex<HashMap<String, (String, MemoryMetadata)>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        let expiring_timestamps_2_keys = Arc::new(Mutex::new(BTreeMap::new()));
+        let expiring_timestamps_2_keys: Arc<Mutex<BTreeMap<DateTime<Utc>, Vec<String>>>> =
+            Arc::new(Mutex::new(BTreeMap::new()));
 
-        // Spawn background task for expiration management
+        // Background eviction uses the BTreeMap expiration index (O(expired)),
+        // not a full store scan every second.
         let expiration_store = Arc::clone(&store);
+        let expiration_index = Arc::clone(&expiring_timestamps_2_keys);
         tokio::spawn(async move {
             loop {
                 time::sleep(Duration::from_secs(1)).await;
+                let now = Utc::now();
+                let mut index = expiration_index.lock().unwrap();
                 let mut store = expiration_store.lock().unwrap();
-                let keys_to_remove: Vec<_> = store
-                    .iter()
-                    .filter_map(|(key, (_, metadata))| {
-                        if metadata.is_expired() {
-                            Some(key.clone())
-                        } else {
-                            None
+                index.retain(|&expiry, keys| {
+                    if expiry <= now {
+                        for key in keys.iter() {
+                            store.remove(key);
                         }
-                    })
-                    .collect();
-
-                for key in keys_to_remove {
-                    store.remove(&key);
-                }
+                        false
+                    } else {
+                        true
+                    }
+                });
             }
         });
 
@@ -178,7 +179,7 @@ impl Memory {
     /// Use this in system prompts so agents know how to interact with the
     /// memory tool. The format exactly matches what `MemoryProtocol::execute`
     /// accepts — no length prefixes, plain whitespace-separated tokens.
-    pub fn get_protocol_spec() -> String {
+    pub fn get_protocol_spec() -> &'static str {
         r#"Memory tool quick-reference (tool name: "memory"):
 
 COMMAND FIELD FORMATS — two styles are accepted:
@@ -203,7 +204,6 @@ EXAMPLES:
   {"command": "L"}
 
 NOTE: P stores single-token values (no spaces). To persist HTML use write_tetris_file."#
-            .to_string()
     }
 
     /// Put a key-value pair with optional TTL (in seconds)
@@ -274,6 +274,8 @@ NOTE: P stores single-token values (no spaces). To persist HTML use write_tetris
     pub fn clear(&self) {
         let mut store = self.store.lock().unwrap();
         store.clear();
+        let mut index = self.expiring_timestamps_2_keys.lock().unwrap();
+        index.clear();
     }
 
     /// Get the total size of stored data in bytes
