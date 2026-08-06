@@ -143,20 +143,22 @@ impl ToolProtocol for CustomToolProtocol {
         tool_name: &str,
         parameters: JsonValue,
     ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
-        // Try async functions first
-        {
+        // Clone the Arc out of the map so the RwLock is not held across .await
+        // (long-running tools would otherwise serialize concurrent registry access).
+        let async_func = {
             let async_funcs = self.async_functions.read().await;
-            if let Some(func) = async_funcs.get(tool_name) {
-                return func(parameters).await;
-            }
+            async_funcs.get(tool_name).cloned()
+        };
+        if let Some(func) = async_func {
+            return func(parameters).await;
         }
 
-        // Then try sync functions
-        {
+        let sync_func = {
             let sync_funcs = self.sync_functions.read().await;
-            if let Some(func) = sync_funcs.get(tool_name) {
-                return func(parameters);
-            }
+            sync_funcs.get(tool_name).cloned()
+        };
+        if let Some(func) = sync_func {
+            return func(parameters);
         }
 
         Err(Box::new(ToolError::NotFound(tool_name.to_string())))
@@ -568,10 +570,11 @@ impl ToolProtocol for OpenAIFunctionsProtocol {
         tool_name: &str,
         parameters: JsonValue,
     ) -> Result<ToolResult, Box<dyn Error + Send + Sync>> {
-        let functions = self.functions.read().await;
-        let func = functions
-            .get(tool_name)
-            .ok_or_else(|| ToolError::NotFound(tool_name.to_string()))?;
+        let func = {
+            let functions = self.functions.read().await;
+            functions.get(tool_name).cloned()
+        }
+        .ok_or_else(|| ToolError::NotFound(tool_name.to_string()))?;
 
         func(parameters).await
     }

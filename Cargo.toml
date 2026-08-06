@@ -57,3 +57,8 @@ required-features = ["mcp-server"]
 [[example]]
 name = "persistent_agent_chat"
 required-features = ["mcp-server"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
