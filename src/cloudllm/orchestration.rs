@@ -795,7 +795,7 @@ impl OrchestrationMessage {
             agent_id: None,
             agent_name: None,
             role,
-            content: Arc::from(content.into().as_str()),
+            content: Arc::from(content.into()),
             metadata: HashMap::new(),
         }
     }
@@ -827,7 +827,7 @@ impl OrchestrationMessage {
             agent_id: Some(agent_id.into()),
             agent_name: Some(agent_name.into()),
             role: Role::Assistant,
-            content: Arc::from(content.into().as_str()),
+            content: Arc::from(content.into()),
             metadata: HashMap::new(),
         }
     }
@@ -1345,38 +1345,39 @@ impl Orchestration {
         self.conversation_history
             .push(OrchestrationMessage::new(Role::User, prompt));
 
-        // Clone mode to avoid borrow issues
-        let mode = self.mode.clone();
-
-        let result = match mode {
+        // Take mode by value without cloning task pools; restore after the run so
+        // the orchestration remains reusable.
+        let mode = std::mem::replace(&mut self.mode, OrchestrationMode::Parallel);
+        let result = match &mode {
             OrchestrationMode::Parallel => self.execute_parallel(prompt, rounds).await,
             OrchestrationMode::RoundRobin => self.execute_round_robin(prompt, rounds).await,
             OrchestrationMode::Moderated { moderator_id } => {
-                self.execute_moderated(prompt, rounds, &moderator_id).await
+                self.execute_moderated(prompt, rounds, moderator_id).await
             }
             OrchestrationMode::Hierarchical { layers } => {
-                self.execute_hierarchical(prompt, &layers).await
+                self.execute_hierarchical(prompt, layers).await
             }
             OrchestrationMode::Debate {
                 max_rounds,
                 convergence_threshold,
             } => {
-                self.execute_debate(prompt, max_rounds, convergence_threshold)
+                self.execute_debate(prompt, *max_rounds, *convergence_threshold)
                     .await
             }
             OrchestrationMode::Ralph {
                 tasks,
                 max_iterations,
-            } => self.execute_ralph(prompt, &tasks, max_iterations).await,
+            } => self.execute_ralph(prompt, tasks, *max_iterations).await,
             OrchestrationMode::AnthropicAgentTeams {
                 pool_id,
                 tasks,
                 max_iterations,
             } => {
-                self.execute_anthropic_agent_teams(prompt, &pool_id, &tasks, max_iterations)
+                self.execute_anthropic_agent_teams(prompt, pool_id, tasks, *max_iterations)
                     .await
             }
         };
+        self.mode = mode;
 
         if let Ok(ref response) = result {
             self.emit(OrchestrationEvent::RunCompleted {
@@ -1430,16 +1431,16 @@ impl Orchestration {
 
             let mut round_messages = Vec::new();
 
-            // Spawn all agent tasks in parallel
+            // Spawn all agent tasks in parallel — share prompt/context via Arc.
             let mut tasks = Vec::new();
-            let prompt_owned = prompt.to_string();
-            let system_context = self.system_context.clone();
+            let prompt_arc: Arc<str> = Arc::from(prompt);
+            let system_context: Arc<str> = Arc::from(self.system_context.as_str());
 
             for agent_id in &self.agent_order {
                 let agent = self.agents.get(agent_id).unwrap();
                 let mut temp_agent = agent.fork();
                 temp_agent.set_system_prompt(&system_context);
-                let prompt_clone = prompt_owned.clone();
+                let prompt_clone = Arc::clone(&prompt_arc);
 
                 tasks.push(tokio::spawn(async move {
                     let result = temp_agent.send(&prompt_clone).await;
@@ -1535,13 +1536,14 @@ impl Orchestration {
             })
             .await;
 
-            for agent_id in self.agent_order.clone() {
-                let mut agent = self.agents.remove(&agent_id).unwrap();
+            let agent_order = self.agent_order.clone();
+            for agent_id in &agent_order {
+                let mut agent = self.agents.remove(agent_id).unwrap();
 
                 // Route only NEW messages this agent hasn't seen yet
                 let cursor = self
                     .agent_message_cursors
-                    .get(&agent_id)
+                    .get(agent_id)
                     .copied()
                     .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
@@ -1585,7 +1587,7 @@ impl Orchestration {
                         .await;
 
                         let msg = OrchestrationMessage::from_agent(
-                            &agent_id,
+                            agent_id.as_str(),
                             &agent_name,
                             agent_response.content,
                         );
@@ -1750,7 +1752,7 @@ impl Orchestration {
                 }
 
                 let msg =
-                    OrchestrationMessage::from_agent(&agent_id, &agent_name, agent_result.content)
+                    OrchestrationMessage::from_agent(agent_id, &agent_name, agent_result.content)
                         .with_metadata("moderator", moderator_id.to_string())
                         .with_metadata("round", round_num.to_string());
 
@@ -1939,13 +1941,14 @@ impl Orchestration {
 
             let mut round_messages = Vec::new();
 
-            for agent_id in self.agent_order.clone() {
-                let mut agent = self.agents.remove(&agent_id).unwrap();
+            let agent_order = self.agent_order.clone();
+            for agent_id in &agent_order {
+                let mut agent = self.agents.remove(agent_id).unwrap();
 
                 // Route only NEW messages this agent hasn't seen
                 let cursor = self
                     .agent_message_cursors
-                    .get(&agent_id)
+                    .get(agent_id)
                     .copied()
                     .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
@@ -1995,7 +1998,7 @@ impl Orchestration {
                         .await;
 
                         let msg = OrchestrationMessage::from_agent(
-                            &agent_id,
+                            agent_id.as_str(),
                             &agent_name,
                             agent_response.content,
                         )
@@ -2154,14 +2157,15 @@ impl Orchestration {
             );
 
             // Each agent responds sequentially (round-robin within iteration)
-            for agent_id in self.agent_order.clone() {
-                let mut agent = self.agents.remove(&agent_id).unwrap();
+            let agent_order = self.agent_order.clone();
+            for agent_id in &agent_order {
+                let mut agent = self.agents.remove(agent_id).unwrap();
                 log::info!("  Calling agent '{}' ({})...", agent.name, agent.id);
 
                 // Route only NEW messages from other agents
                 let cursor = self
                     .agent_message_cursors
-                    .get(&agent_id)
+                    .get(agent_id)
                     .copied()
                     .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
@@ -2240,7 +2244,7 @@ impl Orchestration {
                         }
 
                         let mut msg = OrchestrationMessage::from_agent(
-                            &agent_id,
+                            agent_id.as_str(),
                             &agent_name_clone,
                             agent_response.content,
                         )
@@ -2434,13 +2438,14 @@ impl Orchestration {
             };
 
             // Each agent responds sequentially
-            for agent_id in self.agent_order.clone() {
-                let mut agent = self.agents.remove(&agent_id).unwrap();
+            let agent_order = self.agent_order.clone();
+            for agent_id in &agent_order {
+                let mut agent = self.agents.remove(agent_id).unwrap();
 
                 // Route only NEW messages from other agents
                 let cursor = self
                     .agent_message_cursors
-                    .get(&agent_id)
+                    .get(agent_id)
                     .copied()
                     .unwrap_or(0);
                 for msg in &all_messages[cursor..] {
@@ -2519,7 +2524,7 @@ impl Orchestration {
 
                         if is_completed {
                             for task_id in &task_ids {
-                                if claimed_tasks.get(task_id) == Some(&agent_id)
+                                if claimed_tasks.get(task_id).map(|a| a.as_str()) == Some(agent_id.as_str())
                                     && !completed_tasks.contains(task_id)
                                 {
                                     completed_tasks.insert(task_id.clone());
@@ -2545,7 +2550,7 @@ impl Orchestration {
                         }
 
                         let msg = OrchestrationMessage::from_agent(
-                            &agent_id,
+                            agent_id.as_str(),
                             &agent_name_clone,
                             agent_response.content,
                         )
@@ -2565,7 +2570,7 @@ impl Orchestration {
 
                         // Emit TaskFailed if agent had claimed a task
                         for (task_id, claiming_agent) in &claimed_tasks {
-                            if claiming_agent == &agent_id {
+                            if claiming_agent == agent_id {
                                 self.emit(OrchestrationEvent::TaskFailed {
                                     orchestration_id: self.id.clone(),
                                     agent_id: agent_id.clone(),
@@ -2657,34 +2662,32 @@ impl Orchestration {
     fn jaccard_similarity(&self, text1: &str, text2: &str) -> f32 {
         use std::collections::HashSet;
 
-        // Normalize and tokenize both texts into word sets
-        let words1: HashSet<String> = text1
-            .to_lowercase()
+        // One lowercase buffer per side; hash &str windows without per-word String allocs.
+        let lower1 = text1.to_lowercase();
+        let lower2 = text2.to_lowercase();
+
+        let words1: HashSet<&str> = lower1
             .split_whitespace()
-            .filter(|w| w.len() > 2) // Ignore very short words
-            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
-            .filter(|w| !w.is_empty())
+            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+            .filter(|w| w.len() > 2)
             .collect();
 
-        let words2: HashSet<String> = text2
-            .to_lowercase()
+        let words2: HashSet<&str> = lower2
             .split_whitespace()
+            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
             .filter(|w| w.len() > 2)
-            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
-            .filter(|w| !w.is_empty())
             .collect();
 
         if words1.is_empty() && words2.is_empty() {
-            return 1.0; // Both empty, consider them identical
+            return 1.0;
         }
 
         if words1.is_empty() || words2.is_empty() {
-            return 0.0; // One empty, no similarity
+            return 0.0;
         }
 
-        // Jaccard similarity = |intersection| / |union|
         let intersection_size = words1.intersection(&words2).count();
-        let union_size = words1.union(&words2).count();
+        let union_size = words1.len() + words2.len() - intersection_size;
 
         intersection_size as f32 / union_size as f32
     }
