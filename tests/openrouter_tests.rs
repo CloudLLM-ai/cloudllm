@@ -76,9 +76,14 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::Qwen38Max, "qwen/qwen3.8-max"),
         (Model::MetaMuseSpark12, "meta/muse-spark-1.2"),
         (Model::ClaudeOpus5, "anthropic/claude-opus-5"),
+        (Model::ClaudeSonnet5, "anthropic/claude-sonnet-5"),
+        (Model::ClaudeFable5, "anthropic/claude-fable-5"),
+        (Model::ClaudeOpus5Fast, "anthropic/claude-opus-5-fast"),
+        (Model::ClaudeOpus48Fast, "anthropic/claude-opus-4.8-fast"),
+        (Model::ClaudeOpus47Fast, "anthropic/claude-opus-4.7-fast"),
     ];
 
-    assert_eq!(expected.len(), 55, "test fixture must cover every variant");
+    assert_eq!(expected.len(), 60, "test fixture must cover every variant");
 
     for (variant, slug) in expected {
         assert_eq!(model_to_string(*variant), *slug);

@@ -51,13 +51,18 @@ pub struct ClaudeClient {
 pub enum Model {
     /// `claude-opus-5` – Opus 5 flagship for complex reasoning and agentic coding.
     ClaudeOpus5,
+    /// `claude-sonnet-5` – Sonnet 5 balanced intelligence / speed.
+    ClaudeSonnet5,
+    /// `claude-fable-5` – Claude Fable 5.
+    ClaudeFable5,
     /// `claude-opus-4-8` – previous Opus flagship.
     #[deprecated(since = "0.15.11", note = "Use ClaudeOpus5 instead.")]
     ClaudeOpus48,
     /// `claude-opus-4-7` – prior Opus generation.
     #[deprecated(since = "0.15.0", note = "Use ClaudeOpus5 instead.")]
     ClaudeOpus47,
-    /// `claude-sonnet-4-6` – best combination of speed and intelligence.
+    /// `claude-sonnet-4-6` – previous Sonnet generation.
+    #[deprecated(since = "0.15.11", note = "Use ClaudeSonnet5 instead.")]
     ClaudeSonnet46,
     /// `claude-haiku-4-5` – fastest model with near-frontier intelligence.
     ClaudeHaiku45,
@@ -71,13 +76,13 @@ pub enum Model {
     /// `claude-opus-4-1` – earlier Opus reasoning tier.
     ClaudeOpus41,
     /// `claude-sonnet-4-0` – balanced reasoning + throughput.
-    #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet46 instead.")]
+    #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet5 instead.")]
     ClaudeSonnet4,
     /// `claude-opus-4-0` – original Opus generation.
     #[deprecated(since = "0.15.0", note = "Use ClaudeOpus5 instead.")]
     ClaudeOpus4,
     /// `claude-sonnet-3-7-sonnet-latest` – legacy Sonnet iteration.
-    #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet46 instead.")]
+    #[deprecated(since = "0.15.0", note = "Use ClaudeSonnet5 instead.")]
     ClaudeSonnet37,
     /// `claude-haiku-3-5-haiku-latest` – legacy Haiku iteration.
     #[deprecated(since = "0.15.0", note = "Use ClaudeHaiku45 instead.")]
@@ -89,6 +94,8 @@ pub enum Model {
 fn model_to_string(model: Model) -> String {
     match model {
         Model::ClaudeOpus5 => "claude-opus-5".to_string(),
+        Model::ClaudeSonnet5 => "claude-sonnet-5".to_string(),
+        Model::ClaudeFable5 => "claude-fable-5".to_string(),
         Model::ClaudeOpus48 => "claude-opus-4-8".to_string(),
         Model::ClaudeOpus47 => "claude-opus-4-7".to_string(),
         Model::ClaudeSonnet46 => "claude-sonnet-4-6".to_string(),

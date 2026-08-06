@@ -8,9 +8,15 @@
     - [ADDED] `Model::ClaudeOpus5` → `anthropic/claude-opus-5`
     - (`Model::MinimaxM3` → `minimax/minimax-m3` already present)
     - Enum arity 51 → 55; openrouter slug tests updated
-  - feat(claude): add native `Model::ClaudeOpus5` → `claude-opus-5`
-    - New flagship on the Anthropic client; `ClaudeOpus48` deprecated in favor of it
-    - OpenRouter-only models (Kimi K3, Qwen 3.8 Max, Muse Spark) stay on OpenRouter
+  - feat(claude): add native Opus 5 / Sonnet 5 / Fable 5
+    - [ADDED] `Model::ClaudeOpus5` → `claude-opus-5` (flagship)
+    - [ADDED] `Model::ClaudeSonnet5` → `claude-sonnet-5`
+    - [ADDED] `Model::ClaudeFable5` → `claude-fable-5`
+    - `ClaudeOpus48` / `ClaudeSonnet46` deprecated toward Opus 5 / Sonnet 5
+  - feat(openrouter): Claude Sonnet 5, Fable 5, Opus fast tiers
+    - [ADDED] `ClaudeSonnet5`, `ClaudeFable5`
+    - [ADDED] `ClaudeOpus5Fast`, `ClaudeOpus48Fast`, `ClaudeOpus47Fast`
+    - Enum arity 55 → 60
   - feat(example): `pacman_game_ralph` — RALPH Pac-Man builder on OpenRouter
     DeepSeek V4 Flash (0731) with classic Blinky/Pinky/Inky/Clyde AI PRD tasks
   - perf(session): drop bumpalo arena; single Arc::from(String) content; running

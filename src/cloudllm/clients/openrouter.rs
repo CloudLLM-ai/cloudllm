@@ -223,6 +223,16 @@ pub enum Model {
     MetaMuseSpark12,
     /// `anthropic/claude-opus-5` – Anthropic Claude Opus 5.
     ClaudeOpus5,
+    /// `anthropic/claude-sonnet-5` – Anthropic Claude Sonnet 5.
+    ClaudeSonnet5,
+    /// `anthropic/claude-fable-5` – Anthropic Claude Fable 5.
+    ClaudeFable5,
+    /// `anthropic/claude-opus-5-fast` – Anthropic Claude Opus 5 (fast tier).
+    ClaudeOpus5Fast,
+    /// `anthropic/claude-opus-4.8-fast` – Anthropic Claude Opus 4.8 (fast tier).
+    ClaudeOpus48Fast,
+    /// `anthropic/claude-opus-4.7-fast` – Anthropic Claude Opus 4.7 (fast tier).
+    ClaudeOpus47Fast,
 }
 
 /// Convert a [`Model`] variant into its OpenRouter `vendor/model` slug.
@@ -283,6 +293,11 @@ pub fn model_to_string(model: Model) -> String {
         Model::Qwen38Max => "qwen/qwen3.8-max".to_string(),
         Model::MetaMuseSpark12 => "meta/muse-spark-1.2".to_string(),
         Model::ClaudeOpus5 => "anthropic/claude-opus-5".to_string(),
+        Model::ClaudeSonnet5 => "anthropic/claude-sonnet-5".to_string(),
+        Model::ClaudeFable5 => "anthropic/claude-fable-5".to_string(),
+        Model::ClaudeOpus5Fast => "anthropic/claude-opus-5-fast".to_string(),
+        Model::ClaudeOpus48Fast => "anthropic/claude-opus-4.8-fast".to_string(),
+        Model::ClaudeOpus47Fast => "anthropic/claude-opus-4.7-fast".to_string(),
     }
 }
 
