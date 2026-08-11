@@ -118,6 +118,8 @@ pub enum Model {
     /// agentic workflows.
     TencentHy3Preview,
     /// `deepseek/deepseek-v4-flash-0731` – DeepSeek v4 Flash (2026-07-31 snapshot).
+    /// Supports a **1M-token** context window on OpenRouter; raise agent/orchestration
+    /// `with_max_tokens` accordingly (CloudLLM defaults to 128k).
     DeepSeekV4Flash,
     /// `anthropic/claude-opus-4.7` – Anthropic Opus 4.7.
     ClaudeOpus47,
