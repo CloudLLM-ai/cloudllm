@@ -1017,8 +1017,10 @@ pub struct Orchestration {
     /// Override with [`Orchestration::with_system_context`].
     system_context: String,
 
-    /// Soft token budget forwarded to agents for context trimming.
+    /// Soft token budget applied to each agent for context trimming when
+    /// registered via [`Orchestration::add_agent`].
     /// Override with [`Orchestration::with_max_tokens`].
+    /// Defaults to 128_000 to match [`Agent::new`](crate::Agent::new).
     max_tokens: usize,
 
     /// Per-agent cursor tracking the last message index each agent has seen.
@@ -1036,7 +1038,8 @@ impl Orchestration {
     /// Create an orchestration with the provided identifiers.
     ///
     /// Defaults to [`OrchestrationMode::Parallel`], a generic system context, and
-    /// an 8 192-token budget. Use the `with_*` builder methods to customise.
+    /// a 128_000-token budget (same as [`Agent::new`](crate::Agent::new)).
+    /// Use the `with_*` builder methods to customise.
     ///
     /// # Examples
     ///
@@ -1058,7 +1061,7 @@ impl Orchestration {
             system_context: String::from(
                 "You are participating in a collaborative discussion with other AI agents.",
             ),
-            max_tokens: 8192,
+            max_tokens: 128_000,
             agent_message_cursors: HashMap::new(),
             event_handler: None,
         }
@@ -1102,8 +1105,11 @@ impl Orchestration {
 
     /// Override the soft token budget used for context trimming (builder pattern).
     ///
-    /// The budget is forwarded to each agent's LLM call so that overly-long
-    /// conversation histories can be trimmed before transmission.
+    /// Applied to every agent when they are registered with
+    /// [`add_agent`](Orchestration::add_agent) (recreates each agent's
+    /// [`LLMSession`](crate::LLMSession) with this budget). Call this **before**
+    /// `add_agent` so agents receive the intended window. For long-context models
+    /// (e.g. DeepSeek V4 Flash 1M), pass the full window you want to use.
     ///
     /// # Examples
     ///
@@ -1111,7 +1117,7 @@ impl Orchestration {
     /// use cloudllm::orchestration::Orchestration;
     ///
     /// let orch = Orchestration::new("id", "name")
-    ///     .with_max_tokens(32768);
+    ///     .with_max_tokens(1_000_000);
     /// ```
     pub fn with_max_tokens(mut self, max_tokens: usize) -> Self {
         self.max_tokens = max_tokens;
@@ -1209,6 +1215,10 @@ impl Orchestration {
                 id
             )));
         }
+
+        // Apply orchestration token budget so with_max_tokens actually takes effect
+        // (Agent::new defaults to 128k; long-context models need an explicit raise).
+        agent = agent.with_max_tokens(self.max_tokens);
 
         // Propagate the orchestration's event handler to the agent so that
         // AgentEvents (LLM calls, tool usage, etc.) flow through the same
