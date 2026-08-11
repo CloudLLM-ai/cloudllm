@@ -14,13 +14,19 @@ All examples use `cargo run --example <name>` and can run with placeholder API k
 Complete 18-task classic Pac-Man build via RALPH, driven by OpenRouter
 `deepseek/deepseek-v4-flash-0731`.
 
+**Spec-only harness** — the Rust example ships **no game implementation**, only PRD tasks,
+system context, and acceptance criteria. Agents author the full page from scratch
+(session Memory `current_game_html` starts empty). Designed to evaluate coding-model capability.
+
 **Demonstrates**:
 - RALPH orchestration with task completion markers
 - 4 specialized agents (maze architect, Pac-Man programmer, ghost AI engineer, audio/VFX)
+- **MentisDB durable memory** on the shared `cloudllm` chain (run plan, constraints, checkpoints)
 - **Authentic per-color ghost AI** in the PRD: Blinky chase, Pinky ambush (+ UP quirk),
   Inky flank via Blinky, Clyde shy 8-tile rule; scatter/chase cycles; frightened/eaten house return
-- Starter HTML + Read-Modify-Write via shared Memory + `write_game_file`
-- OpenRouter client with DeepSeek V4 Flash (0731 snapshot)
+- Playability specs in prose: fixed-rate simulation, moderate pacing, board safety, audible SFX
+- Read-Modify-Write via session Memory + `write_game_file` (also logs MentisDB snapshots)
+- OpenRouter client with DeepSeek V4 Flash (0731 snapshot, **1M** context via `with_max_tokens`)
 
 **Setup**:
 ```bash
