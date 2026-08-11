@@ -66,6 +66,12 @@ use tokio::sync::RwLock;
 /// Default MentisDB chain for CloudLLM examples and project memory.
 const MENTISDB_CHAIN_KEY: &str = "cloudllm";
 
+/// Canonical playable deliverable written by agents and recovered at end-of-run.
+const OUTPUT_HTML: &str = "pacman_game_ralph.html";
+
+/// Session Memory key holding the latest full game page source.
+const MEMORY_GAME_KEY: &str = "current_game_html";
+
 // ── Event Handler ──────────────────────────────────────────────────────────
 
 /// Pretty-prints agent and orchestration events in real-time for Pac-Man RALPH runs.
@@ -327,6 +333,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Model:    deepseek/deepseek-v4-flash-0731 (DeepSeek V4 Flash, 1M ctx)");
     println!("{}\n", "=".repeat(80));
 
+    // Never keep a stale deliverable from a previous run.
+    if PathBuf::from(OUTPUT_HTML).exists() {
+        std::fs::remove_file(OUTPUT_HTML)?;
+        println!("🗑️  Removed existing {OUTPUT_HTML} (fresh run)");
+    }
+
     // ── MentisDB durable memory (project chain: cloudllm) ───────────────────
     let mentisdb_dir = std::env::var("MENTISDB_DIR")
         .map(PathBuf::from)
@@ -367,8 +379,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // MentisDB holds durable run history; this store is the working buffer.
     let memory = Arc::new(Memory::new());
     let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
-    memory.put("current_game_html".to_string(), String::new(), None);
-    println!("📋 Spec-only PRD mode: agents implement the full game from requirements\n");
+    memory.put(MEMORY_GAME_KEY.to_string(), String::new(), None);
+    println!("📋 Spec-only PRD mode: agents implement the full game from requirements");
+    println!("📄 Deliverable path: {OUTPUT_HTML} (must exist when the run finishes)\n");
 
     let memory_for_tool = memory.clone();
     let mentisdb_for_tool = mentisdb.clone();
@@ -378,18 +391,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .register_async_tool(
             ToolMetadata::new(
                 "write_game_file",
-                "Write the COMPLETE playable game page to disk, session Memory (current_game_html), \
-                 and a MentisDB checkpoint on the project chain. ALWAYS use this after making \
-                 changes so other agents can build on your work.",
+                "MANDATORY deliverable tool. Write the COMPLETE playable game page to \
+                 pacman_game_ralph.html on disk, session Memory (current_game_html), and a \
+                 MentisDB checkpoint. Call this every time you produce or update the game — \
+                 a finished run without this file is a failed run. Content must be a full \
+                 self-contained web page (not a snippet).",
             )
             .with_parameter(
                 ToolParameter::new("filename", ToolParameterType::String).with_description(
-                    "Output filename; use pacman_game_ralph.html unless directed otherwise",
+                    "Ignored for path selection; the harness always writes pacman_game_ralph.html",
                 ),
             )
             .with_parameter(
                 ToolParameter::new("content", ToolParameterType::String).with_description(
-                    "The complete self-contained game page source with all features so far",
+                    "The complete self-contained game page source with all features so far \
+                     (must include a full document body, not an empty string)",
                 ),
             ),
             Arc::new(move |params| {
@@ -397,24 +413,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let mentisdb_for_tool = mentisdb_for_tool.clone();
                 let chain_key_for_tool = chain_key_for_tool.clone();
                 Box::pin(async move {
-                    let filename = params["filename"]
-                        .as_str()
-                        .unwrap_or("pacman_game_ralph.html")
-                        .to_string();
-                    let content = params["content"]
-                        .as_str()
-                        .unwrap_or("")
-                        .replace("\\n", "\n")
-                        .replace("\\t", "\t")
-                        .replace("\\\"", "\"");
+                    let content = normalize_page_source(params["content"].as_str().unwrap_or(""));
+                    if !looks_like_game_page(&content) {
+                        return Err(format!(
+                            "write_game_file rejected content: need a full playable page \
+                             (>=500 chars with html/doctype or game canvas/script). got {} bytes",
+                            content.len()
+                        )
+                        .into());
+                    }
+                    // Always the canonical path so agents cannot scatter wrong filenames.
+                    let filename = OUTPUT_HTML.to_string();
                     let bytes = content.len();
                     std::fs::write(&filename, &content)?;
-                    memory_for_tool.put("current_game_html".to_string(), content.clone(), None);
+                    memory_for_tool.put(MEMORY_GAME_KEY.to_string(), content.clone(), None);
                     {
                         let mut db = mentisdb_for_tool.write().await;
                         let note = format!(
                             "Game page written to '{filename}' ({bytes} bytes) on chain '{chain_key_for_tool}'. \
-                             Session Memory key current_game_html updated for teammate agents."
+                             Session Memory key {MEMORY_GAME_KEY} updated for teammate agents."
                         );
                         if let Err(err) =
                             db.append("pacman-builder", ThoughtType::StateSnapshot, &note)
@@ -425,10 +442,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             );
                         }
                     }
+                    println!("💾 write_game_file → {filename} ({bytes} bytes)");
                     Ok(cloudllm::tool_protocol::ToolResult::success(serde_json::json!({
                         "written": filename,
                         "bytes": bytes,
-                        "session_memory_key": "current_game_html",
+                        "session_memory_key": MEMORY_GAME_KEY,
                         "mentisdb_chain": chain_key_for_tool,
                     })))
                 })
@@ -689,10 +707,11 @@ summary automatically when you call write_game_file and when the run ends.\n\
 so teammates can read/modify/write within this run. Prefer this for coordinating the page itself.\n\
 - write_game_file always updates disk, session Memory, and a MentisDB snapshot note.\n\n\
 \
-## Deliverable\n\
-A single offline-playable page that a human can open in a browser and play immediately. \
-Persist the full document with the write_game_file tool and keep the same content in session \
-Memory under the key current_game_html so teammates can read and extend it.\n\n\
+## Deliverable (non-negotiable)\n\
+A single offline-playable page named pacman_game_ralph.html that a human can open in a browser \
+and play immediately. Every productive turn MUST call write_game_file with the complete page. \
+Also keep the same content in session Memory under current_game_html. A run that ends without \
+a valid game page on disk is a failed run.\n\n\
 \
 ## Product vision\n\
 A faithful, fair, classic Pac-Man experience: maze, pellets, lives, levels, four distinctly \
@@ -735,10 +754,11 @@ input is a failed deliverable.\n\n\
 \
 ## Collaboration rules\n\
 - Always read current_game_html before editing so you build on teammates' work when present.\n\
-- Always write the complete page, never a partial fragment as the only output.\n\
-- Never only describe what you would do — actually produce the playable page via write_game_file.\n\
+- Always write the complete page via write_game_file — never end a turn with only prose or a snippet.\n\
+- Never only describe what you would do — the playable page must land on disk through write_game_file.\n\
 - Do not remove teammates' working features when adding yours.\n\
-- No external network dependencies for gameplay assets.\n\n\
+- No external network dependencies for gameplay assets.\n\
+- If current_game_html is empty, you are responsible for creating the first full page immediately.\n\n\
 \
 ## Tools\n\
 - Memory: read, write, and list session keys (especially current_game_html).\n\
@@ -778,8 +798,9 @@ moderate arcade pacing; Pac-Man never leaves the board or disappears (tunnel wra
 outside blanks and the house door are solid for Pac-Man; space or click restarts after game over \
 without reloading; audible sounds for pellets, power pellets, eating ghosts, and death after the \
 first user input.\n\n\
-Use write_game_file for the full page, coordinate through Memory, and complete as many PRD tasks \
-as you can each turn.";
+Every turn that advances the game MUST call write_game_file with the complete page so \
+pacman_game_ralph.html exists on disk. Coordinate through Memory key current_game_html. \
+Complete as many PRD tasks as you can each turn. Leaving no playable file is unacceptable.";
 
     println!("Starting RALPH orchestration with 4 agents and 18 PRD tasks...\n");
     println!("Model: deepseek/deepseek-v4-flash-0731 via OpenRouter (1M context budget)\n");
@@ -847,69 +868,33 @@ as you can each turn.";
                     .nth(preview_len)
                     .map(|(i, _)| i)
                     .unwrap_or(value.len());
-                println!("  {}: {}...", key, &value[..preview_end]);
+                println!(
+                    "  {}: {} bytes, preview={}...",
+                    key,
+                    value.len(),
+                    &value[..preview_end]
+                );
             }
         }
     }
 
-    let final_html = if let Some((mem_html, _)) = memory.get("current_game_html", false) {
-        if mem_html.len() > 1000 && mem_html.contains("<canvas") {
-            let unescaped = mem_html
-                .replace("\\n", "\n")
-                .replace("\\t", "\t")
-                .replace("\\\"", "\"");
-            std::fs::write("pacman_game_ralph.html", &unescaped)?;
-            println!(
-                "\n✅ Game written from Memory to pacman_game_ralph.html ({} bytes)",
-                unescaped.len()
-            );
-            Some(unescaped)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    if final_html.is_none() {
-        let mut game_html: Option<String> = None;
-        for msg in response.messages.iter().rev() {
-            let html = extract_html(&msg.content);
-            if html.len() > 1000 && (html.contains("<canvas") || html.contains("canvas")) {
-                game_html = Some(html);
-                break;
-            }
-        }
-        if let Some(html) = game_html {
-            std::fs::write("pacman_game_ralph.html", &html)?;
-            println!(
-                "\n✅ Game extracted from messages to pacman_game_ralph.html ({} bytes)",
-                html.len()
-            );
-        } else {
-            let disk_size = std::fs::metadata("pacman_game_ralph.html")
-                .map(|m| m.len())
-                .unwrap_or(0);
-            println!(
-                "\n⚠️  Agents didn't write updates via write_game_file. Existing file on disk ({} bytes).",
-                disk_size
-            );
-        }
-    }
-    println!("Open pacman_game_ralph.html in a browser to play!");
+    // Recover / ensure the deliverable no matter how agents cooperated.
+    let deliverable = ensure_game_deliverable(&memory, &response.messages)?;
 
     // Durable run summary on the MentisDB cloudllm chain
     {
         let mut db = mentisdb.write().await;
         let summary = format!(
             "Pac-Man RALPH run finished: iterations={}, all_tasks_done={}, tokens={}, elapsed={}m{}s, \
-             messages={}. Output: pacman_game_ralph.html. MentisDB chain: {}.",
+             messages={}, deliverable_bytes={}, output={}. MentisDB chain: {}.",
             response.round,
             response.is_complete,
             response.total_tokens_used,
             minutes,
             seconds,
             response.messages.len(),
+            deliverable.len(),
+            OUTPUT_HTML,
             chain_key
         );
         let thought_type = if response.is_complete {
@@ -928,24 +913,150 @@ as you can each turn.";
         }
     }
 
+    println!(
+        "\n✅ Deliverable ready: {OUTPUT_HTML} ({} bytes)",
+        deliverable.len()
+    );
+    println!("Open {OUTPUT_HTML} in a browser to play!");
+
     Ok(())
 }
 
-/// Attempt to extract a self-contained HTML document from an LLM response.
+/// Unescape common tool-transport artifacts and strip outer code fences if present.
+fn normalize_page_source(raw: &str) -> String {
+    let mut s = raw
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\\"", "\"")
+        .replace("\\r", "");
+    s = s.trim().to_string();
+
+    // ```html ... ``` or ``` ... ```
+    if s.starts_with("```") {
+        if let Some(rest) = s.strip_prefix("```") {
+            let rest = rest
+                .strip_prefix("html")
+                .or_else(|| rest.strip_prefix("HTML"))
+                .unwrap_or(rest)
+                .trim_start_matches(['\n', '\r', ' ']);
+            if let Some(end) = rest.rfind("```") {
+                s = rest[..end].trim().to_string();
+            } else {
+                s = rest.trim().to_string();
+            }
+        }
+    }
+    s
+}
+
+/// Heuristic: does this look like a real game page agents should have produced?
+fn looks_like_game_page(content: &str) -> bool {
+    if content.len() < 500 {
+        return false;
+    }
+    let lower = content.to_lowercase();
+    let has_doc = lower.contains("<!doctype") || lower.contains("<html");
+    let has_game_surface = lower.contains("<canvas")
+        || lower.contains("getcontext(")
+        || lower.contains("pac-man")
+        || lower.contains("pacman")
+        || (lower.contains("<script") && lower.contains("requestanimationframe"));
+    // Prefer full documents; still accept a large script-heavy page that is clearly the game.
+    (has_doc && has_game_surface)
+        || (has_game_surface && content.len() > 2_000 && lower.contains("<script"))
+}
+
+/// Extract the largest plausible HTML document from free-form agent text.
 fn extract_html(text: &str) -> String {
-    let lower = text.to_lowercase();
+    let normalized = normalize_page_source(text);
+    let lower = normalized.to_lowercase();
     let start = lower
         .find("<!doctype")
         .or_else(|| lower.find("<html"))
         .unwrap_or(0);
-
     let end = lower
         .rfind("</html>")
         .map(|i| i + "</html>".len())
-        .unwrap_or(text.len());
+        .unwrap_or(normalized.len());
+    if start >= end {
+        return String::new();
+    }
+    normalized[start..end].to_string()
+}
 
-    let raw = &text[start..end];
-    raw.replace("\\n", "\n")
-        .replace("\\t", "\t")
-        .replace("\\\"", "\"")
+/// Ensure `pacman_game_ralph.html` exists with a valid game page.
+///
+/// Recovery order:
+/// 1. Disk file already written by `write_game_file` during the run
+/// 2. Session Memory `current_game_html`
+/// 3. Largest HTML document extractable from agent messages
+///
+/// Returns the final page bytes, or an error if nothing usable was produced.
+fn ensure_game_deliverable(
+    memory: &Memory,
+    messages: &[cloudllm::orchestration::OrchestrationMessage],
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // 1) Prefer a valid on-disk file produced mid-run.
+    if let Ok(disk) = std::fs::read_to_string(OUTPUT_HTML) {
+        let disk = normalize_page_source(&disk);
+        if looks_like_game_page(&disk) {
+            println!(
+                "\n✅ Using on-disk {OUTPUT_HTML} from write_game_file ({} bytes)",
+                disk.len()
+            );
+            return Ok(disk);
+        }
+        // Stale/partial — remove so we don't leave a bad file if recovery fails later.
+        let _ = std::fs::remove_file(OUTPUT_HTML);
+    }
+
+    // 2) Session Memory working buffer.
+    if let Some((mem_html, _)) = memory.get(MEMORY_GAME_KEY, false) {
+        let page = normalize_page_source(&mem_html);
+        if looks_like_game_page(&page) {
+            std::fs::write(OUTPUT_HTML, &page)?;
+            println!(
+                "\n✅ Recovered {OUTPUT_HTML} from session Memory ({} bytes)",
+                page.len()
+            );
+            return Ok(page);
+        }
+    }
+
+    // 3) Scan agent messages newest-first for embedded documents.
+    let mut best: Option<String> = None;
+    for msg in messages.iter().rev() {
+        let html = extract_html(&msg.content);
+        if looks_like_game_page(&html) {
+            let take = match &best {
+                None => true,
+                Some(prev) => html.len() > prev.len(),
+            };
+            if take {
+                best = Some(html);
+            }
+        }
+    }
+    if let Some(page) = best {
+        std::fs::write(OUTPUT_HTML, &page)?;
+        println!(
+            "\n✅ Recovered {OUTPUT_HTML} from agent messages ({} bytes)",
+            page.len()
+        );
+        return Ok(page);
+    }
+
+    // 4) Hard failure — do not pretend the game exists.
+    let mem_len = memory
+        .get(MEMORY_GAME_KEY, false)
+        .map(|(v, _)| v.len())
+        .unwrap_or(0);
+    Err(format!(
+        "FATAL: {OUTPUT_HTML} was not produced.\n\
+         Agents never wrote a valid full game page via write_game_file, Memory, or messages.\n\
+         session Memory {MEMORY_GAME_KEY}: {mem_len} bytes; messages scanned: {}.\n\
+         Re-run and ensure every agent turn ends with write_game_file(content=<full page>).",
+        messages.len()
+    )
+    .into())
 }

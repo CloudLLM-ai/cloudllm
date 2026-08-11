@@ -4,6 +4,10 @@
     - Default orchestration budget aligned to 128_000 (was 8192, unused)
     - Call `with_max_tokens` before `add_agent` so sessions receive the budget
   - feat(example): `pacman_game_ralph` uses 1_000_000 context for DeepSeek V4 Flash 0731
+  - fix(example): `pacman_game_ralph` always produces deliverable or fails hard
+    - Delete existing pacman_game_ralph.html at run start (no stale games)
+    - write_game_file always writes the canonical path; rejects empty/snippet content
+    - End-of-run recovery: disk → session Memory → agent messages; exit error if missing
   - feat(openrouter): DeepSeek V4 Flash slug → `deepseek/deepseek-v4-flash-0731`;
     add Moonshot Kimi K3, Qwen 3.8 Max, Meta Muse Spark 1.2, Claude Opus 5
     - `Model::DeepSeekV4Flash` now maps to `deepseek/deepseek-v4-flash-0731`
