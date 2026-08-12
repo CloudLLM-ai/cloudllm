@@ -1,6 +1,8 @@
 0.15.12 AUG/12/2026
   First crates.io release after 0.15.10. GitHub tag 0.15.11 was cut but never
   published to crates.io; this crate includes that work plus everything below.
+  - chore(deps): `cloudllm_mcp` 0.3.5 → 0.3.6 (ToolRegistry cache/catalog APIs
+    required so `cargo publish` verifies against crates.io, not only the path dep)
   - chore(example): Pac-Man RALPH DeepSeek harness now uses `DeepSeekV4Pro0813`
     (renamed from `pacman_game_ralph_deepseek_v4_flash`; Flash 0731 failed this PRD)
   - feat(openrouter): Aug 2026 frontier models (enum 61 → 75)
