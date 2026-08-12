@@ -106,14 +106,11 @@ use std::error::Error;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures_util::stream::StreamExt;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 
-use crate::client_wrapper::{MessageChunk, TokenUsage, ToolDefinition};
-use crate::clients::common::{
-    chunks_to_stream, get_shared_http_client, send_and_track, send_with_native_tools, StreamError,
-};
+use crate::client_wrapper::{TokenUsage, ToolDefinition};
+use crate::clients::common::{get_shared_http_client, send_and_track, send_with_native_tools};
 use crate::cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use crate::cloudllm::image_generation::{
     ImageData, ImageGenerationClient, ImageGenerationOptions, ImageGenerationResponse,
@@ -468,92 +465,16 @@ impl ClientWrapper for OpenAIClient {
     fn send_message_stream<'a>(
         &'a self,
         messages: &'a [Message],
-        _tools: Option<&[ToolDefinition]>,
+        tools: Option<&[ToolDefinition]>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
-        Box::pin(async move {
-            // Convert the provided messages into the format expected by openai_rust
-            let mut formatted_messages = Vec::with_capacity(messages.len());
-            for msg in messages {
-                formatted_messages.push(chat::Message {
-                    role: match &msg.role {
-                        Role::System => "system".to_owned(),
-                        Role::User => "user".to_owned(),
-                        Role::Assistant => "assistant".to_owned(),
-                        Role::Tool { .. } => "tool".to_owned(),
-                    },
-                    content: msg.content.to_string(),
-                });
-            }
-
-            let url_path_string = "/v1/chat/completions".to_string();
-
-            // Build the chat arguments (streaming does not support native tools)
-            let chat_arguments = chat::ChatArguments::new(&self.model, formatted_messages);
-
-            // Create the streaming request
-            let stream_result = self
-                .client
-                .create_chat_stream(chat_arguments, Some(url_path_string))
-                .await;
-
-            match stream_result {
-                Ok(mut chunk_stream) => {
-                    // Collect all chunks into a Vec
-                    let mut chunks: Vec<Result<MessageChunk, Box<dyn Error + Send>>> = Vec::new();
-
-                    while let Some(chunk_result) = chunk_stream.next().await {
-                        let message_chunk: Result<MessageChunk, Box<dyn Error + Send>> =
-                            match chunk_result {
-                                Ok(chunk) => {
-                                    // Extract content and finish_reason from the chunk
-                                    let content = chunk
-                                        .choices
-                                        .first()
-                                        .and_then(|choice| choice.delta.content.clone())
-                                        .unwrap_or_default();
-
-                                    let finish_reason = chunk
-                                        .choices
-                                        .first()
-                                        .and_then(|choice| choice.finish_reason.clone());
-
-                                    Ok(MessageChunk {
-                                        content,
-                                        finish_reason,
-                                    })
-                                }
-                                Err(err) => {
-                                    if log::log_enabled!(log::Level::Error) {
-                                        log::error!(
-                                    "OpenAIClient::send_message_stream(...): Stream chunk error: {}",
-                                    err
-                                );
-                                    }
-                                    Err(Box::new(StreamError(format!(
-                                        "Stream chunk error: {}",
-                                        err
-                                    )))
-                                        as Box<dyn Error + Send>)
-                                }
-                            };
-
-                        chunks.push(message_chunk);
-                    }
-
-                    // Convert the collected chunks into a stream
-                    Ok(Some(chunks_to_stream(chunks)))
-                }
-                Err(err) => {
-                    if log::log_enabled!(log::Level::Error) {
-                        log::error!(
-                            "OpenAIClient::send_message_stream(...): OpenAI API Error: {}",
-                            err
-                        );
-                    }
-                    Err(err.into())
-                }
-            }
-        })
+        crate::clients::sse_stream::open_chat_completions_stream(
+            &self.base_url,
+            &self.api_key,
+            &self.model,
+            messages,
+            tools,
+            &[],
+        )
     }
 
     fn model_name(&self) -> &str {
