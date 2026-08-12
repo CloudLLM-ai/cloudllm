@@ -914,7 +914,29 @@ When you register an event handler on an `Orchestration`, it is **automatically 
 every agent added via `add_agent()`. This means agents emit their own `AgentEvent`s through the
 same handler, giving you a unified stream of both agent-level and orchestration-level events.
 
-### Full Example: Real-Time Progress Display
+### Built-in live console (recommended for long runs)
+
+`LiveConsoleHandler` is the shared example harness: it prints **heartbeats** while an
+LLM call is in flight, **reasoning traces in dark gray**, and compact content progress
+so stdout is never silent for minutes. Attach it with:
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::live_console::LiveConsoleHandler;
+use cloudllm::orchestration::Orchestration;
+
+# fn example() {
+let orchestration = Orchestration::new("id", "Name")
+    .with_event_handler(Arc::new(LiveConsoleHandler::new()));
+# let _ = orchestration;
+# }
+```
+
+Environment knobs: `CLOUDLLM_REASONING_EFFORT=low|medium|high` (faster / cheaper thinking),
+`CLOUDLLM_HEARTBEAT_SECS`, `CLOUDLLM_STREAM_CONTENT=full|compact|off`,
+`CLOUDLLM_STREAM_REASONING=full|compact|off`, `CLOUDLLM_NO_COLOR=1`.
+
+### Full Example: Custom Real-Time Progress Display
 
 This example (adapted from `examples/breakout_game_ralph.rs`) shows a handler that tracks
 elapsed time and pretty-prints events as they happen:
