@@ -321,10 +321,17 @@ impl ClientWrapper for GrokClient {
 
     fn send_message_stream<'a>(
         &'a self,
-        _messages: &'a [Message],
-        _tools: Option<&[ToolDefinition]>,
+        messages: &'a [Message],
+        tools: Option<&[ToolDefinition]>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
-        Box::pin(async move { Err("Streaming is not yet supported for GrokClient".into()) })
+        crate::clients::sse_stream::open_chat_completions_stream(
+            &self.base_url,
+            &self.api_key,
+            &self.model,
+            messages,
+            tools,
+            &[],
+        )
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
