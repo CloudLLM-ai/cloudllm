@@ -16,6 +16,7 @@
 //! Then run: cargo run --example orchestration_demo
 
 use cloudllm::clients::openai::OpenAIClient;
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{
     ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult,
 };
@@ -109,6 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(tool_registry);
 
     let mut parallel_orchestration = Orchestration::new("expert-panel", "Technical Expert Panel")
+        .with_event_handler(Arc::new(LiveConsoleHandler::new()))
         .with_mode(OrchestrationMode::Parallel)
         .with_system_context(
             "You are participating in a technical panel. Provide concise, expert analysis from your domain.",
@@ -165,6 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_personality("Systematic, detail-oriented");
 
     let mut roundrobin_orchestration = Orchestration::new("dev-team", "Development Team")
+        .with_event_handler(Arc::new(LiveConsoleHandler::new()))
         .with_mode(OrchestrationMode::RoundRobin)
         .with_system_context(
             "You are on a development team. Listen to your teammates and build on their ideas. Keep responses brief.",
@@ -226,6 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut hierarchical_orchestration =
         Orchestration::new("project-team", "Project Team Hierarchy")
+            .with_event_handler(Arc::new(LiveConsoleHandler::new()))
             .with_mode(OrchestrationMode::Hierarchical {
                 layers: vec![
                     vec!["db-analyst".to_string(), "api-analyst".to_string()],
@@ -283,6 +287,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_personality("Practical, considers constraints");
 
     let mut debate_orchestration = Orchestration::new("debate-team", "Technical Debate")
+        .with_event_handler(Arc::new(LiveConsoleHandler::new()))
         .with_mode(OrchestrationMode::Debate {
             max_rounds: 2,
             convergence_threshold: Some(0.8),
