@@ -244,3 +244,129 @@ async fn test_agent_send_handles_multiple_native_tool_calls() {
         other => panic!("expected second tool response, got {:?}", other),
     }
 }
+
+#[test]
+fn agent_is_send_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Agent>();
+}
+
+#[test]
+fn test_agent_creation() {
+    use cloudllm::clients::openai::OpenAIClient;
+
+    let agent = Agent::new(
+        "test-agent",
+        "Test Agent",
+        Arc::new(OpenAIClient::new_with_model_string("test-key", "gpt-4o")),
+    );
+
+    assert_eq!(agent.id, "test-agent");
+    assert_eq!(agent.name, "Test Agent");
+    assert!(agent.expertise.is_none());
+    assert!(agent.personality.is_none());
+}
+
+#[test]
+fn test_agent_builder_pattern() {
+    use cloudllm::clients::openai::OpenAIClient;
+
+    let agent = Agent::new(
+        "analyst",
+        "Technical Analyst",
+        Arc::new(OpenAIClient::new_with_model_string("test-key", "gpt-4o")),
+    )
+    .with_expertise("Cloud Architecture")
+    .with_personality("Direct and analytical")
+    .with_metadata("department", "Engineering");
+
+    assert_eq!(agent.expertise, Some("Cloud Architecture".to_string()));
+    assert_eq!(agent.personality, Some("Direct and analytical".to_string()));
+    assert_eq!(
+        agent.metadata.get("department"),
+        Some(&"Engineering".to_string())
+    );
+}
+
+struct MidStreamFailClient {
+    usage: tokio::sync::Mutex<Option<TokenUsage>>,
+    send_user_counts: tokio::sync::Mutex<Vec<usize>>,
+}
+
+impl MidStreamFailClient {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            usage: tokio::sync::Mutex::new(None),
+            send_user_counts: tokio::sync::Mutex::new(Vec::new()),
+        })
+    }
+}
+
+#[async_trait]
+impl ClientWrapper for MidStreamFailClient {
+    async fn send_message(
+        &self,
+        messages: &[Message],
+        _tools: Option<&[ToolDefinition]>,
+    ) -> Result<Message, Box<dyn std::error::Error>> {
+        let users = messages
+            .iter()
+            .filter(|m| matches!(m.role, Role::User))
+            .count();
+        self.send_user_counts.lock().await.push(users);
+        *self.usage.lock().await = Some(TokenUsage {
+            input_tokens: 2,
+            output_tokens: 2,
+            total_tokens: 4,
+        });
+        Ok(Message {
+            role: Role::Assistant,
+            content: Arc::from("fallback-ok"),
+            tool_calls: vec![],
+        })
+    }
+
+    fn send_message_stream<'a>(
+        &'a self,
+        _messages: &'a [Message],
+        _tools: Option<&[ToolDefinition]>,
+    ) -> cloudllm::client_wrapper::MessageStreamFuture<'a> {
+        Box::pin(async {
+            let s = futures_util::stream::iter(vec![Err(Box::new(std::io::Error::other(
+                "mid-stream",
+            ))
+                as Box<dyn std::error::Error + Send + Sync>)]);
+            Ok(Some(
+                Box::pin(s) as cloudllm::client_wrapper::MessageChunkStream
+            ))
+        })
+    }
+
+    fn model_name(&self) -> &str {
+        "mock"
+    }
+
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
+    fn usage_slot(&self) -> Option<&tokio::sync::Mutex<Option<TokenUsage>>> {
+        Some(&self.usage)
+    }
+}
+
+/// Mid-stream failure must roll back the optimistic user turn before the
+/// blocking fallback re-injects it — otherwise history has two user msgs.
+#[tokio::test]
+async fn mid_stream_error_does_not_double_inject_user() {
+    let client = MidStreamFailClient::new();
+    let mut agent = Agent::new("a", "A", client.clone());
+    let reply = agent.send("hello").await.expect("fallback should succeed");
+    assert_eq!(reply.content, "fallback-ok");
+    let counts = client.send_user_counts.lock().await.clone();
+    assert_eq!(
+        counts,
+        vec![1],
+        "blocking fallback saw one user message, not two"
+    );
+}
