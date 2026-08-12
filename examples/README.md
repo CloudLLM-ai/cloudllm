@@ -9,14 +9,14 @@ All examples use `cargo run --example <name>` and can run with placeholder API k
 ## 🎮 Game Building Examples (Showcase Projects)
 
 ### Pac-Man — RALPH Mode (OpenRouter / DeepSeek V4 Flash)
-**File**: `pacman_game_ralph.rs` ⭐ **FEATURED**
+**File**: `pacman_game_ralph_deepseek_v4_flash.rs` ⭐ **FEATURED**
 
 Complete 18-task classic Pac-Man build via RALPH, driven by OpenRouter
 `deepseek/deepseek-v4-flash-0731`.
 
 **Spec-only harness** — the Rust example ships **no game implementation**, only PRD tasks,
 system context, and acceptance criteria. Agents author the full page from scratch
-(session Memory `current_game_html` starts empty). Designed to evaluate coding-model capability.
+(session Memory starts empty). Designed to evaluate coding-model capability.
 
 **Demonstrates**:
 - RALPH orchestration with task completion markers
@@ -31,10 +31,26 @@ system context, and acceptance criteria. Agents author the full page from scratc
 **Setup**:
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
-cargo run --example pacman_game_ralph
+cargo run --example pacman_game_ralph_deepseek_v4_flash
 ```
 
-**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph.html`
+**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_deepseek_v4_flash.html`
+
+---
+
+### Pac-Man — RALPH Mode (xAI / Grok 4.6)
+**File**: `pacman_game_ralph_grok_4_6.rs` ⭐ **FEATURED**
+
+Same pure-PRD Pac-Man RALPH harness as the DeepSeek variant, driven by native
+`GrokClient` with **`grok-4.6`** (SpaceXAI / xAI flagship; **500k** context).
+
+**Setup**:
+```bash
+export XAI_API_KEY=xai-...
+cargo run --example pacman_game_ralph_grok_4_6
+```
+
+**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_grok_4_6.html`
 
 ---
 
@@ -543,7 +559,8 @@ cargo build --examples
 | `ANTHROPIC_API_KEY` | Claude models | breakout_game_ralph, breakout_game_agent_teams, digimon_vs_pokemon_debate, anthropic_teams |
 | `GROK_API_KEY` | Grok models | agent_panel_with_moderator_and_access_to_tools, interactive_session |
 | `GEMINI_API_KEY` | Google Gemini | (optional, if enabled) |
-| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph |
+| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph_deepseek_v4_flash |
+| `XAI_API_KEY` | xAI Grok | pacman_game_ralph_grok_4_6, interactive_session, … |
 | `RUST_LOG` | All examples | Set to debug, info, or trace for logging |
 
 ### API Key Format

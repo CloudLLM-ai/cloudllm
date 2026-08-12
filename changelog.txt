@@ -1,4 +1,8 @@
 0.15.11 AUG/05/2026 (performance pass — not published)
+  - feat(grok): add `Model::Grok46` / `Grok46Latest` → `grok-4.6` / `grok-4.6-latest`
+  - feat(openrouter): add `Model::Grok46` → `x-ai/grok-4.6`
+  - feat(example): rename `pacman_game_ralph` → `pacman_game_ralph_deepseek_v4_flash`
+    and add `pacman_game_ralph_grok_4_6` (native GrokClient, 500k context)
   - fix(orchestration): `with_max_tokens` now applied on `add_agent`
     - Previously the field was stored but ignored; agents kept Agent::new's 128k
     - Default orchestration budget aligned to 128_000 (was 8192, unused)
