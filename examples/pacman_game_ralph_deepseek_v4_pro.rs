@@ -551,20 +551,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         RalphTask::new(
             "pacman_movement",
             "Pac-Man Movement & Turning",
-            "Pac-Man moves on the grid with direction buffering at intersections (queued turns \
-             apply when the path is free), a mouth chomp animation facing the current direction, \
-             and smooth corridor travel. \
+            "Pac-Man moves on the grid with direction buffering, a mouth chomp facing the current \
+             direction, and smooth corridor travel. \
              Critical playability requirements: \
              (1) Simulation must advance at a fixed rate near sixty logic updates per second, \
              independent of display refresh rate. High-refresh displays must not make the game \
              twice as fast. \
              (2) Pac-Man travel speed must feel arcade-like and moderate — roughly one tile per \
              fraction of a second, not frantic. Avoid speeds that feel twice as fast as the arcade. \
-             (3) Pac-Man must never leave the playable board or disappear. The only allowed exit \
-             is wrapping through the designated side tunnels. Leaving the board on non-tunnel edges \
-             must be impossible. Walls and the ghost-house door always block him. If he somehow \
-             ends on a wall, return him to the starting spawn so he stays visible. \
-             (4) Turns and wall collision must not let him clip through corners.",
+             (3) Pac-Man must never leave the playable board or disappear. The only wrap is the \
+             side tunnels. Walls and the ghost-house door always block him. \
+             (4) Turns must not be missable. Store the latest requested direction until a newer \
+             input replaces it. A 180-degree reverse applies immediately in a corridor. A 90-degree \
+             turn applies as soon as the destination tile is a corridor and Pac-Man is aligned to \
+             that corridor — not only inside a one- or two-pixel window that movement speed can \
+             skip. When a step would cross a tile center, decide the turn using the center (or the \
+             remainder of the step after snapping to center) so an arrow press at a junction always \
+             takes that junction. Missed arrow-key turns are a failed deliverable. \
+             (5) Spawn Pac-Man on a tile center in a corridor, never on a tile edge or wall.",
         ),
         RalphTask::new(
             "dots_power_pellets",
@@ -595,8 +599,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "ghost_blinky",
             "Blinky (Red) — Direct Chase",
             "Blinky targets Pac-Man's current tile while chasing. In scatter mode he targets the \
-             top-right corner. He reverses direction when global mode switches. He leaves the \
-             ghost house first, or starts already outside.",
+             top-right corner. He reverses direction when global mode switches. He starts already \
+             outside the house on a walkable tile center and must begin moving on the first playing \
+             frame — a motionless Blinky is a failure. After the opening scatter interval he must \
+             visibly pursue Pac-Man, not sit in a corner.",
         ),
         RalphTask::new(
             "ghost_pinky",
@@ -638,11 +644,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         RalphTask::new(
             "ghost_pathfinding",
             "Ghost Pathfinding Rules",
-            "At the center of a tile, each ghost chooses among legal exits (no reverse except \
-             special cases such as mode switch or eaten return), minimizing Euclidean distance to \
-             its target tile. Respect walls and door rules: enter the house only when eaten; leave \
-             through the door when exiting the house. Ghost base speed must stay fair and slower \
-             than a frantic chase — comparable to classic arcade pacing, not much faster.",
+            "Every released ghost must move every playing frame. Sitting still after release is a \
+             failed deliverable. Spawn every ghost on a tile center (never a tile edge). At each \
+             tile-center crossing, choose among legal exits (no reverse except mode switch, leaving \
+             house, or eaten return), minimizing Euclidean distance to the target tile. If no \
+             forward option exists, reverse rather than freeze. \
+             House exit is mandatory: after a ghost's release timer, an explicit leaving-house \
+             state must walk them through the door onto the main maze within about one second. \
+             Ghosts that remain in the house after their timer fail this task. Enter the house \
+             only when eaten. Ghost speed stays fair and arcade-like, not frantic.",
         ),
         RalphTask::new(
             "tunnel_slowdown",
@@ -683,10 +693,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "balance_feel",
             "Game Feel & Balance",
             "Tune speeds, frightened duration by level, house release timers, and collision sizes so \
-             the game is fair and fun. Movement must stay moderate under fixed-rate simulation \
-             (high-refresh displays must not accelerate gameplay). Pac-Man never leaves the maze or \
-             vanishes. Space or click restarts after death or game over. All four ghosts clearly \
-             show distinct personalities. Audio remains working after polish passes.",
+             the game is fair and fun. Movement must stay moderate under fixed-rate simulation. \
+             Pac-Man never leaves the maze. Space or click restarts after death or game over. \
+             Playtest bar from a prior almost-complete build: (a) all four ghosts roam and chase \
+             — none idle in the house or freeze in a corridor; (b) arrow keys never skip a legal \
+             junction. Distinct ghost personalities must be visible in motion. Audio still works.",
         ),
     ];
 
@@ -744,7 +755,17 @@ needed, return him to the start spawn after death or a bad position.\n\
 reloading the page.\n\
 5. Audio — After the first key or click, the game produces audible sound: pellet chomp, power \
 pellet, eating a ghost, and death. Unlock browser audio on user interaction; a silent game after \
-input is a failed deliverable.\n\n\
+input is a failed deliverable.\n\
+6. Ghosts move — A prior almost-complete build left every ghost frozen. Actors spawn on tile \
+centers, never tile edges. Blinky starts outside and walks immediately. The other three leave \
+the house through the door after short staggered timers and then roam. After release, a ghost \
+that does not change tile is a failed deliverable. If pathfinding finds no forward exit, reverse; \
+never freeze.\n\
+7. Turns never miss — A prior almost-complete build dropped arrow-key turns. Keep the last \
+requested direction until it is used or replaced. Reverse immediately. Apply a 90-degree turn \
+when the next tile in that direction is a corridor and Pac-Man is on the corridor axis; do not \
+require a one-pixel window at a tile center that speed can skip. Crossing a tile center must \
+still consider the queued turn.\n\n\
 \
 ## Workflow\n\
 1. Read Memory key current_game_html (it may be empty on the first turn — then create the full page).\n\
@@ -797,7 +818,8 @@ Must-pass quality bar: fixed-rate simulation so high-refresh screens do not spee
 moderate arcade pacing; Pac-Man never leaves the board or disappears (tunnel wrap only); \
 outside blanks and the house door are solid for Pac-Man; space or click restarts after game over \
 without reloading; audible sounds for pellets, power pellets, eating ghosts, and death after the \
-first user input.\n\n\
+first user input; all four ghosts actually walk and hunt (none sit idle); every legal arrow-key \
+turn at a junction is taken (queued direction, no skipped intersections).\n\n\
 Every turn that advances the game MUST call write_game_file with the complete page so \
 pacman_game_ralph_deepseek_v4_pro.html exists on disk. Coordinate through Memory key current_game_html. \
 Complete as many PRD tasks as you can each turn. Leaving no playable file is unacceptable.";

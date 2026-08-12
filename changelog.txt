@@ -1,3 +1,10 @@
+0.15.13 (unreleased)
+  - fix(example): Pac-Man RALPH PRD — ghosts must move; turns must not miss
+    Prior Grok 4.6 one-shot froze ghosts (spawned on tile edges; pathfinding only
+    ran in a tiny near-center window) and dropped arrow-key junctions (1–2px turn
+    slop). Specs only — no game source. Applied to both DeepSeek V4 Pro and Grok 4.6
+    harnesses for a fair re-run.
+
 0.15.12 AUG/12/2026
   First crates.io release after 0.15.10. GitHub tag 0.15.11 was cut but never
   published to crates.io; this crate includes that work plus everything below.
