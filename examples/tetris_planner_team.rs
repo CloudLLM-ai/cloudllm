@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent, PlannerEvent};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{
     ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult,
 };
@@ -19,333 +20,39 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 
 struct TetrisEventHandler {
-    start: Instant,
+    console: LiveConsoleHandler,
     wrote_file: Arc<AtomicBool>,
 }
 
 impl TetrisEventHandler {
     fn new(wrote_file: Arc<AtomicBool>) -> Self {
         Self {
-            start: Instant::now(),
+            console: LiveConsoleHandler::new(),
             wrote_file,
         }
-    }
-
-    fn elapsed(&self) -> String {
-        let secs = self.start.elapsed().as_secs();
-        format!("{:02}:{:02}", secs / 60, secs % 60)
-    }
-
-    fn log(&self, domain: &str, msg: impl AsRef<str>) {
-        println!("[{}] [{}] {}", self.elapsed(), domain, msg.as_ref());
     }
 }
 
 #[async_trait]
 impl EventHandler for TetrisEventHandler {
     async fn on_agent_event(&self, event: &AgentEvent) {
-        match event {
-            AgentEvent::SendStarted {
-                agent_name,
-                message_preview,
-                ..
-            } => {
-                let preview = message_preview.chars().take(100).collect::<String>();
-                self.log(
-                    "agent",
-                    format!("▶ {agent_name} starting turn: {preview}..."),
-                );
+        if let AgentEvent::ToolExecutionCompleted {
+            tool_name, success, ..
+        } = event
+        {
+            if *success && tool_name == "write_tetris_file" {
+                self.wrote_file.store(true, Ordering::SeqCst);
             }
-            AgentEvent::LLMCallStarted {
-                agent_name,
-                iteration,
-                ..
-            } => {
-                self.log(
-                    "agent",
-                    format!("  ├─ {agent_name} LLM call #{iteration} started"),
-                );
-            }
-            AgentEvent::LLMCallCompleted {
-                agent_name,
-                iteration,
-                response_length,
-                tokens_used,
-                ..
-            } => {
-                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
-                self.log(
-                    "agent",
-                    format!("  ├─ {agent_name} LLM call #{iteration} done ({response_length} chars, {tokens} tokens)"),
-                );
-            }
-            AgentEvent::ToolCallDetected {
-                agent_name,
-                tool_name,
-                parameters,
-                iteration,
-                ..
-            } => {
-                let param_str =
-                    serde_json::to_string(&parameters).unwrap_or_else(|_| "??".to_string());
-                let param_preview = if param_str.len() > 60 {
-                    format!("{}...", &param_str[..60])
-                } else {
-                    param_str
-                };
-                self.log(
-                    "agent",
-                    format!(
-                        "  ├─ {agent_name} tool call #{iteration}: {tool_name}({param_preview})"
-                    ),
-                );
-            }
-            AgentEvent::ToolExecutionCompleted {
-                agent_name,
-                tool_name,
-                success,
-                error,
-                result,
-                iteration,
-                ..
-            } => {
-                if *success {
-                    if tool_name == "write_tetris_file" {
-                        self.wrote_file.store(true, Ordering::SeqCst);
-                        if let Some(res) = result {
-                            if let Some(bytes) = res.get("bytes") {
-                                self.log(
-                                    "agent",
-                                    format!(
-                                        "  ├─ ✅ {agent_name} wrote HTML file ({} bytes) [iter #{iteration}]",
-                                        bytes.as_u64().unwrap_or(0)
-                                    ),
-                                );
-                            }
-                        }
-                    } else {
-                        self.log(
-                            "agent",
-                            format!("  ├─ ✅ {agent_name} tool '{tool_name}' succeeded [iter #{iteration}]"),
-                        );
-                    }
-                } else {
-                    self.log(
-                        "agent",
-                        format!(
-                            "  ├─ ❌ {agent_name} tool '{tool_name}' FAILED [iter #{iteration}]: {}",
-                            error.as_deref().unwrap_or("unknown error")
-                        ),
-                    );
-                }
-            }
-            AgentEvent::SendCompleted {
-                agent_name,
-                response_length,
-                tool_calls_made,
-                tokens_used,
-                ..
-            } => {
-                let tokens = tokens_used
-                    .as_ref()
-                    .map(|usage| usage.total_tokens)
-                    .unwrap_or(0);
-                self.log(
-                    "agent",
-                    format!(
-                        "✓ {agent_name} completed ({response_length} chars, {tokens} tokens, {tool_calls_made} tool calls)"
-                    ),
-                );
-            }
-            AgentEvent::ToolMaxIterationsReached { agent_name, .. } => self.log(
-                "agent",
-                format!("❌ {agent_name} hit max tool iterations (tool loop stuck)"),
-            ),
-            AgentEvent::SystemPromptSet { agent_name, .. } => {
-                self.log("agent", format!("📝 {agent_name} system prompt set"));
-            }
-            AgentEvent::MessageReceived { agent_name, .. } => {
-                self.log("agent", format!("📨 {agent_name} received routed message"));
-            }
-            _ => {}
         }
+        self.console.on_agent_event(event).await;
     }
 
     async fn on_planner_event(&self, event: &PlannerEvent) {
-        match event {
-            PlannerEvent::TurnStarted {
-                plan_id,
-                message_preview,
-            } => {
-                let preview = message_preview.chars().take(80).collect::<String>();
-                self.log("planner", format!("▶ Plan {}: {preview}...", plan_id));
-            }
-            PlannerEvent::LLMCallStarted { iteration, .. } => {
-                self.log("planner", format!("  ├─ LLM call #{iteration} started"));
-            }
-            PlannerEvent::LLMCallCompleted {
-                iteration,
-                response_length,
-                ..
-            } => {
-                self.log(
-                    "planner",
-                    format!("  ├─ LLM call #{iteration} done ({response_length} chars)"),
-                );
-            }
-            PlannerEvent::ToolCallDetected {
-                tool_name,
-                iteration,
-                ..
-            } => {
-                self.log(
-                    "planner",
-                    format!("  ├─ Tool call #{iteration}: {tool_name}"),
-                );
-            }
-            PlannerEvent::ToolExecutionCompleted {
-                tool_name,
-                success,
-                error,
-                iteration,
-                ..
-            } => {
-                if *success {
-                    self.log(
-                        "planner",
-                        format!("  ├─ ✅ {tool_name} succeeded [#{iteration}]"),
-                    );
-                } else {
-                    self.log(
-                        "planner",
-                        format!(
-                            "  ├─ ❌ {tool_name} FAILED [#{iteration}]: {}",
-                            error.as_deref().unwrap_or("unknown")
-                        ),
-                    );
-                }
-            }
-            PlannerEvent::TurnCompleted {
-                tool_calls_made,
-                response_length,
-                tokens_used,
-                ..
-            } => {
-                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
-                self.log(
-                    "planner",
-                    format!(
-                        "✓ Plan completed ({response_length} chars, {tokens} tokens, {tool_calls_made} tool calls)"
-                    ),
-                );
-            }
-            PlannerEvent::TurnErrored { error, .. } => {
-                self.log("planner", format!("❌ Plan error: {error}"));
-            }
-            PlannerEvent::ToolMaxIterationsReached { .. } => {
-                self.log("planner", "❌ Plan hit max tool iterations");
-            }
-            _ => {}
-        }
+        self.console.on_planner_event(event).await;
     }
 
     async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
-        match event {
-            OrchestrationEvent::RunStarted {
-                orchestration_name,
-                mode,
-                agent_count,
-                ..
-            } => self.log(
-                "orch",
-                format!(
-                    "🚀 Run started: {orchestration_name} [{mode}, {agent_count} agents]"
-                ),
-            ),
-            OrchestrationEvent::RoundStarted { round, .. } => {
-                self.log("orch", format!("── Round {round} ──"));
-            }
-            OrchestrationEvent::AgentSelected {
-                agent_name,
-                reason,
-                ..
-            } => {
-                self.log(
-                    "orch",
-                    format!("  Agent selected: {agent_name} ({reason})"),
-                );
-            }
-            OrchestrationEvent::AgentResponded {
-                agent_name,
-                response_length,
-                tokens_used,
-                ..
-            } => {
-                let tokens = tokens_used
-                    .as_ref()
-                    .map(|u| u.total_tokens)
-                    .unwrap_or(0);
-                self.log(
-                    "orch",
-                    format!(
-                        "  {agent_name} responded ({response_length} chars, {tokens} tokens)"
-                    ),
-                );
-            }
-            OrchestrationEvent::AgentFailed {
-                agent_name,
-                error,
-                ..
-            } => {
-                self.log(
-                    "orch",
-                    format!("  ❌ {agent_name} failed: {error}"),
-                );
-            }
-            OrchestrationEvent::RoundCompleted { round, .. } => {
-                self.log("orch", format!("── Round {round} complete ──"));
-            }
-            OrchestrationEvent::RalphIterationStarted {
-                iteration,
-                max_iterations,
-                tasks_completed,
-                tasks_total,
-                ..
-            } => self.log(
-                "orch",
-                format!(
-                    "🔄 RALPH iteration {iteration}/{max_iterations} ({tasks_completed}/{tasks_total} tasks done)"
-                ),
-            ),
-            OrchestrationEvent::RalphTaskCompleted {
-                agent_name,
-                task_ids,
-                tasks_completed_total,
-                tasks_total,
-                ..
-            } => self.log(
-                "orch",
-                format!(
-                    "  ✅ {agent_name} completed: {} → {tasks_completed_total}/{tasks_total}",
-                    task_ids.join(", ")
-                ),
-            ),
-            OrchestrationEvent::RunCompleted {
-                rounds,
-                total_tokens,
-                is_complete,
-                ..
-            } => {
-                let status = if *is_complete { "✅" } else { "⚠️" };
-                self.log(
-                    "orch",
-                    format!(
-                        "{status} Run finished: {rounds} iterations, {total_tokens} tokens, complete={is_complete}"
-                    ),
-                );
-            }
-            _ => {}
-        }
+        self.console.on_orchestration_event(event).await;
     }
 }
 
@@ -380,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Agents: 4 specialists (researcher, architect, programmer, tester)");
     println!("  Model: Claude Sonnet 4.6");
     println!("  Shared Tools: Memory, file I/O");
+    LiveConsoleHandler::print_env_knobs();
     println!();
     println!("🎯 PROCESS:");
     println!("  1. Agents read current HTML from Memory");
