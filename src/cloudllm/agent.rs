@@ -48,17 +48,22 @@
 //! # };
 //! ```
 
-use crate::client_wrapper::{ClientWrapper, Message, Role, TokenUsage, ToolDefinition};
+use crate::client_wrapper::{
+    ClientWrapper, Message, MessageChunk, Role, TokenUsage, ToolDefinition,
+};
+use crate::cloudllm::clients::sse_stream::{heartbeat_interval, StreamAccumulator};
 use crate::cloudllm::context_strategy::{ContextStrategy, TrimStrategy};
 use crate::cloudllm::event::{AgentEvent, EventHandler, PlannerEvent};
 use crate::cloudllm::llm_session::LLMSession;
 use crate::cloudllm::tool_protocol::{ToolProtocol, ToolRegistry};
+use futures_util::StreamExt;
 use mentisdb::{MentisDb, Thought, ThoughtType};
 use openai_rust2::chat::{GrokTool, OpenAITool};
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
 
 /// Internal representation of a resolved tool call.
@@ -75,6 +80,14 @@ struct ToolCall {
     parameters: serde_json::Value,
     /// Provider-assigned call ID when this came from native function calling.
     native_id: Option<String>,
+}
+
+/// How to dispatch the next LLM round-trip.
+enum LlmRequest {
+    /// Inject a new user (or tool-result-as-user) message, then complete.
+    User(String),
+    /// Complete against history already in the session (native tool follow-up).
+    CurrentHistory,
 }
 
 /// Response body returned after asking an agent to generate content.
@@ -424,6 +437,349 @@ impl Agent {
         if let Some(handler) = &self.event_handler {
             handler.on_planner_event(&event).await;
         }
+    }
+
+    /// Run one LLM round-trip, streaming when the provider supports it.
+    ///
+    /// Emits `LLMCallStarted`, live `LLMReasoningDelta` / `LLMContentDelta` /
+    /// `LLMWaiting` heartbeats, then `LLMCallCompleted`.
+    async fn llm_roundtrip(
+        &mut self,
+        request: LlmRequest,
+        tools: Option<&[ToolDefinition]>,
+        iteration: usize,
+    ) -> Result<(Message, Option<TokenUsage>), Box<dyn Error + Send + Sync>> {
+        self.emit(AgentEvent::LLMCallStarted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            iteration,
+        })
+        .await;
+        self.emit_planner(PlannerEvent::LLMCallStarted {
+            plan_id: self.id.clone(),
+            iteration,
+        })
+        .await;
+
+        let stream = match &request {
+            LlmRequest::User(content) => {
+                self.session
+                    .send_message_stream(Role::User, content.clone(), tools)
+                    .await
+            }
+            LlmRequest::CurrentHistory => self.session.stream_current_history(tools).await,
+        };
+
+        let (message, usage) = match stream {
+            Ok(Some(chunk_stream)) => {
+                match self.consume_llm_stream(chunk_stream, iteration).await {
+                    Ok((msg, usage)) => {
+                        self.session
+                            .commit_streamed_reply(msg.clone(), usage.clone())
+                            .await;
+                        (msg, usage)
+                    }
+                    Err(stream_err) => {
+                        if log::log_enabled!(log::Level::Warn) {
+                            log::warn!(
+                                "stream ended mid-body, rolling back and falling back to blocking: {}",
+                                stream_err
+                            );
+                        }
+                        // send_message_stream keeps the user turn once the HTTP
+                        // stream is open. Pop it before send_message re-injects
+                        // or we double the user message. CurrentHistory did not
+                        // inject anything extra.
+                        if matches!(request, LlmRequest::User(_)) {
+                            self.session.rollback_last_message();
+                        }
+                        self.blocking_llm_complete(request, tools, iteration)
+                            .await?
+                    }
+                }
+            }
+            Ok(None) => {
+                self.blocking_llm_complete(request, tools, iteration)
+                    .await?
+            }
+            Err(stream_err) => {
+                if log::log_enabled!(log::Level::Warn) {
+                    log::warn!(
+                        "streaming LLM call failed, falling back to blocking: {}",
+                        stream_err
+                    );
+                }
+                self.blocking_llm_complete(request, tools, iteration)
+                    .await?
+            }
+        };
+
+        let response_length = message.content.len();
+        self.emit(AgentEvent::LLMCallCompleted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            iteration,
+            tokens_used: usage.clone(),
+            response_length,
+        })
+        .await;
+        self.emit_planner(PlannerEvent::LLMCallCompleted {
+            plan_id: self.id.clone(),
+            iteration,
+            response_length,
+        })
+        .await;
+
+        Ok((message, usage))
+    }
+
+    /// Blocking completion with heartbeats. Used when the provider cannot
+    /// stream, the stream fails to open, or it dies mid-body after rollback.
+    ///
+    /// Errors from `send_message` are `Box<dyn Error>` (not `Send`). They are
+    /// converted to `String` *before* the next `.await` so the future stays
+    /// `Send` for `tokio::spawn` in Parallel / Hierarchical modes.
+    async fn blocking_llm_complete(
+        &mut self,
+        request: LlmRequest,
+        tools: Option<&[ToolDefinition]>,
+        iteration: usize,
+    ) -> Result<(Message, Option<TokenUsage>), Box<dyn Error + Send + Sync>> {
+        let handler = self.event_handler.clone();
+        let agent_id = self.id.clone();
+        let agent_name = self.name.clone();
+        let msg = match request {
+            LlmRequest::User(content) => {
+                heartbeat_until(handler.as_ref(), &agent_id, &agent_name, iteration, async {
+                    self.session
+                        .send_message(Role::User, content, tools)
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+                .await
+            }
+            LlmRequest::CurrentHistory => {
+                heartbeat_until(handler.as_ref(), &agent_id, &agent_name, iteration, async {
+                    self.session
+                        .send_current_history(tools)
+                        .await
+                        .map_err(|e| e.to_string())
+                })
+                .await
+            }
+        }
+        .map_err(map_llm_err)?;
+        let usage = self.session.client().get_last_usage().await;
+        Ok((msg, usage))
+    }
+
+    /// Stream a completion against an explicit message array (no session history).
+    ///
+    /// Used by [`generate_with_tokens`](Self::generate_with_tokens).
+    async fn llm_roundtrip_messages(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+        iteration: usize,
+    ) -> Result<(Message, Option<TokenUsage>), Box<dyn Error + Send + Sync>> {
+        self.emit(AgentEvent::LLMCallStarted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            iteration,
+        })
+        .await;
+
+        let (message, usage) = match self
+            .session
+            .client()
+            .send_message_stream(messages, tools)
+            .await
+        {
+            Ok(Some(chunk_stream)) => {
+                match self.consume_llm_stream(chunk_stream, iteration).await {
+                    Ok(pair) => pair,
+                    Err(stream_err) => {
+                        if log::log_enabled!(log::Level::Warn) {
+                            log::warn!(
+                                "stream ended mid-body, falling back to blocking: {}",
+                                stream_err
+                            );
+                        }
+                        self.blocking_llm_complete_messages(messages, tools, iteration)
+                            .await?
+                    }
+                }
+            }
+            Ok(None) => {
+                self.blocking_llm_complete_messages(messages, tools, iteration)
+                    .await?
+            }
+            Err(stream_err) => {
+                if log::log_enabled!(log::Level::Warn) {
+                    log::warn!(
+                        "streaming LLM call failed, falling back to blocking: {}",
+                        stream_err
+                    );
+                }
+                self.blocking_llm_complete_messages(messages, tools, iteration)
+                    .await?
+            }
+        };
+
+        let response_length = message.content.len();
+        self.emit(AgentEvent::LLMCallCompleted {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            iteration,
+            tokens_used: usage.clone(),
+            response_length,
+        })
+        .await;
+
+        Ok((message, usage))
+    }
+
+    async fn blocking_llm_complete_messages(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+        iteration: usize,
+    ) -> Result<(Message, Option<TokenUsage>), Box<dyn Error + Send + Sync>> {
+        let handler = self.event_handler.clone();
+        let agent_id = self.id.clone();
+        let agent_name = self.name.clone();
+        let msg = heartbeat_until(handler.as_ref(), &agent_id, &agent_name, iteration, async {
+            self.session
+                .client()
+                .send_message(messages, tools)
+                .await
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(map_llm_err)?;
+        let usage = self.session.client().get_last_usage().await;
+        Ok((msg, usage))
+    }
+
+    async fn consume_llm_stream(
+        &self,
+        mut stream: crate::client_wrapper::MessageChunkStream,
+        iteration: usize,
+    ) -> Result<(Message, Option<TokenUsage>), Box<dyn Error + Send + Sync>> {
+        let mut acc = StreamAccumulator::new();
+        let started = Instant::now();
+        let mut last_token = started;
+        let mut phase = "waiting for first token".to_string();
+        let mut ticker = heartbeat_interval();
+        ticker.tick().await; // skip the immediate first tick
+
+        loop {
+            tokio::select! {
+                chunk = stream.next() => {
+                    match chunk {
+                        Some(Ok(chunk)) => {
+                            self.on_stream_chunk(&chunk, iteration, &mut last_token, &mut phase)
+                                .await;
+                            acc.apply(&chunk);
+                        }
+                        Some(Err(e)) => {
+                            return Err(Box::new(
+                                crate::orchestration::OrchestrationError::ExecutionFailed(
+                                    e.to_string(),
+                                ),
+                            )
+                                as Box<dyn Error + Send + Sync>);
+                        }
+                        None => break,
+                    }
+                }
+                _ = ticker.tick() => {
+                    self.emit_waiting(iteration, started, last_token, &phase).await;
+                }
+            }
+        }
+
+        let usage = acc.usage();
+        Ok((acc.into_message(), usage))
+    }
+
+    async fn on_stream_chunk(
+        &self,
+        chunk: &MessageChunk,
+        iteration: usize,
+        last_token: &mut Instant,
+        phase: &mut String,
+    ) {
+        let mut saw_token = false;
+        if !chunk.reasoning.is_empty() {
+            saw_token = true;
+            *phase = "reasoning".to_string();
+            self.emit(AgentEvent::LLMReasoningDelta {
+                agent_id: self.id.clone(),
+                agent_name: self.name.clone(),
+                iteration,
+                text: chunk.reasoning.clone(),
+            })
+            .await;
+            self.emit_planner(PlannerEvent::LLMReasoningDelta {
+                plan_id: self.id.clone(),
+                iteration,
+                text: chunk.reasoning.clone(),
+            })
+            .await;
+        }
+        if !chunk.content.is_empty() {
+            saw_token = true;
+            *phase = "generating".to_string();
+            self.emit(AgentEvent::LLMContentDelta {
+                agent_id: self.id.clone(),
+                agent_name: self.name.clone(),
+                iteration,
+                text: chunk.content.clone(),
+            })
+            .await;
+            self.emit_planner(PlannerEvent::PartialOutputChunk {
+                plan_id: self.id.clone(),
+                iteration,
+                chunk: chunk.content.clone(),
+            })
+            .await;
+        }
+        if chunk.tool_call_delta.is_some() {
+            saw_token = true;
+            *phase = "tool-calling".to_string();
+        }
+        if saw_token {
+            *last_token = Instant::now();
+        }
+    }
+
+    async fn emit_waiting(
+        &self,
+        iteration: usize,
+        started: Instant,
+        last_token: Instant,
+        phase: &str,
+    ) {
+        let elapsed_secs = started.elapsed().as_secs();
+        let seconds_since_last_token = last_token.elapsed().as_secs();
+        self.emit(AgentEvent::LLMWaiting {
+            agent_id: self.id.clone(),
+            agent_name: self.name.clone(),
+            iteration,
+            elapsed_secs,
+            seconds_since_last_token,
+            phase: phase.to_string(),
+        })
+        .await;
+        self.emit_planner(PlannerEvent::LLMWaiting {
+            plan_id: self.id.clone(),
+            iteration,
+            elapsed_secs,
+            seconds_since_last_token,
+            phase: phase.to_string(),
+        })
+        .await;
     }
 
     // ---- Runtime tool mutation ----
@@ -855,11 +1211,13 @@ impl Agent {
     /// The following [`AgentEvent`]s are emitted during `send()` (in order):
     /// 1. [`SendStarted`](AgentEvent::SendStarted) — at entry
     /// 2. [`LLMCallStarted`](AgentEvent::LLMCallStarted) — before each LLM call
-    /// 3. [`LLMCallCompleted`](AgentEvent::LLMCallCompleted) — after each LLM call
-    /// 4. [`ToolCallDetected`](AgentEvent::ToolCallDetected) — when a tool call is parsed
-    /// 5. [`ToolExecutionCompleted`](AgentEvent::ToolExecutionCompleted) — after tool execution
-    /// 6. [`ToolMaxIterationsReached`](AgentEvent::ToolMaxIterationsReached) — if the loop cap is hit
-    /// 7. [`SendCompleted`](AgentEvent::SendCompleted) — at exit
+    /// 3. [`LLMWaiting`](AgentEvent::LLMWaiting) / [`LLMReasoningDelta`](AgentEvent::LLMReasoningDelta)
+    ///    / [`LLMContentDelta`](AgentEvent::LLMContentDelta) — live progress while the call is in flight
+    /// 4. [`LLMCallCompleted`](AgentEvent::LLMCallCompleted) — after each LLM call
+    /// 5. [`ToolCallDetected`](AgentEvent::ToolCallDetected) — when a tool call is parsed
+    /// 6. [`ToolExecutionCompleted`](AgentEvent::ToolExecutionCompleted) — after tool execution
+    /// 7. [`ToolMaxIterationsReached`](AgentEvent::ToolMaxIterationsReached) — if the loop cap is hit
+    /// 8. [`SendCompleted`](AgentEvent::SendCompleted) — at exit
     pub async fn send(
         &mut self,
         user_message: &str,
@@ -912,58 +1270,15 @@ impl Agent {
         let mut total_output_tokens = 0;
         let mut total_tokens = 0;
 
-        // First call uses the user message
-        self.emit(AgentEvent::LLMCallStarted {
-            agent_id: self.id.clone(),
-            agent_name: self.name.clone(),
-            iteration: 1,
-        })
-        .await;
-        self.emit_planner(PlannerEvent::LLMCallStarted {
-            plan_id: self.id.clone(),
-            iteration: 1,
-        })
-        .await;
-
-        let response = self
-            .session
-            .send_message(Role::User, message_with_tools, tools)
-            .await
-            .map_err(|e| {
-                Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
-                    e.to_string(),
-                )) as Box<dyn Error + Send + Sync>
-            })?;
-
-        if let Some(usage) = self.session.client().get_last_usage().await {
+        // First call uses the user message (streamed when the provider supports it).
+        let (response, first_usage) = self
+            .llm_roundtrip(LlmRequest::User(message_with_tools), tools, 1)
+            .await?;
+        if let Some(usage) = first_usage {
             total_input_tokens += usage.input_tokens;
             total_output_tokens += usage.output_tokens;
             total_tokens += usage.total_tokens;
         }
-
-        let first_response_length = response.content.len();
-        self.emit(AgentEvent::LLMCallCompleted {
-            agent_id: self.id.clone(),
-            agent_name: self.name.clone(),
-            iteration: 1,
-            tokens_used: if total_tokens > 0 {
-                Some(TokenUsage {
-                    input_tokens: total_input_tokens,
-                    output_tokens: total_output_tokens,
-                    total_tokens,
-                })
-            } else {
-                None
-            },
-            response_length: first_response_length,
-        })
-        .await;
-        self.emit_planner(PlannerEvent::LLMCallCompleted {
-            plan_id: self.id.clone(),
-            iteration: 1,
-            response_length: first_response_length,
-        })
-        .await;
 
         // Track current response as a full Message to access both content and tool_calls.
         let mut current_msg = response;
@@ -1103,57 +1418,14 @@ impl Agent {
 
                 // Send tool result back through session.
                 let next_iteration = tool_iteration + 1;
-                self.emit(AgentEvent::LLMCallStarted {
-                    agent_id: self.id.clone(),
-                    agent_name: self.name.clone(),
-                    iteration: next_iteration,
-                })
-                .await;
-                self.emit_planner(PlannerEvent::LLMCallStarted {
-                    plan_id: self.id.clone(),
-                    iteration: next_iteration,
-                })
-                .await;
-
-                let follow_up = self
-                    .session
-                    .send_current_history(tools)
-                    .await
-                    .map_err(|e| {
-                        Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
-                            e.to_string(),
-                        )) as Box<dyn Error + Send + Sync>
-                    })?;
-
-                if let Some(usage) = self.session.client().get_last_usage().await {
+                let (follow_up, follow_usage) = self
+                    .llm_roundtrip(LlmRequest::CurrentHistory, tools, next_iteration)
+                    .await?;
+                if let Some(usage) = follow_usage {
                     total_input_tokens += usage.input_tokens;
                     total_output_tokens += usage.output_tokens;
                     total_tokens += usage.total_tokens;
                 }
-
-                let follow_up_response_length = follow_up.content.len();
-                self.emit(AgentEvent::LLMCallCompleted {
-                    agent_id: self.id.clone(),
-                    agent_name: self.name.clone(),
-                    iteration: next_iteration,
-                    tokens_used: if total_tokens > 0 {
-                        Some(TokenUsage {
-                            input_tokens: total_input_tokens,
-                            output_tokens: total_output_tokens,
-                            total_tokens,
-                        })
-                    } else {
-                        None
-                    },
-                    response_length: follow_up_response_length,
-                })
-                .await;
-                self.emit_planner(PlannerEvent::LLMCallCompleted {
-                    plan_id: self.id.clone(),
-                    iteration: next_iteration,
-                    response_length: follow_up_response_length,
-                })
-                .await;
 
                 current_response = follow_up.content.to_string();
                 current_msg = follow_up;
@@ -1274,57 +1546,14 @@ impl Agent {
                 .await;
 
                 let next_iteration = tool_iteration + 1;
-                self.emit(AgentEvent::LLMCallStarted {
-                    agent_id: self.id.clone(),
-                    agent_name: self.name.clone(),
-                    iteration: next_iteration,
-                })
-                .await;
-                self.emit_planner(PlannerEvent::LLMCallStarted {
-                    plan_id: self.id.clone(),
-                    iteration: next_iteration,
-                })
-                .await;
-
-                let follow_up = self
-                    .session
-                    .send_message(Role::User, tool_result_message, tools)
-                    .await
-                    .map_err(|e| {
-                        Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
-                            e.to_string(),
-                        )) as Box<dyn Error + Send + Sync>
-                    })?;
-
-                if let Some(usage) = self.session.client().get_last_usage().await {
+                let (follow_up, follow_usage) = self
+                    .llm_roundtrip(LlmRequest::User(tool_result_message), tools, next_iteration)
+                    .await?;
+                if let Some(usage) = follow_usage {
                     total_input_tokens += usage.input_tokens;
                     total_output_tokens += usage.output_tokens;
                     total_tokens += usage.total_tokens;
                 }
-
-                let follow_up_response_length = follow_up.content.len();
-                self.emit(AgentEvent::LLMCallCompleted {
-                    agent_id: self.id.clone(),
-                    agent_name: self.name.clone(),
-                    iteration: next_iteration,
-                    tokens_used: if total_tokens > 0 {
-                        Some(TokenUsage {
-                            input_tokens: total_input_tokens,
-                            output_tokens: total_output_tokens,
-                            total_tokens,
-                        })
-                    } else {
-                        None
-                    },
-                    response_length: follow_up_response_length,
-                })
-                .await;
-                self.emit_planner(PlannerEvent::LLMCallCompleted {
-                    plan_id: self.id.clone(),
-                    iteration: next_iteration,
-                    response_length: follow_up_response_length,
-                })
-                .await;
 
                 current_response = follow_up.content.to_string();
                 current_msg = follow_up;
@@ -1521,49 +1750,17 @@ impl Agent {
         loop {
             gwt_llm_iteration += 1;
 
-            self.emit(AgentEvent::LLMCallStarted {
-                agent_id: self.id.clone(),
-                agent_name: self.name.clone(),
-                iteration: gwt_llm_iteration,
-            })
-            .await;
+            let (response, call_usage) = self
+                .llm_roundtrip_messages(&messages, gwt_tools, gwt_llm_iteration)
+                .await?;
 
-            let response = self
-                .session
-                .client()
-                .send_message(&messages, gwt_tools)
-                .await
-                .map_err(|e| {
-                    Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
-                        e.to_string(),
-                    )) as Box<dyn Error + Send + Sync>
-                })?;
-
-            // Track token usage from this call
-            if let Some(usage) = self.session.client().get_last_usage().await {
+            if let Some(usage) = call_usage {
                 total_input_tokens += usage.input_tokens;
                 total_output_tokens += usage.output_tokens;
                 total_tokens += usage.total_tokens;
             }
 
             let current_response = response.content.to_string();
-
-            self.emit(AgentEvent::LLMCallCompleted {
-                agent_id: self.id.clone(),
-                agent_name: self.name.clone(),
-                iteration: gwt_llm_iteration,
-                tokens_used: if total_tokens > 0 {
-                    Some(TokenUsage {
-                        input_tokens: total_input_tokens,
-                        output_tokens: total_output_tokens,
-                        total_tokens,
-                    })
-                } else {
-                    None
-                },
-                response_length: current_response.len(),
-            })
-            .await;
 
             let native_tool_calls: Vec<ToolCall> = response
                 .tool_calls
@@ -1902,15 +2099,64 @@ impl Agent {
     }
 }
 
-// SAFETY: Agent is Send + Sync because:
-// - All public methods that access mutable state use proper synchronization (Arc<RwLock>)
-// - generate_with_tokens only accesses session.client() (Arc<dyn ClientWrapper>)
-//   and never mutates session history through &self methods
-unsafe impl Send for Agent {}
-unsafe impl Sync for Agent {}
+async fn heartbeat_until<T, F>(
+    handler: Option<&Arc<dyn EventHandler>>,
+    agent_id: &str,
+    agent_name: &str,
+    iteration: usize,
+    fut: F,
+) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let started = Instant::now();
+    let mut ticker = heartbeat_interval();
+    ticker.tick().await;
+    tokio::pin!(fut);
+    loop {
+        tokio::select! {
+            result = &mut fut => {
+                return result;
+            }
+            _ = ticker.tick() => {
+                if let Some(h) = handler {
+                    let elapsed_secs = started.elapsed().as_secs();
+                    h.on_agent_event(&AgentEvent::LLMWaiting {
+                        agent_id: agent_id.to_string(),
+                        agent_name: agent_name.to_string(),
+                        iteration,
+                        elapsed_secs,
+                        seconds_since_last_token: elapsed_secs,
+                        phase: "blocked".to_string(),
+                    })
+                    .await;
+                    h.on_planner_event(&PlannerEvent::LLMWaiting {
+                        plan_id: agent_id.to_string(),
+                        iteration,
+                        elapsed_secs,
+                        seconds_since_last_token: elapsed_secs,
+                        phase: "blocked".to_string(),
+                    })
+                    .await;
+                }
+            }
+        }
+    }
+}
+
+fn map_llm_err(e: impl std::fmt::Display) -> Box<dyn Error + Send + Sync> {
+    Box::new(crate::orchestration::OrchestrationError::ExecutionFailed(
+        e.to_string(),
+    )) as Box<dyn Error + Send + Sync>
+}
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn agent_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Agent>();
+    }
     use super::*;
 
     #[test]
@@ -1947,6 +2193,89 @@ mod tests {
         assert_eq!(
             agent.metadata.get("department"),
             Some(&"Engineering".to_string())
+        );
+    }
+
+    struct MidStreamFailClient {
+        usage: tokio::sync::Mutex<Option<TokenUsage>>,
+        send_user_counts: tokio::sync::Mutex<Vec<usize>>,
+    }
+
+    impl MidStreamFailClient {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                usage: tokio::sync::Mutex::new(None),
+                send_user_counts: tokio::sync::Mutex::new(Vec::new()),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ClientWrapper for MidStreamFailClient {
+        async fn send_message(
+            &self,
+            messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> Result<Message, Box<dyn Error>> {
+            let users = messages
+                .iter()
+                .filter(|m| matches!(m.role, Role::User))
+                .count();
+            self.send_user_counts.lock().await.push(users);
+            *self.usage.lock().await = Some(TokenUsage {
+                input_tokens: 2,
+                output_tokens: 2,
+                total_tokens: 4,
+            });
+            Ok(Message {
+                role: Role::Assistant,
+                content: Arc::from("fallback-ok"),
+                tool_calls: vec![],
+            })
+        }
+
+        fn send_message_stream<'a>(
+            &'a self,
+            _messages: &'a [Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> crate::client_wrapper::MessageStreamFuture<'a> {
+            Box::pin(async {
+                let s = futures_util::stream::iter(vec![Err(Box::new(std::io::Error::other(
+                    "mid-stream",
+                ))
+                    as Box<dyn Error + Send + Sync>)]);
+                Ok(Some(
+                    Box::pin(s) as crate::client_wrapper::MessageChunkStream
+                ))
+            })
+        }
+
+        fn model_name(&self) -> &str {
+            "mock"
+        }
+
+        fn provider_name(&self) -> &str {
+            "mock"
+        }
+
+        fn usage_slot(&self) -> Option<&tokio::sync::Mutex<Option<TokenUsage>>> {
+            Some(&self.usage)
+        }
+    }
+
+    /// Mid-stream failure must roll back the optimistic user turn before the
+    /// blocking fallback re-injects it — otherwise history has two user msgs.
+    #[tokio::test]
+    async fn mid_stream_error_does_not_double_inject_user() {
+        let client = MidStreamFailClient::new();
+        let mut agent = Agent::new("a", "A", client.clone());
+        let reply = agent.send("hello").await.expect("fallback should succeed");
+        assert_eq!(reply.content, "fallback-ok");
+        let counts = client.send_user_counts.lock().await.clone();
+        assert_eq!(
+            counts,
+            vec![1],
+            "blocking fallback saw one user message, not two"
         );
     }
 }
