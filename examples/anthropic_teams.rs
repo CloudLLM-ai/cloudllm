@@ -33,93 +33,12 @@
 //! - `OPENAI_MODEL` — OpenAI model (optional, defaults to "gpt-4o-mini")
 //! - `ANTHROPIC_API_KEY` — API key for Claude (optional, defaults to "demo-key")
 
-use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::clients::openai::OpenAIClient;
-use cloudllm::event::{EventHandler, OrchestrationEvent};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::orchestration::{Orchestration, OrchestrationMode, WorkItem};
 use cloudllm::Agent;
 use std::sync::Arc;
-
-/// Simple event handler that logs orchestration events to stdout
-struct TeamsEventHandler;
-
-#[async_trait]
-impl EventHandler for TeamsEventHandler {
-    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
-        match event {
-            OrchestrationEvent::RunStarted {
-                orchestration_id,
-                orchestration_name,
-                mode,
-                agent_count,
-            } => {
-                println!(
-                    "\n🚀 {} (ID: {}) — {} mode with {} agents",
-                    orchestration_name, orchestration_id, mode, agent_count
-                );
-            }
-            OrchestrationEvent::RoundStarted {
-                orchestration_id: _,
-                round,
-            } => {
-                println!("\n📍 Iteration {}", round);
-            }
-            OrchestrationEvent::AgentSelected {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                reason,
-            } => {
-                println!("  → {} ({})", agent_name, reason);
-            }
-            OrchestrationEvent::TaskClaimed {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                task_id,
-            } => {
-                println!("    ✋ {} claimed task: {}", agent_name, task_id);
-            }
-            OrchestrationEvent::TaskCompleted {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                task_id,
-                result: _,
-            } => {
-                println!("    ✅ {} completed: {}", agent_name, task_id);
-            }
-            OrchestrationEvent::TaskFailed {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                task_id,
-                error,
-            } => {
-                println!("    ❌ {} failed on {}: {}", agent_name, task_id, error);
-            }
-            OrchestrationEvent::RoundCompleted { .. } => {
-                // Round completion is less verbose
-            }
-            OrchestrationEvent::RunCompleted {
-                orchestration_id: _,
-                orchestration_name: _,
-                rounds,
-                total_tokens,
-                is_complete,
-            } => {
-                println!(
-                    "\n✨ Run completed in {} iterations, {} tokens, complete={}",
-                    rounds, total_tokens, is_complete
-                );
-            }
-            _ => {
-                // Ignore other events
-            }
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -246,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
          Work autonomously and collaboratively. Focus on quality and clear communication.",
             )
             .with_max_tokens(4096)
-            .with_event_handler(Arc::new(TeamsEventHandler));
+            .with_event_handler(Arc::new(LiveConsoleHandler::new()));
 
     // Register agents
     orchestration.add_agent(agent1)?;
