@@ -1,4 +1,4 @@
-0.15.13 (unreleased)
+0.15.13 AUG/12/2026
   - fix(http): Chat Completions no longer die at 300s; retry transport blips
     Grok/DeepSeek reasoning regularly exceeds the pooled client's 5-minute
     timeout (`error sending request for url (.../chat/completions)`). Native
