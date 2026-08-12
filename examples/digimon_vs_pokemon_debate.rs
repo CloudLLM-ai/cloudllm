@@ -28,6 +28,7 @@
 
 use cloudllm::clients::claude::ClaudeClient;
 use cloudllm::clients::openai::OpenAIClient;
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode},
     Agent,
@@ -117,6 +118,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
     // Create orchestration in Moderated mode
     let mut orchestration =
         Orchestration::new("anime-debate", "The Great Digimon vs Pokemon Debate")
+            .with_event_handler(Arc::new(LiveConsoleHandler::new()))
             .with_mode(OrchestrationMode::Moderated {
                 moderator_id: "moderator".to_string(),
             })
