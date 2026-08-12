@@ -16,7 +16,7 @@
 //!
 //! ## Features
 //!
-//! - **PacManEventHandler**: Real-time pretty-printed event output
+//! - **LiveConsoleHandler**: heartbeats + dark-gray reasoning traces (no silent minutes)
 //! - **MentisDB durable memory** on the shared `cloudllm` chain (agent thoughts + run log)
 //! - **Session Memory tool**: short-lived key/value coordination for the game page (`current_game_html`)
 //! - **write_game_file**: custom tool that writes the game page to disk, session Memory, and MentisDB
@@ -45,10 +45,13 @@
 //! MentisDB chain key defaults to `cloudllm` under `mentisdbs/` (override with
 //! `MENTISDB_DIR` / `MENTISDB_CHAIN_KEY`). Agents write the playable page to
 //! `pacman_game_ralph_deepseek_v4_pro.html` in the current directory.
+//!
+//! Long runs print live progress (reasoning in dark gray, heartbeats while waiting).
+//! To spend less time in hidden reasoning (quality tradeoff):
+//! `export CLOUDLLM_REASONING_EFFORT=low`
 
-use async_trait::async_trait;
 use cloudllm::clients::openrouter::{Model as OpenRouterModel, OpenRouterClient};
-use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
 use cloudllm::tool_protocols::{
     BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
@@ -71,236 +74,6 @@ const OUTPUT_HTML: &str = "pacman_game_ralph_deepseek_v4_pro.html";
 
 /// Session Memory key holding the latest full game page source.
 const MEMORY_GAME_KEY: &str = "current_game_html_deepseek_v4_pro";
-
-// ── Event Handler ──────────────────────────────────────────────────────────
-
-/// Pretty-prints agent and orchestration events in real-time for Pac-Man RALPH runs.
-struct PacManEventHandler {
-    start: Instant,
-}
-
-impl PacManEventHandler {
-    fn new() -> Self {
-        Self {
-            start: Instant::now(),
-        }
-    }
-
-    fn elapsed_str(&self) -> String {
-        let secs = self.start.elapsed().as_secs();
-        format!("{:02}:{:02}", secs / 60, secs % 60)
-    }
-}
-
-#[async_trait]
-impl EventHandler for PacManEventHandler {
-    async fn on_agent_event(&self, event: &AgentEvent) {
-        match event {
-            AgentEvent::SendStarted {
-                agent_name,
-                message_preview,
-                ..
-            } => {
-                let preview_len = 80.min(message_preview.len());
-                let preview_end = message_preview
-                    .char_indices()
-                    .nth(preview_len)
-                    .map(|(i, _)| i)
-                    .unwrap_or(message_preview.len());
-                println!(
-                    "  [{}] >> {} thinking... ({}...)",
-                    self.elapsed_str(),
-                    agent_name,
-                    &message_preview[..preview_end]
-                );
-            }
-            AgentEvent::SendCompleted {
-                agent_name,
-                tokens_used,
-                response_length,
-                tool_calls_made,
-                ..
-            } => {
-                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
-                println!(
-                    "  [{}] << {} responded ({} chars, {} tokens, {} tool calls)",
-                    self.elapsed_str(),
-                    agent_name,
-                    response_length,
-                    tokens,
-                    tool_calls_made
-                );
-            }
-            AgentEvent::ToolCallDetected {
-                agent_name,
-                tool_name,
-                parameters,
-                iteration,
-                ..
-            } => {
-                let params_str = serde_json::to_string(parameters).unwrap_or_default();
-                println!(
-                    "  [{}]    {} calling tool '{}' (iter {}) params={}",
-                    self.elapsed_str(),
-                    agent_name,
-                    tool_name,
-                    iteration,
-                    params_str
-                );
-            }
-            AgentEvent::ToolExecutionCompleted {
-                agent_name,
-                tool_name,
-                parameters,
-                success,
-                error,
-                result,
-                ..
-            } => {
-                if *success {
-                    let result_preview = result
-                        .as_ref()
-                        .map(|r| {
-                            let s = serde_json::to_string(r).unwrap_or_default();
-                            if s.len() > 200 {
-                                let end =
-                                    s.char_indices().nth(200).map(|(i, _)| i).unwrap_or(s.len());
-                                format!("{}...", &s[..end])
-                            } else {
-                                s
-                            }
-                        })
-                        .unwrap_or_default();
-                    println!(
-                        "  [{}]    {} tool '{}' succeeded → {}",
-                        self.elapsed_str(),
-                        agent_name,
-                        tool_name,
-                        result_preview
-                    );
-                } else {
-                    let params_str = serde_json::to_string(parameters).unwrap_or_default();
-                    println!(
-                        "  [{}]    {} tool '{}' FAILED: {} | params={}",
-                        self.elapsed_str(),
-                        agent_name,
-                        tool_name,
-                        error.as_deref().unwrap_or("unknown"),
-                        params_str
-                    );
-                }
-            }
-            AgentEvent::LLMCallStarted {
-                agent_name,
-                iteration,
-                ..
-            } => {
-                println!(
-                    "  [{}]    {} sending to LLM (round {})...",
-                    self.elapsed_str(),
-                    agent_name,
-                    iteration
-                );
-            }
-            AgentEvent::LLMCallCompleted {
-                agent_name,
-                iteration,
-                tokens_used,
-                response_length,
-                ..
-            } => {
-                let tokens = tokens_used
-                    .as_ref()
-                    .map(|u| format!("{} tokens", u.total_tokens))
-                    .unwrap_or_else(|| "no token info".to_string());
-                println!(
-                    "  [{}]    {} LLM round {} complete ({} chars, {})",
-                    self.elapsed_str(),
-                    agent_name,
-                    iteration,
-                    response_length,
-                    tokens
-                );
-            }
-            _ => {}
-        }
-    }
-
-    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
-        match event {
-            OrchestrationEvent::RunStarted {
-                orchestration_name,
-                mode,
-                agent_count,
-                ..
-            } => {
-                println!();
-                println!("{}", "=".repeat(80));
-                println!(
-                    "  {} — mode={}, agents={}",
-                    orchestration_name, mode, agent_count
-                );
-                println!("{}", "=".repeat(80));
-            }
-            OrchestrationEvent::RalphIterationStarted {
-                iteration,
-                max_iterations,
-                tasks_completed,
-                tasks_total,
-                ..
-            } => {
-                println!();
-                println!("{}", "-".repeat(80));
-                println!(
-                    "  RALPH Iteration {}/{} — {}/{} tasks complete",
-                    iteration, max_iterations, tasks_completed, tasks_total
-                );
-                println!("{}", "-".repeat(80));
-            }
-            OrchestrationEvent::RalphTaskCompleted {
-                agent_name,
-                task_ids,
-                tasks_completed_total,
-                tasks_total,
-                ..
-            } => {
-                println!(
-                    "  [{}] *** {} completed tasks: [{}] — progress: {}/{}",
-                    self.elapsed_str(),
-                    agent_name,
-                    task_ids.join(", "),
-                    tasks_completed_total,
-                    tasks_total
-                );
-            }
-            OrchestrationEvent::AgentFailed {
-                agent_name, error, ..
-            } => {
-                println!(
-                    "  [{}] !!! {} FAILED: {}",
-                    self.elapsed_str(),
-                    agent_name,
-                    error
-                );
-            }
-            OrchestrationEvent::RunCompleted {
-                rounds,
-                total_tokens,
-                is_complete,
-                ..
-            } => {
-                println!();
-                println!("{}", "=".repeat(80));
-                println!(
-                    "  Run complete — {} rounds, {} tokens, complete={}",
-                    rounds, total_tokens, is_complete
-                );
-                println!("{}", "=".repeat(80));
-            }
-            _ => {}
-        }
-    }
-}
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
@@ -331,7 +104,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  RALPH Orchestration Mode — Classic Pac-Man Game Builder");
     println!("  Provider: OpenRouter");
     println!("  Model:    deepseek/deepseek-v4-pro-0813 (DeepSeek V4 Pro 0813, 1M ctx)");
-    println!("{}\n", "=".repeat(80));
+    println!("{}", "=".repeat(80));
+    LiveConsoleHandler::print_env_knobs();
 
     // Never keep a stale deliverable from a previous run.
     if PathBuf::from(OUTPUT_HTML).exists() {
@@ -803,7 +577,7 @@ pellets and every remaining dot by walking the corridors.\n\n\
 the harness also records a MentisDB snapshot on the project chain.\n\
 - Shell tools if needed for local checks.\n";
 
-    let event_handler = Arc::new(PacManEventHandler::new());
+    let event_handler = Arc::new(LiveConsoleHandler::new());
 
     let mut orchestration =
         Orchestration::new("pacman-builder", "Pac-Man Game RALPH Orchestration")
@@ -1042,10 +816,7 @@ fn ensure_game_deliverable(
     if let Ok(disk) = std::fs::read_to_string(OUTPUT_HTML) {
         let disk = normalize_page_source(&disk);
         if looks_like_game_page(&disk) || disk.len() > 2_000 {
-            println!(
-                "\n✅ Using on-disk {OUTPUT_HTML} ({} bytes)",
-                disk.len()
-            );
+            println!("\n✅ Using on-disk {OUTPUT_HTML} ({} bytes)", disk.len());
             return Ok(disk);
         }
     }
