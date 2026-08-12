@@ -5,11 +5,10 @@ use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{
     ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry, ToolResult,
 };
-use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
-use cloudllm::tools::Memory;
+use cloudllm::tool_protocols::{CustomToolProtocol, MentisDbMemoryProtocol};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
-    Agent,
+    Agent, ThoughtType,
 };
 use serde_json::json;
 use std::fs;
@@ -88,6 +87,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Model: Claude Sonnet 4.6");
     println!("  Shared Tools: Memory, file I/O");
     LiveConsoleHandler::print_env_knobs();
+    let mentis = LiveConsoleHandler::open_embedded_mentisdb("cloudllm")?;
+    {
+        let mut db = mentis.db.write().await;
+        db.append(
+            "tetris-builder",
+            ThoughtType::Plan,
+            "Tetris RALPH run starting (embedded MentisDB, no daemon).",
+        )?;
+    }
     println!();
     println!("🎯 PROCESS:");
     println!("  1. Agents read current HTML from Memory");
@@ -142,20 +150,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     fs::write(&output_path, starter_html)?;
     let baseline_html = starter_html.to_string();
 
-    let memory = Arc::new(Memory::new());
-    memory.put(
-        "tetris_current_html".to_string(),
-        baseline_html.clone(),
-        None,
-    );
+    let memory_protocol = Arc::new(MentisDbMemoryProtocol::new(
+        mentis.db.clone(),
+        "tetris-builder",
+    ));
+    memory_protocol
+        .put_value("tetris_current_html", &baseline_html)
+        .await?;
 
     println!(
         "📄 Fresh game shell written at {} ({} bytes)",
         output_path.display(),
         baseline_html.len()
     );
-
-    let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
     let custom_protocol = Arc::new(CustomToolProtocol::new());
 
     custom_protocol
@@ -198,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await;
 
     let default_path = Arc::new(output_path.to_string_lossy().into_owned());
-    let memory_for_tool = memory.clone();
+    let memory_for_tool = memory_protocol.clone();
     let write_tool_path = default_path.clone();
     custom_protocol
         .register_tool(
@@ -266,7 +273,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         eprintln!("[write_tetris_file] ✅ Wrote {} bytes to {}", byte_count, target_path.display());
 
                         // Also store in Memory for agent coordination
-                        memory_for_tool.put("tetris_current_html".to_string(), normalized.clone(), None);
+                        memory_for_tool.put_value_sync("tetris_current_html", &normalized);
                         eprintln!("[write_tetris_file] ✅ Updated Memory key 'tetris_current_html'");
 
                         Ok(ToolResult::success(json!({
@@ -289,7 +296,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n📋 Registering tool protocols...");
     println!("  ├─ Memory protocol (GET/PUT/LIST for shared state)");
     shared_registry
-        .add_protocol("memory", memory_protocol)
+        .add_protocol("memory", memory_protocol.clone())
         .await?;
 
     println!("  ├─ Custom protocol (read_file, write_tetris_file)");
@@ -341,22 +348,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let researcher = Agent::new("tetris-researcher", "Gameplay Researcher", make_client())
         .with_expertise("Canonical Tetris rules, NES/SNES reference behavior")
         .with_personality("Meticulous archivist who cites classic implementations.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let architect = Agent::new("tetris-architect", "System Architect", make_client())
         .with_expertise("HTML5 layout, Canvas rendering, component structure")
         .with_personality("Clean, methodical layout engineer.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let programmer = Agent::new("tetris-programmer", "Gameplay Programmer", make_client())
         .with_expertise("JavaScript game loops, collision detection, rotation systems")
         .with_personality("Fast iteration gameplay engineer.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let playtester = Agent::new("tetris-playtester", "QA & Polish", make_client())
         .with_expertise("UX polish, accessibility, instructions, audio balancing")
         .with_personality("Enthusiastic playtester with an ear for detail.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let system_context = r#"You are a Tetris builder agent. Your output is tool call JSON, not text.
 
@@ -570,9 +581,8 @@ Classic mechanics required: SRS rotation, 7-bag randomizer, hold slot, ghost pie
     // Primary path: write_tetris_file was called properly.
     let saved_html: Option<String> = if file_written {
         println!("  ✅ write_tetris_file was called (proper tool flow)");
-        memory
-            .get("tetris_current_html", false)
-            .map(|(v, _)| v)
+        memory_protocol
+            .get_value("tetris_current_html")
             .filter(|h| h.contains("<canvas"))
     } else {
         // Rescue path: agents wrote HTML as response text instead of calling the tool.
