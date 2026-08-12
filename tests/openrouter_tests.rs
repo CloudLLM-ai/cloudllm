@@ -72,6 +72,7 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::PoolsideLagunaXs2, "poolside/laguna-xs.2"),
         (Model::Llama318bInstruct, "meta-llama/llama-3.1-8b-instruct"),
         (Model::Grok43, "x-ai/grok-4.3"),
+        (Model::Grok46, "x-ai/grok-4.6"),
         (Model::MoonshotKimiK3, "moonshotai/kimi-k3"),
         (Model::Qwen38Max, "qwen/qwen3.8-max"),
         (Model::MetaMuseSpark12, "meta/muse-spark-1.2"),
@@ -83,7 +84,7 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::ClaudeOpus47Fast, "anthropic/claude-opus-4.7-fast"),
     ];
 
-    assert_eq!(expected.len(), 60, "test fixture must cover every variant");
+    assert_eq!(expected.len(), 61, "test fixture must cover every variant");
 
     for (variant, slug) in expected {
         assert_eq!(model_to_string(*variant), *slug);

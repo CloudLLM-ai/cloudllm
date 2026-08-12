@@ -217,6 +217,8 @@ pub enum Model {
     Llama318bInstruct,
     /// `x-ai/grok-4.3` – xAI Grok 4.3 via OpenRouter.
     Grok43,
+    /// `x-ai/grok-4.6` – xAI Grok 4.6 via OpenRouter.
+    Grok46,
     /// `moonshotai/kimi-k3` – Moonshot Kimi K3.
     MoonshotKimiK3,
     /// `qwen/qwen3.8-max` – Qwen 3.8 Max.
@@ -291,6 +293,7 @@ pub fn model_to_string(model: Model) -> String {
         Model::PoolsideLagunaXs2 => "poolside/laguna-xs.2".to_string(),
         Model::Llama318bInstruct => "meta-llama/llama-3.1-8b-instruct".to_string(),
         Model::Grok43 => "x-ai/grok-4.3".to_string(),
+        Model::Grok46 => "x-ai/grok-4.6".to_string(),
         Model::MoonshotKimiK3 => "moonshotai/kimi-k3".to_string(),
         Model::Qwen38Max => "qwen/qwen3.8-max".to_string(),
         Model::MetaMuseSpark12 => "meta/muse-spark-1.2".to_string(),
