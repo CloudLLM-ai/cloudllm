@@ -417,7 +417,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     if !looks_like_game_page(&content) {
                         return Err(format!(
                             "write_game_file rejected content: need a full playable page \
-                             (>=500 chars with html/doctype or game canvas/script). got {} bytes",
+                             (>=800 chars containing a document or game script). got {} bytes",
                             content.len()
                         )
                         .into());
@@ -563,7 +563,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
              skip. When a step would cross a tile center, decide the turn using the center (or the \
              remainder of the step after snapping to center) so an arrow press at a junction always \
              takes that junction. Missed arrow-key turns are a failed deliverable. \
-             (5) Spawn Pac-Man on a tile center in a corridor, never on a tile edge or wall.",
+             (5) Spawn Pac-Man on a tile center in a corridor, never on a tile edge or wall. \
+             After every movement step, the axis Pac-Man is not traveling along must stay snapped \
+             to the corridor center. Never leave him on a tile boundary (a multiple of the tile \
+             size) — that puts half his body on the wall and he will miss pellets. \
+             (6) Eating is by tile: if Pac-Man's current tile contains a pellet or power pellet, \
+             collect it. Do not require a tiny pixel window around the tile center (a prior build \
+             required a 6-pixel window; at an 8-pixel offset he could never eat power pellets or \
+             clear the maze). If he can stand on the tile, he must be able to eat what is on it.",
         ),
         RalphTask::new(
             "dots_power_pellets",
@@ -571,7 +578,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "Eating a dot scores ten points; eating a power pellet scores fifty. Track remaining \
              dots so the level can clear. A power pellet puts all eligible ghosts into frightened \
              mode. Each ordinary pellet must play an audible chomp sound; each power pellet must \
-             play a distinct power-up sound. Silent pellet collection fails this requirement.",
+             play a distinct power-up sound. Silent pellet collection fails this requirement. \
+             Power pellets must sit on walkable corridor tiles Pac-Man can fully occupy. Collect \
+             a pellet whenever Pac-Man's tile is that pellet's tile — a prior build used a tight \
+             center-proximity test and the player could never eat power pellets or finish the maze.",
         ),
         RalphTask::new(
             "lives_death",
@@ -690,9 +700,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "Tune speeds, frightened duration by level, house release timers, and collision sizes so \
              the game is fair and fun. Movement must stay moderate under fixed-rate simulation. \
              Pac-Man never leaves the maze. Space or click restarts after death or game over. \
-             Playtest bar from a prior almost-complete build: (a) all four ghosts roam and chase \
-             — none idle in the house or freeze in a corridor; (b) arrow keys never skip a legal \
-             junction. Distinct ghost personalities must be visible in motion. Audio still works.",
+             Playtest bar from prior almost-complete builds: (a) all four ghosts roam and chase; \
+             (b) arrow keys never skip a legal junction; (c) Pac-Man stays centered in corridors \
+             (never half-on-the-wall); (d) every pellet and all four power pellets are eatable \
+             by walking onto their tiles; the level can actually be cleared. Audio still works.",
         ),
     ];
 
@@ -760,7 +771,12 @@ never freeze.\n\
 requested direction until it is used or replaced. Reverse immediately. Apply a 90-degree turn \
 when the next tile in that direction is a corridor and Pac-Man is on the corridor axis; do not \
 require a one-pixel window at a tile center that speed can skip. Crossing a tile center must \
-still consider the queued turn.\n\n\
+still consider the queued turn.\n\
+8. Corridor centering and pellets — A prior almost-complete build left Pac-Man half on the wall \
+and unable to eat power pellets or finish the maze. Keep the unused movement axis snapped to the \
+tile center every frame. Eat any pellet whose tile Pac-Man currently occupies. Never use a \
+center-proximity test smaller than half a tile. The player must be able to eat all four power \
+pellets and every remaining dot by walking the corridors.\n\n\
 \
 ## Workflow\n\
 1. Read Memory key current_game_html (it may be empty on the first turn — then create the full page).\n\
@@ -814,7 +830,8 @@ moderate arcade pacing; Pac-Man never leaves the board or disappears (tunnel wra
 outside blanks and the house door are solid for Pac-Man; space or click restarts after game over \
 without reloading; audible sounds for pellets, power pellets, eating ghosts, and death after the \
 first user input; all four ghosts actually walk and hunt (none sit idle); every legal arrow-key \
-turn at a junction is taken (queued direction, no skipped intersections).\n\n\
+turn at a junction is taken (queued direction, no skipped intersections); Pac-Man stays centered \
+in corridors and can eat every pellet including all four power pellets by occupying their tiles.\n\n\
 Every turn that advances the game MUST call write_game_file with the complete page so \
 pacman_game_ralph_grok_4_6.html exists on disk. Coordinate through Memory key current_game_html. \
 Complete as many PRD tasks as you can each turn. Leaving no playable file is unacceptable.";
@@ -968,19 +985,21 @@ fn normalize_page_source(raw: &str) -> String {
 
 /// Heuristic: does this look like a real game page agents should have produced?
 fn looks_like_game_page(content: &str) -> bool {
-    if content.len() < 500 {
+    if content.len() < 800 {
         return false;
     }
     let lower = content.to_lowercase();
     let has_doc = lower.contains("<!doctype") || lower.contains("<html");
+    let has_script = lower.contains("<script");
     let has_game_surface = lower.contains("<canvas")
-        || lower.contains("getcontext(")
+        || lower.contains("getcontext")
         || lower.contains("pac-man")
         || lower.contains("pacman")
-        || (lower.contains("<script") && lower.contains("requestanimationframe"));
-    // Prefer full documents; still accept a large script-heavy page that is clearly the game.
-    (has_doc && has_game_surface)
-        || (has_game_surface && content.len() > 2_000 && lower.contains("<script"))
+        || lower.contains("requestanimationframe")
+        || lower.contains("setinterval");
+    // A long HTML/script document is enough — do not reject after a multi-hour run
+    // just because a keyword is missing.
+    has_doc || (has_script && content.len() > 2_000) || has_game_surface
 }
 
 /// Extract the largest plausible HTML document from free-form agent text.
@@ -1013,24 +1032,23 @@ fn ensure_game_deliverable(
     memory: &Memory,
     messages: &[cloudllm::orchestration::OrchestrationMessage],
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // 1) Prefer a valid on-disk file produced mid-run.
+    // 1) Prefer an on-disk file produced mid-run. Never delete a substantial
+    // page after a long run — a picky heuristic used to wipe the only deliverable.
     if let Ok(disk) = std::fs::read_to_string(OUTPUT_HTML) {
         let disk = normalize_page_source(&disk);
-        if looks_like_game_page(&disk) {
+        if looks_like_game_page(&disk) || disk.len() > 2_000 {
             println!(
-                "\n✅ Using on-disk {OUTPUT_HTML} from write_game_file ({} bytes)",
+                "\n✅ Using on-disk {OUTPUT_HTML} ({} bytes)",
                 disk.len()
             );
             return Ok(disk);
         }
-        // Stale/partial — remove so we don't leave a bad file if recovery fails later.
-        let _ = std::fs::remove_file(OUTPUT_HTML);
     }
 
     // 2) Session Memory working buffer.
     if let Some((mem_html, _)) = memory.get(MEMORY_GAME_KEY, false) {
         let page = normalize_page_source(&mem_html);
-        if looks_like_game_page(&page) {
+        if looks_like_game_page(&page) || page.len() > 2_000 {
             std::fs::write(OUTPUT_HTML, &page)?;
             println!(
                 "\n✅ Recovered {OUTPUT_HTML} from session Memory ({} bytes)",
@@ -1044,7 +1062,7 @@ fn ensure_game_deliverable(
     let mut best: Option<String> = None;
     for msg in messages.iter().rev() {
         let html = extract_html(&msg.content);
-        if looks_like_game_page(&html) {
+        if looks_like_game_page(&html) || html.len() > 2_000 {
             let take = match &best {
                 None => true,
                 Some(prev) => html.len() > prev.len(),

@@ -4,6 +4,11 @@
     ran in a tiny near-center window) and dropped arrow-key junctions (1–2px turn
     slop). Specs only — no game source. Applied to both DeepSeek V4 Pro and Grok 4.6
     harnesses for a fair re-run.
+  - fix(example): Pac-Man PRD — corridor centering + eat-by-tile; keep deliverable
+    Grok 4.6 follow-up sat Pac-Man on tile boundaries (half on the wall) and used a
+    6px eat window so power pellets and a full clear were impossible. Specs now
+    require unused-axis snap and tile-occupancy eating. End-of-run recovery no
+    longer deletes a multi-kilobyte HTML file (DeepSeek 225min run lost its page).
 
 0.15.12 AUG/12/2026
   First crates.io release after 0.15.10. GitHub tag 0.15.11 was cut but never
