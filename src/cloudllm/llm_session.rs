@@ -153,18 +153,25 @@ impl LLMSession {
         self.send_current_history(tools).await
     }
 
-    /// Send a message and return a stream of partial responses when the provider supports it.
-    ///
-    /// The session keeps the optimistic trimming behaviour of [`LLMSession::send_message`] but
-    /// does **not** automatically append the streamed chunks to the history.  Callers that wish
-    /// to persist the streamed output should collect it and feed the result back through
-    /// [`LLMSession::send_message`].
-    ///
-    /// Returning `Ok(None)` indicates that the wrapped client does not support streaming.
     /// Send a message and return a streaming response when the provider supports it.
     ///
-    /// The `tools` parameter mirrors [`send_message`](LLMSession::send_message).  Streaming with
-    /// native tool calling is not yet supported; implementors may return `Ok(None)`.
+    /// On `Ok(Some(_))` the user (or role) message is already in history so the
+    /// request body can include it. The assistant reply is **not** written until
+    /// the caller commits it with [`commit_streamed_reply`](Self::commit_streamed_reply).
+    /// Do **not** feed the collected text back through [`send_message`](Self::send_message)
+    /// — that would fire a second completion.
+    ///
+    /// On `Ok(None)` (provider cannot stream) or `Err` (stream failed to open)
+    /// the optimistic user message is rolled back so a subsequent
+    /// [`send_message`](Self::send_message) can re-inject it cleanly.
+    ///
+    /// If the stream *opens* and later fails mid-body, the user message stays.
+    /// Call [`rollback_last_message`](Self::rollback_last_message) before any
+    /// blocking fallback, or commit a partial reply.
+    ///
+    /// The `tools` parameter mirrors [`send_message`](LLMSession::send_message).
+    /// OpenAI-compatible clients forward tools and reassemble native tool calls
+    /// from streamed fragments.
     ///
     /// # Example
     ///
@@ -172,6 +179,7 @@ impl LLMSession {
     /// use std::sync::Arc;
     /// use cloudllm::client_wrapper::Role;
     /// use cloudllm::clients::openai::{Model, OpenAIClient};
+    /// use cloudllm::clients::sse_stream::StreamAccumulator;
     /// use cloudllm::LLMSession;
     /// use futures_util::StreamExt;
     ///
@@ -183,9 +191,14 @@ impl LLMSession {
     /// ));
     /// let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
     /// if let Some(mut stream) = session.send_message_stream(Role::User, "Hello!".into(), None).await? {
+    ///     let mut acc = StreamAccumulator::new();
     ///     while let Some(chunk) = stream.next().await {
-    ///         print!("{}", chunk?.content);
+    ///         let chunk = chunk?;
+    ///         print!("{}", chunk.content);
+    ///         acc.apply(&chunk);
     ///     }
+    ///     let usage = acc.usage();
+    ///     session.commit_streamed_reply(acc.into_message(), usage).await;
     /// }
     /// # Ok(())
     /// # }
@@ -195,35 +208,91 @@ impl LLMSession {
         role: Role,
         content: String,
         tools: Option<&[ToolDefinition]>,
-    ) -> Result<Option<crate::client_wrapper::MessageChunkStream>, Box<dyn std::error::Error>> {
+    ) -> Result<
+        Option<crate::client_wrapper::MessageChunkStream>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let message = Message {
             role,
             content: Arc::from(content),
             tool_calls: vec![],
         };
         self.push_history_message(message);
-        self.trim_history_to_fit();
-
-        self.request_buffer.clear();
-        self.request_buffer
-            .reserve(1 + self.conversation_history.len());
-        self.request_buffer.push(self.system_prompt.clone());
-        self.request_buffer
-            .extend_from_slice(&self.conversation_history);
+        self.prepare_request_buffer();
 
         let stream_result = self
             .client
             .send_message_stream(&self.request_buffer, tools)
-            .await?;
+            .await;
 
-        if stream_result.is_none() {
-            if let Some(tokens) = self.cached_token_counts.pop() {
-                self.history_token_total = self.history_token_total.saturating_sub(tokens);
-            }
-            self.conversation_history.pop();
+        match &stream_result {
+            Ok(None) | Err(_) => self.pop_last_history(),
+            Ok(Some(_)) => {}
         }
 
-        Ok(stream_result)
+        stream_result
+    }
+
+    /// Stream a completion against the current history **without** injecting a
+    /// new user message.
+    ///
+    /// Used after tool results have already been appended. Like
+    /// [`send_message_stream`](Self::send_message_stream), the assistant reply
+    /// is **not** written to history until the caller commits it with
+    /// [`commit_streamed_reply`](Self::commit_streamed_reply).
+    pub async fn stream_current_history(
+        &mut self,
+        tools: Option<&[ToolDefinition]>,
+    ) -> Result<
+        Option<crate::client_wrapper::MessageChunkStream>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        self.prepare_request_buffer();
+        self.client
+            .send_message_stream(&self.request_buffer, tools)
+            .await
+    }
+
+    /// Persist a fully assembled streamed assistant reply and optional usage.
+    ///
+    /// Call this after consuming a [`MessageChunkStream`] so subsequent turns
+    /// see the generated content. Token counters are updated when `usage` is
+    /// `Some`, and the wrapped client's usage slot is written so
+    /// [`last_token_usage`](Self::last_token_usage) reflects the streamed call
+    /// (not the last *blocking* call).
+    pub async fn commit_streamed_reply(
+        &mut self,
+        message: Message,
+        usage: Option<client_wrapper::TokenUsage>,
+    ) {
+        self.push_history_message(message);
+        if let Some(usage) = usage {
+            if let Some(slot) = self.client.usage_slot() {
+                *slot.lock().await = Some(usage.clone());
+            }
+            self.total_input_tokens = self.total_input_tokens.saturating_add(usage.input_tokens);
+            self.total_output_tokens = self.total_output_tokens.saturating_add(usage.output_tokens);
+            self.total_token_count = self.total_token_count.saturating_add(usage.total_tokens);
+            if usage.total_tokens > self.max_tokens {
+                let mut excess = usage.total_tokens - self.max_tokens;
+                while excess > 0 && !self.conversation_history.is_empty() {
+                    let removed = self.trim_oldest_message_group();
+                    if removed == 0 {
+                        break;
+                    }
+                    excess = excess.saturating_sub(removed);
+                }
+            }
+        }
+    }
+
+    /// Drop the most recently appended history message and its cached token count.
+    ///
+    /// Used to roll back the optimistic user turn that
+    /// [`send_message_stream`](Self::send_message_stream) injects when the
+    /// stream later fails and the caller wants a clean blocking fallback.
+    pub fn rollback_last_message(&mut self) {
+        self.pop_last_history();
     }
 
     /// Replace the system prompt that prefixes every request.
@@ -419,18 +488,28 @@ impl LLMSession {
         self.history_token_total
     }
 
-    pub(crate) async fn send_current_history(
-        &mut self,
-        tools: Option<&[ToolDefinition]>,
-    ) -> Result<Message, Box<dyn std::error::Error>> {
+    fn prepare_request_buffer(&mut self) {
         self.trim_history_to_fit();
-
         self.request_buffer.clear();
         self.request_buffer
             .reserve(1 + self.conversation_history.len());
         self.request_buffer.push(self.system_prompt.clone());
         self.request_buffer
             .extend_from_slice(&self.conversation_history);
+    }
+
+    fn pop_last_history(&mut self) {
+        if let Some(tokens) = self.cached_token_counts.pop() {
+            self.history_token_total = self.history_token_total.saturating_sub(tokens);
+        }
+        self.conversation_history.pop();
+    }
+
+    pub(crate) async fn send_current_history(
+        &mut self,
+        tools: Option<&[ToolDefinition]>,
+    ) -> Result<Message, Box<dyn std::error::Error>> {
+        self.prepare_request_buffer();
 
         let response = self
             .client
@@ -549,4 +628,167 @@ pub fn estimate_message_token_count(message: &Message) -> usize {
     let role_token_count = 1;
     let content_token_count = estimate_token_count(&message.content);
     role_token_count + content_token_count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client_wrapper::{
+        MessageChunk, MessageChunkStream, MessageStreamFuture, TokenUsage,
+    };
+    use async_trait::async_trait;
+    use tokio::sync::Mutex;
+
+    struct StreamMock {
+        usage: Mutex<Option<TokenUsage>>,
+        mode: StreamMockMode,
+    }
+
+    #[derive(Clone, Copy)]
+    enum StreamMockMode {
+        OpenFails,
+        ReturnsNone,
+        OpensThenErrors,
+        OpensEmpty,
+    }
+
+    impl StreamMock {
+        fn new(mode: StreamMockMode) -> Arc<Self> {
+            Arc::new(Self {
+                usage: Mutex::new(None),
+                mode,
+            })
+        }
+    }
+
+    #[async_trait]
+    impl ClientWrapper for StreamMock {
+        async fn send_message(
+            &self,
+            _messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> Result<Message, Box<dyn std::error::Error>> {
+            *self.usage.lock().await = Some(TokenUsage {
+                input_tokens: 3,
+                output_tokens: 2,
+                total_tokens: 5,
+            });
+            Ok(Message {
+                role: Role::Assistant,
+                content: Arc::from("blocked"),
+                tool_calls: vec![],
+            })
+        }
+
+        fn send_message_stream<'a>(
+            &'a self,
+            _messages: &'a [Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> MessageStreamFuture<'a> {
+            let mode = self.mode;
+            Box::pin(async move {
+                match mode {
+                    StreamMockMode::OpenFails => {
+                        Err(Box::new(std::io::Error::other("open failed"))
+                            as Box<dyn std::error::Error + Send + Sync>)
+                    }
+                    StreamMockMode::ReturnsNone => Ok(None),
+                    StreamMockMode::OpensThenErrors => {
+                        let s = futures_util::stream::iter(vec![
+                            Ok(MessageChunk {
+                                content: "hi".into(),
+                                ..MessageChunk::default()
+                            }),
+                            Err(Box::new(std::io::Error::other("mid-stream"))
+                                as Box<dyn std::error::Error + Send + Sync>),
+                        ]);
+                        Ok(Some(Box::pin(s) as MessageChunkStream))
+                    }
+                    StreamMockMode::OpensEmpty => {
+                        let s = futures_util::stream::empty();
+                        Ok(Some(Box::pin(s) as MessageChunkStream))
+                    }
+                }
+            })
+        }
+
+        fn model_name(&self) -> &str {
+            "mock-stream"
+        }
+
+        fn provider_name(&self) -> &str {
+            "mock"
+        }
+
+        fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
+            Some(&self.usage)
+        }
+    }
+
+    /// Opening the stream fails → the optimistic user turn must not stay in history.
+    #[tokio::test]
+    async fn send_message_stream_rolls_back_on_open_error() {
+        let client = StreamMock::new(StreamMockMode::OpenFails);
+        let mut session = LLMSession::new(client, "sys".into(), 8_192);
+        let err = session
+            .send_message_stream(Role::User, "hello".into(), None)
+            .await;
+        assert!(err.is_err());
+        assert!(session.get_conversation_history().is_empty());
+    }
+
+    /// Provider cannot stream → same rollback so a blocking send can re-inject.
+    #[tokio::test]
+    async fn send_message_stream_rolls_back_on_none() {
+        let client = StreamMock::new(StreamMockMode::ReturnsNone);
+        let mut session = LLMSession::new(client, "sys".into(), 8_192);
+        let result = session
+            .send_message_stream(Role::User, "hello".into(), None)
+            .await
+            .unwrap();
+        assert!(result.is_none());
+        assert!(session.get_conversation_history().is_empty());
+    }
+
+    /// Stream opened: user message stays so the caller can commit or roll back.
+    #[tokio::test]
+    async fn send_message_stream_keeps_user_when_stream_opens() {
+        let client = StreamMock::new(StreamMockMode::OpensThenErrors);
+        let mut session = LLMSession::new(client, "sys".into(), 8_192);
+        let stream = session
+            .send_message_stream(Role::User, "hello".into(), None)
+            .await
+            .unwrap();
+        assert!(stream.is_some());
+        assert_eq!(session.get_conversation_history().len(), 1);
+        session.rollback_last_message();
+        assert!(session.get_conversation_history().is_empty());
+    }
+
+    /// `commit_streamed_reply` must publish usage to the client slot (planner
+    /// reads `last_token_usage`, not only session totals).
+    #[tokio::test]
+    async fn commit_streamed_reply_writes_usage_slot() {
+        let client = StreamMock::new(StreamMockMode::OpensEmpty);
+        let mut session = LLMSession::new(client.clone(), "sys".into(), 8_192);
+        session.inject_message(Role::User, "hello".into());
+        session
+            .commit_streamed_reply(
+                Message {
+                    role: Role::Assistant,
+                    content: Arc::from("hi"),
+                    tool_calls: vec![],
+                },
+                Some(TokenUsage {
+                    input_tokens: 10,
+                    output_tokens: 4,
+                    total_tokens: 14,
+                }),
+            )
+            .await;
+        let usage = session.last_token_usage().await.unwrap();
+        assert_eq!(usage.total_tokens, 14);
+        assert_eq!(session.token_usage().total_tokens, 14);
+        assert_eq!(session.get_conversation_history().len(), 2);
+    }
 }
