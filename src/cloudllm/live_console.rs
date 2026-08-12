@@ -30,12 +30,17 @@
 //! | `CLOUDLLM_STREAM_CONTENT=full\|compact\|off` | How to print visible tokens (default `compact`) |
 //! | `CLOUDLLM_HEARTBEAT_SECS` | Heartbeat interval used by `Agent` (default `10`) |
 //! | `CLOUDLLM_REASONING_EFFORT=low\|medium\|high` | Provider effort hint (can cut hour-long runs) |
+//! | `MENTISDB_DIR` | Local chain directory (default `mentisdbs/`). **No daemon.** |
+//! | `MENTISDB_CHAIN_KEY` | Chain name (example default is usually `cloudllm`) |
 
 use crate::event::{AgentEvent, EventHandler, OrchestrationEvent, PlannerEvent};
+use crate::{CloudLLMConfig, MentisDb};
 use async_trait::async_trait;
 use std::io::{self, IsTerminal, Write};
-use std::sync::Mutex;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tokio::sync::RwLock;
 
 const ANSI_RESET: &str = "\x1b[0m";
 const ANSI_DARK_GRAY: &str = "\x1b[90m";
@@ -92,6 +97,19 @@ impl Default for PrinterState {
             content_shown: 0,
         }
     }
+}
+
+/// In-process MentisDB handle opened by a RALPH / game example.
+///
+/// This is **not** a network client. [`MentisDb::open_with_key`] writes
+/// `.tcbin` files under [`Self::dir`]. No `mentisdbd` process is required.
+pub struct EmbeddedMentisDb {
+    /// Directory that holds the chain files.
+    pub dir: PathBuf,
+    /// Chain key passed to [`MentisDb::open_with_key`].
+    pub chain_key: String,
+    /// Shared chain used by every agent in the run.
+    pub db: Arc<RwLock<MentisDb>>,
 }
 
 /// Pretty-prints agent, planner, and orchestration events to stdout.
@@ -172,7 +190,68 @@ impl LiveConsoleHandler {
             "unset → color if TTY",
             "1 to disable ANSI colors",
         );
+        print_knob(
+            "MENTISDB_DIR",
+            env_raw("MENTISDB_DIR"),
+            "mentisdbs/",
+            "local files only — examples do not start or need mentisdbd",
+        );
+        print_knob(
+            "MENTISDB_CHAIN_KEY",
+            env_raw("MENTISDB_CHAIN_KEY"),
+            "cloudllm",
+            "embedded chain name under MENTISDB_DIR",
+        );
+        print_knob(
+            "CLOUDLLM_HTTP_RETRIES",
+            env_raw("CLOUDLLM_HTTP_RETRIES"),
+            "3",
+            "retries for transient Chat Completions blips (timeout/reset/429/5xx)",
+        );
         println!();
+    }
+
+    /// Open the example MentisDB chain as **local files** (no daemon).
+    ///
+    /// RALPH examples are self-contained: `cargo run --example …` writes
+    /// `mentisdbs/<chain>.tcbin` in the working directory. If the directory
+    /// cannot be created or the chain cannot be opened (corrupt file, lock
+    /// held by another process), this prints a hard-abort message and
+    /// returns `Err` so `main` exits before any LLM spend.
+    pub fn open_embedded_mentisdb(
+        default_chain_key: &str,
+    ) -> Result<EmbeddedMentisDb, Box<dyn std::error::Error + Send + Sync>> {
+        let dir = std::env::var("MENTISDB_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| CloudLLMConfig::default().mentisdb_dir);
+        let chain_key = std::env::var("MENTISDB_CHAIN_KEY")
+            .unwrap_or_else(|_| default_chain_key.to_string());
+        Self::open_embedded_mentisdb_at(dir, chain_key)
+    }
+
+    /// Open an embedded chain at an explicit directory (used by tests).
+    pub fn open_embedded_mentisdb_at(
+        dir: PathBuf,
+        chain_key: String,
+    ) -> Result<EmbeddedMentisDb, Box<dyn std::error::Error + Send + Sync>> {
+        if let Err(err) = std::fs::create_dir_all(&dir) {
+            return Err(abort_embedded_mentisdb(&dir, &chain_key, &err.to_string()));
+        }
+        match MentisDb::open_with_key(&dir, &chain_key) {
+            Ok(db) => {
+                println!(
+                    "🧠 MentisDB embedded chain '{}' at {} (local files; no mentisdbd)",
+                    chain_key,
+                    dir.display()
+                );
+                Ok(EmbeddedMentisDb {
+                    dir,
+                    chain_key,
+                    db: Arc::new(RwLock::new(db)),
+                })
+            }
+            Err(err) => Err(abort_embedded_mentisdb(&dir, &chain_key, &err.to_string())),
+        }
     }
 
     fn elapsed_str(&self) -> String {
@@ -305,7 +384,8 @@ impl LiveConsoleHandler {
         *state = PrinterState::default();
     }
 
-    fn preview(text: &str, max_chars: usize) -> String {
+    /// First `max_chars` of `text`, with `...` if truncated.
+    pub fn preview(text: &str, max_chars: usize) -> String {
         let mut it = text.chars();
         let taken: String = it.by_ref().take(max_chars).collect();
         if it.next().is_some() {
@@ -702,6 +782,31 @@ impl EventHandler for LiveConsoleHandler {
     }
 }
 
+fn abort_embedded_mentisdb(
+    dir: &std::path::Path,
+    chain_key: &str,
+    error: &str,
+) -> Box<dyn std::error::Error + Send + Sync> {
+    eprintln!();
+    eprintln!("❌ MentisDB could not be opened — aborting before any LLM calls.");
+    eprintln!("   This example is self-contained: it uses the MentisDB *library*");
+    eprintln!("   and writes local files. It does NOT start or connect to mentisdbd.");
+    eprintln!("   Directory : {}", dir.display());
+    eprintln!("   Chain key : {}", chain_key);
+    eprintln!("   Error     : {}", error);
+    eprintln!();
+    eprintln!("   If this is a lock error, another process already has the chain open.");
+    eprintln!("   Otherwise check that the working directory is writable.");
+    eprintln!();
+    format!(
+        "embedded MentisDB open failed (dir={}, chain={}): {}",
+        dir.display(),
+        chain_key,
+        error
+    )
+    .into()
+}
+
 fn env_raw(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
@@ -721,7 +826,7 @@ fn print_knob(name: &str, set: Option<String>, default_label: &str, hint: &str) 
 }
 
 /// Take up to `max_bytes` from `text` without splitting a UTF-8 character.
-fn utf8_prefix(text: &str, max_bytes: usize) -> &str {
+pub fn utf8_prefix(text: &str, max_bytes: usize) -> &str {
     if max_bytes >= text.len() {
         return text;
     }
@@ -732,44 +837,11 @@ fn utf8_prefix(text: &str, max_bytes: usize) -> &str {
     &text[..end]
 }
 
-fn format_duration(secs: u64) -> String {
+/// Format a duration as `9s` or `1m 15s`.
+pub fn format_duration(secs: u64) -> String {
     if secs < 60 {
         format!("{}s", secs)
     } else {
         format!("{}m {:02}s", secs / 60, secs % 60)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn preview_truncates() {
-        assert_eq!(LiveConsoleHandler::preview("hi", 10), "hi");
-        assert_eq!(LiveConsoleHandler::preview("hello world", 5), "hello...");
-    }
-
-    #[test]
-    fn format_mins() {
-        assert_eq!(format_duration(9), "9s");
-        assert_eq!(format_duration(75), "1m 15s");
-    }
-
-    #[test]
-    fn print_env_knobs_does_not_panic() {
-        LiveConsoleHandler::print_env_knobs();
-    }
-
-    #[test]
-    fn utf8_prefix_does_not_split_multibyte_chars() {
-        let snowman = "☃"; // U+2603, 3 bytes
-        assert_eq!(utf8_prefix(snowman, 0), "");
-        assert_eq!(utf8_prefix(snowman, 1), "");
-        assert_eq!(utf8_prefix(snowman, 2), "");
-        assert_eq!(utf8_prefix(snowman, 3), snowman);
-        assert_eq!(utf8_prefix("ab☃cd", 4), "ab");
-        assert_eq!(utf8_prefix("hello", 5), "hello");
-        assert_eq!(utf8_prefix("hello", 100), "hello");
     }
 }
