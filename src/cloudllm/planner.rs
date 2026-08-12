@@ -63,16 +63,19 @@
 //! # }
 //! ```
 
-use crate::client_wrapper::{Role, TokenUsage};
+use crate::client_wrapper::{Message, Role, TokenUsage};
+use crate::cloudllm::clients::sse_stream::{heartbeat_interval, StreamAccumulator};
 use crate::cloudllm::event::{EventHandler, PlannerEvent};
 use crate::cloudllm::llm_session::LLMSession;
 use crate::cloudllm::tool_protocol::{ToolRegistry, ToolResult};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use openai_rust2::chat::{GrokTool, OpenAITool};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::io;
+use std::time::Instant;
 use uuid::Uuid;
 
 pub type PlannerResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -832,7 +835,16 @@ impl Planner for BasicPlanner {
             handler.on_planner_event(&started).await;
         }
 
-        let mut response = match ctx.session.send_message(Role::User, message, None).await {
+        let mut response = match planner_llm_complete(
+            ctx.session,
+            Role::User,
+            message,
+            &plan_id,
+            1,
+            event_handler,
+        )
+        .await
+        {
             Ok(resp) => resp,
             Err(err) => {
                 if let Some(handler) = event_handler {
@@ -842,7 +854,7 @@ impl Planner for BasicPlanner {
                     };
                     handler.on_planner_event(&event).await;
                 }
-                return Err(map_session_error(err));
+                return Err(err);
             }
         };
 
@@ -853,13 +865,6 @@ impl Planner for BasicPlanner {
                 response_length: response.content.len(),
             };
             handler.on_planner_event(&completed).await;
-
-            let chunk = PlannerEvent::PartialOutputChunk {
-                plan_id: plan_id.clone(),
-                iteration: 1,
-                chunk: response.content.to_string(),
-            };
-            handler.on_planner_event(&chunk).await;
         }
 
         let mut current_response = response.content.to_string();
@@ -982,10 +987,15 @@ impl Planner for BasicPlanner {
                 handler.on_planner_event(&started).await;
             }
 
-            response = match ctx
-                .session
-                .send_message(Role::User, tool_result_message, None)
-                .await
+            response = match planner_llm_complete(
+                ctx.session,
+                Role::User,
+                tool_result_message,
+                &plan_id,
+                tool_iteration + 1,
+                event_handler,
+            )
+            .await
             {
                 Ok(resp) => resp,
                 Err(err) => {
@@ -996,7 +1006,7 @@ impl Planner for BasicPlanner {
                         };
                         handler.on_planner_event(&event).await;
                     }
-                    return Err(map_session_error(err));
+                    return Err(err);
                 }
             };
 
@@ -1007,13 +1017,6 @@ impl Planner for BasicPlanner {
                     response_length: response.content.len(),
                 };
                 handler.on_planner_event(&completed).await;
-
-                let chunk = PlannerEvent::PartialOutputChunk {
-                    plan_id: plan_id.clone(),
-                    iteration: tool_iteration + 1,
-                    chunk: response.content.to_string(),
-                };
-                handler.on_planner_event(&chunk).await;
             }
 
             current_response = response.content.to_string();
@@ -1284,4 +1287,145 @@ fn parse_tool_call(response: &str) -> Option<ToolCallRequest> {
 /// A Send + Sync error suitable for propagation through async code.
 fn map_session_error(err: Box<dyn Error>) -> Box<dyn Error + Send + Sync> {
     Box::new(io::Error::other(err.to_string()))
+}
+
+/// Stream (or block with heartbeats) one planner LLM completion.
+async fn planner_llm_complete(
+    session: &mut LLMSession,
+    role: Role,
+    content: String,
+    plan_id: &str,
+    iteration: usize,
+    handler: Option<&dyn EventHandler>,
+) -> PlannerResult<Message> {
+    match session
+        .send_message_stream(role.clone(), content.clone(), None)
+        .await
+    {
+        Ok(Some(mut stream)) => {
+            let mut acc = StreamAccumulator::new();
+            let started = Instant::now();
+            let mut last_token = started;
+            let mut phase = "waiting for first token".to_string();
+            let mut ticker = heartbeat_interval();
+            ticker.tick().await;
+            let consume = loop {
+                tokio::select! {
+                    chunk = stream.next() => {
+                        match chunk {
+                            Some(Ok(chunk)) => {
+                                if !chunk.reasoning.is_empty() {
+                                    phase = "reasoning".to_string();
+                                    last_token = Instant::now();
+                                    if let Some(h) = handler {
+                                        h.on_planner_event(&PlannerEvent::LLMReasoningDelta {
+                                            plan_id: plan_id.to_string(),
+                                            iteration,
+                                            text: chunk.reasoning.clone(),
+                                        })
+                                        .await;
+                                    }
+                                }
+                                if !chunk.content.is_empty() {
+                                    phase = "generating".to_string();
+                                    last_token = Instant::now();
+                                    if let Some(h) = handler {
+                                        h.on_planner_event(&PlannerEvent::PartialOutputChunk {
+                                            plan_id: plan_id.to_string(),
+                                            iteration,
+                                            chunk: chunk.content.clone(),
+                                        })
+                                        .await;
+                                    }
+                                }
+                                acc.apply(&chunk);
+                            }
+                            Some(Err(e)) => break Err(e),
+                            None => break Ok(()),
+                        }
+                    }
+                    _ = ticker.tick() => {
+                        if let Some(h) = handler {
+                            h.on_planner_event(&PlannerEvent::LLMWaiting {
+                                plan_id: plan_id.to_string(),
+                                iteration,
+                                elapsed_secs: started.elapsed().as_secs(),
+                                seconds_since_last_token: last_token.elapsed().as_secs(),
+                                phase: phase.clone(),
+                            })
+                            .await;
+                        }
+                    }
+                }
+            };
+            match consume {
+                Ok(()) => {
+                    let usage = acc.usage();
+                    let msg = acc.into_message();
+                    session.commit_streamed_reply(msg.clone(), usage).await;
+                    Ok(msg)
+                }
+                Err(e) => {
+                    // Stream opened so the user turn is still in history.
+                    // Roll it back before the blocking send re-injects.
+                    session.rollback_last_message();
+                    match planner_llm_blocking(session, role, content, plan_id, iteration, handler)
+                        .await
+                    {
+                        Ok(msg) => Ok(msg),
+                        Err(fallback) => Err(map_session_error(Box::new(io::Error::other(
+                            format!("stream: {}; fallback: {}", e, fallback),
+                        )))),
+                    }
+                }
+            }
+        }
+        Ok(None) => planner_llm_blocking(session, role, content, plan_id, iteration, handler).await,
+        Err(_) => {
+            // send_message_stream already rolled the user turn back.
+            planner_llm_blocking(session, role, content, plan_id, iteration, handler).await
+        }
+    }
+}
+
+/// Blocking planner completion with heartbeats (used when streaming is
+/// unavailable or failed).
+async fn planner_llm_blocking(
+    session: &mut LLMSession,
+    role: Role,
+    content: String,
+    plan_id: &str,
+    iteration: usize,
+    handler: Option<&dyn EventHandler>,
+) -> PlannerResult<Message> {
+    let started = Instant::now();
+    let mut ticker = heartbeat_interval();
+    ticker.tick().await;
+    let fut = async {
+        session
+            .send_message(role, content, None)
+            .await
+            .map_err(|e| e.to_string())
+    };
+    tokio::pin!(fut);
+    loop {
+        tokio::select! {
+            result = &mut fut => {
+                return result.map_err(|e| map_session_error(e.into()));
+            }
+            _ = ticker.tick() => {
+                if let Some(h) = handler {
+                    let elapsed = started.elapsed().as_secs();
+                    h.on_planner_event(&PlannerEvent::LLMWaiting {
+                        plan_id: plan_id.to_string(),
+                        iteration,
+                        elapsed_secs: elapsed,
+                        seconds_since_last_token: elapsed,
+                        phase: "blocked".to_string(),
+                    })
+                    .await;
+                }
+            }
+        }
+    }
 }
