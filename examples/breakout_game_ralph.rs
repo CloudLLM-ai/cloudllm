@@ -65,12 +65,12 @@ use cloudllm::clients::grok::{GrokClient, Model as GrokModel};
 use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
 use cloudllm::tool_protocols::{
-    BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
+    BashProtocol, CustomToolProtocol, HttpClientProtocol, MentisDbMemoryProtocol,
 };
-use cloudllm::tools::{BashTool, HttpClient, Memory, Platform};
+use cloudllm::tools::{BashTool, HttpClient, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
-    Agent,
+    Agent, ThoughtType,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -107,13 +107,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("{}", "=".repeat(80));
     LiveConsoleHandler::print_env_knobs();
 
+    let mentis = LiveConsoleHandler::open_embedded_mentisdb("cloudllm")?;
+    {
+        let mut db = mentis.db.write().await;
+        db.append(
+            "breakout-builder",
+            ThoughtType::Plan,
+            "Breakout RALPH run starting (embedded MentisDB, no daemon). Deliverable: \
+             breakout_game_ralph.html.",
+        )?;
+    }
+
     // ── Shared Memory + Custom Tools ──────────────────────────────────────
     // All agents share the same Memory store and custom tool protocol through
     // an Arc<RwLock<ToolRegistry>>. This allows agents to coordinate by reading
     // and writing to shared memory, and to write game files to disk.
 
-    let memory = Arc::new(Memory::new());
-    let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
+    let memory_protocol = Arc::new(MentisDbMemoryProtocol::new(
+        mentis.db.clone(),
+        "breakout-builder",
+    ));
 
     // ── Seed starter HTML skeleton ─────────────────────────────────────────
     let starter_html = r#"<!DOCTYPE html>
@@ -212,17 +225,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Write starter to disk and Memory so agents can build on it
     std::fs::write("breakout_game_ralph.html", starter_html)?;
-    memory.put(
-        "current_game_html".to_string(),
-        starter_html.to_string(),
-        None,
-    );
+    memory_protocol
+        .put_value("current_game_html", starter_html)
+        .await?;
     println!(
         "📄 Starter HTML written to disk and Memory ({} bytes)\n",
         starter_html.len()
     );
 
-    let memory_for_tool = memory.clone();
+    let memory_for_tool = memory_protocol.clone();
     let custom_protocol = Arc::new(CustomToolProtocol::new());
     custom_protocol
         .register_tool(
@@ -254,7 +265,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     .replace("\\\"", "\"");
                 let bytes = content.len();
                 std::fs::write(&filename, &content)?;
-                memory_for_tool.put("current_game_html".to_string(), content, None);
+                memory_for_tool.put_value_sync("current_game_html", &content);
                 Ok(cloudllm::tool_protocol::ToolResult::success(
                     serde_json::json!({"written": filename, "bytes": bytes, "also_saved_to_memory": "current_game_html"}),
                 ))
@@ -280,7 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create shared tool registry with all protocols
     let mut shared_registry = ToolRegistry::empty();
     shared_registry
-        .add_protocol("memory", memory_protocol)
+        .add_protocol("memory", memory_protocol.clone())
         .await?;
     shared_registry
         .add_protocol("custom", custom_protocol)
@@ -298,28 +309,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_personality(
             "Meticulous front-end architect who produces clean, well-structured HTML/CSS.",
         )
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let programmer = Agent::new("game-programmer", "Game Programmer", make_client())
         .with_expertise("JavaScript game mechanics, physics, collision detection, rendering")
         .with_personality(
             "Seasoned game developer who writes tight, performant JavaScript game loops.",
         )
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let sound_designer = Agent::new("sound-designer", "Sound Designer", make_client())
         .with_expertise("Web Audio API, chiptune synthesis, oscillator-based sound effects")
         .with_personality(
             "Retro audio enthusiast who crafts authentic Atari 2600-era sounds with Web Audio API oscillators.",
         )
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let powerup_engineer = Agent::new("powerup-engineer", "Powerup Engineer", make_client())
         .with_expertise("Game powerup systems, spawn logic, timed effects")
         .with_personality(
             "Creative gameplay engineer who designs fun and balanced powerup mechanics.",
         )
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     // ── PRD Tasks ───────────────────────────────────────────────────────────
 
@@ -577,13 +592,13 @@ browser with no external dependencies.";
 
     // ── Memory Dump ────────────────────────────────────────────────────────
 
-    let keys = memory.list_keys();
+    let keys = memory_protocol.list_keys();
     if !keys.is_empty() {
         println!("\n{}", "-".repeat(80));
-        println!("  Shared Memory ({} entries)", keys.len());
+        println!("  MentisDB memory ({} keys)", keys.len());
         println!("{}", "-".repeat(80));
         for key in &keys {
-            if let Some((value, _)) = memory.get(key, false) {
+            if let Some(value) = memory_protocol.get_value(key) {
                 let preview_len = 120.min(value.len());
                 let preview_end = value
                     .char_indices()
@@ -597,9 +612,9 @@ browser with no external dependencies.";
 
     // ── Final HTML ─────────────────────────────────────────────────────────
     // Agents write to disk incrementally via write_game_file.
-    // Check Memory for the latest version first, then fall back to messages.
+    // Check MentisDB memory for the latest version first, then fall back to messages.
 
-    let final_html = if let Some((mem_html, _)) = memory.get("current_game_html", false) {
+    let final_html = if let Some(mem_html) = memory_protocol.get_value("current_game_html") {
         if mem_html.len() > 1000 && mem_html.contains("<canvas") {
             let unescaped = mem_html
                 .replace("\\n", "\n")
@@ -607,7 +622,7 @@ browser with no external dependencies.";
                 .replace("\\\"", "\"");
             std::fs::write("breakout_game_ralph.html", &unescaped)?;
             println!(
-                "\n✅ Game written from Memory to breakout_game_ralph.html ({} bytes)",
+                "\n✅ Game written from MentisDB memory to breakout_game_ralph.html ({} bytes)",
                 unescaped.len()
             );
             Some(unescaped)
