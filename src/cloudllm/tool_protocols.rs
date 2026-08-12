@@ -12,6 +12,7 @@
 //! - **CustomToolProtocol**: Direct Rust function calls (sync and async)
 //! - **McpClientProtocol**: HTTP client for remote MCP servers
 //! - **MemoryProtocol**: TTL-aware in-process memory store with succinct protocol
+//! - **MentisDbMemoryProtocol**: same `memory` commands, durable MentisDB snapshots
 //! - **OpenAIFunctionProtocol**: OpenAI-compatible function calling format
 //! - **McpMemoryClient**: HTTP client for remote Memory servers (distributed coordination)
 //!
@@ -33,6 +34,7 @@
 //! ```
 
 use crate::cloudllm::event::{EventHandler, McpEvent};
+pub use crate::cloudllm::mentisdb_memory::MentisDbMemoryProtocol;
 use crate::cloudllm::tool_protocol::{
     ToolError, ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolResult,
 };
