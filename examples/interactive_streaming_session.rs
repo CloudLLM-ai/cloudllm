@@ -3,6 +3,7 @@ use std::io::{self, Write};
 
 use cloudllm::client_wrapper::Role;
 use cloudllm::clients::grok::GrokClient;
+use cloudllm::clients::sse_stream::StreamAccumulator;
 use cloudllm::LLMSession;
 use futures_util::StreamExt;
 
@@ -95,29 +96,30 @@ async fn main() {
 
         match stream_result {
             Ok(Some(mut stream)) => {
-                // Accumulate the full response for adding to history
-                let mut full_response = String::new();
+                let mut acc = StreamAccumulator::new();
                 let mut chunk_count = 0;
 
                 // Process each chunk as it arrives
                 while let Some(chunk_result) = stream.next().await {
                     match chunk_result {
                         Ok(chunk) => {
-                            // Print the content immediately as it arrives
+                            if !chunk.reasoning.is_empty() {
+                                print!("\x1b[90m{}\x1b[0m", chunk.reasoning);
+                                io::stdout().flush().unwrap();
+                            }
                             if !chunk.content.is_empty() {
                                 print!("{}", chunk.content);
                                 io::stdout().flush().unwrap();
-                                full_response.push_str(&chunk.content);
                                 chunk_count += 1;
                             }
 
-                            // Check if streaming is complete
-                            if let Some(reason) = chunk.finish_reason {
+                            if let Some(reason) = chunk.finish_reason.clone() {
                                 println!(
                                     "\n\n[Stream finished: {} | Chunks received: {}]",
                                     reason, chunk_count
                                 );
                             }
+                            acc.apply(&chunk);
                         }
                         Err(e) => {
                             eprintln!("\n\n[Error in stream: {}]", e);
@@ -126,15 +128,14 @@ async fn main() {
                     }
                 }
 
-                // Add the accumulated response to the session history
-                // Note: The user message was already added by send_message_stream
-                // We need to manually add the assistant response to maintain conversation context
-                if !full_response.is_empty() {
-                    // We use send_message with Role::Assistant to add the response to history
-                    // This doesn't make an API call, just updates the session
-                    let _ = session
-                        .send_message(Role::Assistant, full_response.clone(), None)
-                        .await;
+                // Commit the assembled reply. Do NOT call send_message here —
+                // that would fire a second completion against the provider.
+                let usage = acc.usage();
+                let reply = acc.into_message();
+                if reply.content.is_empty() && reply.tool_calls.is_empty() {
+                    session.rollback_last_message();
+                } else {
+                    session.commit_streamed_reply(reply, usage).await;
                 }
 
                 // Display token usage if available
