@@ -8,11 +8,11 @@ All examples use `cargo run --example <name>` and can run with placeholder API k
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
-### Pac-Man — RALPH Mode (OpenRouter / DeepSeek V4 Flash)
-**File**: `pacman_game_ralph_deepseek_v4_flash.rs` ⭐ **FEATURED**
+### Pac-Man — RALPH Mode (OpenRouter / DeepSeek V4 Pro)
+**File**: `pacman_game_ralph_deepseek_v4_pro.rs` ⭐ **FEATURED**
 
 Complete 18-task classic Pac-Man build via RALPH, driven by OpenRouter
-`deepseek/deepseek-v4-flash-0731`.
+`deepseek/deepseek-v4-pro-0813` (V4 Pro GA snapshot). Flash 0731 was too weak for this harness.
 
 **Spec-only harness** — the Rust example ships **no game implementation**, only PRD tasks,
 system context, and acceptance criteria. Agents author the full page from scratch
@@ -26,15 +26,15 @@ system context, and acceptance criteria. Agents author the full page from scratc
   Inky flank via Blinky, Clyde shy 8-tile rule; scatter/chase cycles; frightened/eaten house return
 - Playability specs in prose: fixed-rate simulation, moderate pacing, board safety, audible SFX
 - Read-Modify-Write via session Memory + `write_game_file` (also logs MentisDB snapshots)
-- OpenRouter client with DeepSeek V4 Flash (0731 snapshot, **1M** context via `with_max_tokens`)
+- OpenRouter client with DeepSeek V4 Pro 0813 (**1M** context via `with_max_tokens`)
 
 **Setup**:
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
-cargo run --example pacman_game_ralph_deepseek_v4_flash
+cargo run --example pacman_game_ralph_deepseek_v4_pro
 ```
 
-**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_deepseek_v4_flash.html`
+**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_deepseek_v4_pro.html`
 
 ---
 
@@ -559,7 +559,7 @@ cargo build --examples
 | `ANTHROPIC_API_KEY` | Claude models | breakout_game_ralph, breakout_game_agent_teams, digimon_vs_pokemon_debate, anthropic_teams |
 | `GROK_API_KEY` | Grok models | agent_panel_with_moderator_and_access_to_tools, interactive_session |
 | `GEMINI_API_KEY` | Google Gemini | (optional, if enabled) |
-| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph_deepseek_v4_flash |
+| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph_deepseek_v4_pro |
 | `XAI_API_KEY` | xAI Grok | pacman_game_ralph_grok_4_6, interactive_session, … |
 | `RUST_LOG` | All examples | Set to debug, info, or trace for logging |
 

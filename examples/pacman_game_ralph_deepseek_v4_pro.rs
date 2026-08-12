@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates the RALPH (autonomous iterative loop) orchestration mode
 //! by having multiple specialized agents collaborate to **implement from scratch** a
-//! complete Pac-Man game in a single `pacman_game_ralph_deepseek_v4_flash.html` file.
+//! complete Pac-Man game in a single `pacman_game_ralph_deepseek_v4_pro.html` file.
 //!
 //! **Important:** this file is a **pure PRD / prompt harness**. It contains no game
 //! source (no HTML, CSS, or JavaScript samples) — only product requirements, task
@@ -20,7 +20,7 @@
 //! - **MentisDB durable memory** on the shared `cloudllm` chain (agent thoughts + run log)
 //! - **Session Memory tool**: short-lived key/value coordination for the game page (`current_game_html`)
 //! - **write_game_file**: custom tool that writes the game page to disk, session Memory, and MentisDB
-//! - **OpenRouter + DeepSeek V4 Flash 0731**: cost-efficient coding model via OpenRouter
+//! - **OpenRouter + DeepSeek V4 Pro 0813**: frontier coding/agent model via OpenRouter
 //!
 //! ## Agents
 //!
@@ -39,12 +39,12 @@
 //!
 //! ```bash
 //! export OPENROUTER_API_KEY=sk-or-...
-//! cargo run --example pacman_game_ralph_deepseek_v4_flash
+//! cargo run --example pacman_game_ralph_deepseek_v4_pro
 //! ```
 //!
 //! MentisDB chain key defaults to `cloudllm` under `mentisdbs/` (override with
 //! `MENTISDB_DIR` / `MENTISDB_CHAIN_KEY`). Agents write the playable page to
-//! `pacman_game_ralph_deepseek_v4_flash.html` in the current directory.
+//! `pacman_game_ralph_deepseek_v4_pro.html` in the current directory.
 
 use async_trait::async_trait;
 use cloudllm::clients::openrouter::{Model as OpenRouterModel, OpenRouterClient};
@@ -67,10 +67,10 @@ use tokio::sync::RwLock;
 const MENTISDB_CHAIN_KEY: &str = "cloudllm";
 
 /// Canonical playable deliverable written by agents and recovered at end-of-run.
-const OUTPUT_HTML: &str = "pacman_game_ralph_deepseek_v4_flash.html";
+const OUTPUT_HTML: &str = "pacman_game_ralph_deepseek_v4_pro.html";
 
 /// Session Memory key holding the latest full game page source.
-const MEMORY_GAME_KEY: &str = "current_game_html_deepseek_v4_flash";
+const MEMORY_GAME_KEY: &str = "current_game_html_deepseek_v4_pro";
 
 // ── Event Handler ──────────────────────────────────────────────────────────
 
@@ -314,14 +314,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(key) => key,
         Err(_) => {
             eprintln!("\n❌ Error: OPENROUTER_API_KEY environment variable is not set.");
-            eprintln!("\nThis example requires an OpenRouter API key for DeepSeek V4 Flash.");
+            eprintln!("\nThis example requires an OpenRouter API key for DeepSeek V4 Pro 0813.");
             eprintln!("\nTo fix this:");
             eprintln!("  1. Get your API key from https://openrouter.ai/keys");
             eprintln!("  2. Set the environment variable:");
             eprintln!("     export OPENROUTER_API_KEY=sk-or-...");
             eprintln!("  3. Run the example again:");
             eprintln!("     cargo run --example pacman_game_ralph");
-            eprintln!("\nModel: deepseek/deepseek-v4-flash-0731 via OpenRouter");
+            eprintln!("\nModel: deepseek/deepseek-v4-pro-0813 via OpenRouter");
             eprintln!("Expected runtime: 20-45 minutes (10 iterations × 4 agents)\n");
             std::process::exit(1);
         }
@@ -330,7 +330,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n{}", "=".repeat(80));
     println!("  RALPH Orchestration Mode — Classic Pac-Man Game Builder");
     println!("  Provider: OpenRouter");
-    println!("  Model:    deepseek/deepseek-v4-flash-0731 (DeepSeek V4 Flash, 1M ctx)");
+    println!("  Model:    deepseek/deepseek-v4-pro-0813 (DeepSeek V4 Pro 0813, 1M ctx)");
     println!("{}\n", "=".repeat(80));
 
     // Never keep a stale deliverable from a previous run.
@@ -357,7 +357,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ThoughtType::Plan,
             "Pac-Man RALPH run starting: four agents will implement a full classic Pac-Man page \
              from pure PRD specifications (no starter game source). Deliverable: \
-             pacman_game_ralph_deepseek_v4_flash.html. Non-negotiables: fixed-rate simulation, moderate pacing, \
+             pacman_game_ralph_deepseek_v4_pro.html. Non-negotiables: fixed-rate simulation, moderate pacing, \
              Pac-Man never leaves the board, audible SFX after user input, restart without reload.",
         )?;
         db.append(
@@ -392,14 +392,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ToolMetadata::new(
                 "write_game_file",
                 "MANDATORY deliverable tool. Write the COMPLETE playable game page to \
-                 pacman_game_ralph_deepseek_v4_flash.html on disk, session Memory (current_game_html), and a \
+                 pacman_game_ralph_deepseek_v4_pro.html on disk, session Memory (current_game_html), and a \
                  MentisDB checkpoint. Call this every time you produce or update the game — \
                  a finished run without this file is a failed run. Content must be a full \
                  self-contained web page (not a snippet).",
             )
             .with_parameter(
                 ToolParameter::new("filename", ToolParameterType::String).with_description(
-                    "Ignored for path selection; the harness always writes pacman_game_ralph_deepseek_v4_flash.html",
+                    "Ignored for path selection; the harness always writes pacman_game_ralph_deepseek_v4_pro.html",
                 ),
             )
             .with_parameter(
@@ -476,12 +476,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     shared_registry.add_protocol("http", http_protocol).await?;
     let shared_registry = Arc::new(RwLock::new(shared_registry));
 
-    // ── Agents (OpenRouter + DeepSeek V4 Flash 0731) ────────────────────────
+    // ── Agents (OpenRouter + DeepSeek V4 Pro 0813) ────────────────────────
 
     let make_client = || {
         Arc::new(OpenRouterClient::new_with_model_enum(
             &api_key,
-            OpenRouterModel::DeepSeekV4Flash,
+            OpenRouterModel::DeepSeekV4Pro0813,
         ))
     };
 
@@ -696,7 +696,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 You are on a multi-agent team building a complete classic Pac-Man game from a product \
 specification only. There is no starter implementation. You must design and implement the \
 entire playable game yourselves and deliver it as one self-contained web page file named \
-pacman_game_ralph_deepseek_v4_flash.html (all presentation and behavior inline; no external libraries, fonts, \
+pacman_game_ralph_deepseek_v4_pro.html (all presentation and behavior inline; no external libraries, fonts, \
 or assets).\n\n\
 \
 ## Memory architecture\n\
@@ -708,7 +708,7 @@ so teammates can read/modify/write within this run. Prefer this for coordinating
 - write_game_file always updates disk, session Memory, and a MentisDB snapshot note.\n\n\
 \
 ## Deliverable (non-negotiable)\n\
-A single offline-playable page named pacman_game_ralph_deepseek_v4_flash.html that a human can open in a browser \
+A single offline-playable page named pacman_game_ralph_deepseek_v4_pro.html that a human can open in a browser \
 and play immediately. Every productive turn MUST call write_game_file with the complete page. \
 Also keep the same content in session Memory under current_game_html. A run that ends without \
 a valid game page on disk is a failed run.\n\n\
@@ -762,7 +762,7 @@ input is a failed deliverable.\n\n\
 \
 ## Tools\n\
 - Memory: read, write, and list session keys (especially current_game_html).\n\
-- write_game_file: write the complete game page to pacman_game_ralph_deepseek_v4_flash.html and session Memory; \
+- write_game_file: write the complete game page to pacman_game_ralph_deepseek_v4_pro.html and session Memory; \
 the harness also records a MentisDB snapshot on the project chain.\n\
 - Shell tools if needed for local checks.\n";
 
@@ -775,7 +775,7 @@ the harness also records a MentisDB snapshot on the project chain.\n\
                 max_iterations: 10,
             })
             .with_system_context(system_context)
-            // DeepSeek V4 Flash 0731 supports ~1M context on OpenRouter; apply via
+            // DeepSeek V4 Pro 0813 supports ~1M context on OpenRouter; apply via
             // Orchestration::with_max_tokens so add_agent sets each LLMSession budget.
             .with_max_tokens(1_000_000)
             .with_event_handler(event_handler);
@@ -799,11 +799,11 @@ outside blanks and the house door are solid for Pac-Man; space or click restarts
 without reloading; audible sounds for pellets, power pellets, eating ghosts, and death after the \
 first user input.\n\n\
 Every turn that advances the game MUST call write_game_file with the complete page so \
-pacman_game_ralph_deepseek_v4_flash.html exists on disk. Coordinate through Memory key current_game_html. \
+pacman_game_ralph_deepseek_v4_pro.html exists on disk. Coordinate through Memory key current_game_html. \
 Complete as many PRD tasks as you can each turn. Leaving no playable file is unacceptable.";
 
     println!("Starting RALPH orchestration with 4 agents and 18 PRD tasks...\n");
-    println!("Model: deepseek/deepseek-v4-flash-0731 via OpenRouter (1M context budget)\n");
+    println!("Model: deepseek/deepseek-v4-pro-0813 via OpenRouter (1M context budget)\n");
 
     let start = Instant::now();
     let response = orchestration.run(prompt, 1).await?;
@@ -984,7 +984,7 @@ fn extract_html(text: &str) -> String {
     normalized[start..end].to_string()
 }
 
-/// Ensure `pacman_game_ralph_deepseek_v4_flash.html` exists with a valid game page.
+/// Ensure `pacman_game_ralph_deepseek_v4_pro.html` exists with a valid game page.
 ///
 /// Recovery order:
 /// 1. Disk file already written by `write_game_file` during the run
