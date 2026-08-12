@@ -23,11 +23,12 @@
 //! ```
 //!
 //! **Note**: This example takes 2-5 minutes to complete as it makes sequential API calls
-//! to 5 different agents across multiple debate rounds. The Orchestration API does not currently
-//! support streaming or real-time progress updates during execution.
+//! to 5 different agents across multiple debate rounds. `LiveConsoleHandler` prints
+//! heartbeats and streamed reasoning so stdout is never silent.
 
 use chrono::{Duration, Utc};
 use cloudllm::clients::grok::{GrokClient, Model as GrokModel};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode},
     Agent,
@@ -152,6 +153,7 @@ async fn main() -> Result<(), Box<dyn StdError>> {
         "venezuela-orchestration",
         "Venezuela Strategy Orchestration",
     )
+    .with_event_handler(Arc::new(LiveConsoleHandler::new()))
     .with_mode(OrchestrationMode::Debate {
         max_rounds: 3,                     // Reduced from 5 for faster testing
         convergence_threshold: Some(0.65), // 65% similarity to converge
