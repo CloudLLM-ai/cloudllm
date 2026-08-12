@@ -81,12 +81,12 @@ use cloudllm::clients::claude::{ClaudeClient, Model};
 use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
 use cloudllm::tool_protocols::{
-    BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
+    BashProtocol, CustomToolProtocol, HttpClientProtocol, MentisDbMemoryProtocol,
 };
-use cloudllm::tools::{BashTool, HttpClient, Memory, Platform};
+use cloudllm::tools::{BashTool, HttpClient, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, WorkItem},
-    Agent,
+    Agent, ThoughtType,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -100,6 +100,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("    Breakout Game — AnthropicAgentTeams (Decentralized Task Coordination)");
     println!("════════════════════════════════════════════════════════════════════════════════");
     LiveConsoleHandler::print_env_knobs();
+
+    let mentis = LiveConsoleHandler::open_embedded_mentisdb("cloudllm")?;
+    {
+        let mut db = mentis.db.write().await;
+        db.append(
+            "breakout-teams",
+            ThoughtType::Plan,
+            "Breakout AnthropicAgentTeams run starting (embedded MentisDB, no daemon).",
+        )?;
+    }
 
     // ── Task Pool ───────────────────────────────────────────────────────────────
 
@@ -246,8 +256,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // - Memory: For task pool coordination (teams:<pool_id>:*)
     // - Custom Tools: write_game_file for saving game to disk
 
-    let memory = Arc::new(Memory::new());
-    let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
+    let memory_protocol = Arc::new(MentisDbMemoryProtocol::new(
+        mentis.db.clone(),
+        "breakout-teams",
+    ));
 
     // ── Seed starter HTML skeleton ─────────────────────────────────────────
     let starter_html = r#"<!DOCTYPE html>
@@ -355,18 +367,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Write starter to disk and Memory so agents can build on it
     std::fs::write("breakout_game_agent_teams.html", starter_html)?;
-    memory.put(
-        "current_game_html".to_string(),
-        starter_html.to_string(),
-        None,
-    );
+    memory_protocol
+        .put_value("current_game_html", starter_html)
+        .await?;
     println!(
         "📄 Starter HTML written to disk and Memory ({} bytes)\n",
         starter_html.len()
     );
 
     // Set up custom tools (write_game_file) — also updates Memory
-    let memory_for_tool = memory.clone();
+    let memory_for_tool = memory_protocol.clone();
     let custom_protocol = Arc::new(CustomToolProtocol::new());
     custom_protocol
         .register_tool(
@@ -399,7 +409,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let bytes = content.len();
                 std::fs::write(&filename, &content)?;
                 // Also store in Memory so other agents can read the latest version
-                memory_for_tool.put("current_game_html".to_string(), content, None);
+                memory_for_tool.put_value_sync("current_game_html", &content);
                 Ok(cloudllm::tool_protocol::ToolResult::success(
                     serde_json::json!({"written": filename, "bytes": bytes, "also_saved_to_memory": "current_game_html"}),
                 ))
@@ -425,7 +435,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create shared tool registry with all protocols
     let mut shared_registry = ToolRegistry::empty();
     shared_registry
-        .add_protocol("memory", memory_protocol)
+        .add_protocol("memory", memory_protocol.clone())
         .await?;
     shared_registry
         .add_protocol("custom", custom_protocol)
@@ -467,7 +477,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_personality(
             "Meticulous front-end architect who produces clean, well-structured HTML/CSS.",
         )
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let core_engineer = Agent::new(
         "core-engineer",
@@ -476,7 +487,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )
     .with_expertise("JavaScript game mechanics, physics, collision detection, rendering")
     .with_personality("Seasoned game developer who writes tight, performant JavaScript.")
-    .with_shared_tools(shared_registry.clone());
+    .with_shared_tools(shared_registry.clone())
+    .with_mentisdb(mentis.db.clone());
 
     let audio_engineer = Agent::new(
         "audio-engineer",
@@ -485,7 +497,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )
     .with_expertise("Web Audio API, chiptune synthesis, oscillator-based sound effects")
     .with_personality("Retro audio enthusiast who crafts authentic Atari 2600-era sounds.")
-    .with_shared_tools(shared_registry.clone());
+    .with_shared_tools(shared_registry.clone())
+    .with_mentisdb(mentis.db.clone());
 
     let features_engineer = Agent::new(
         "features-engineer",
@@ -494,7 +507,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     )
     .with_expertise("Game powerup systems, spawn logic, timed effects, animations")
     .with_personality("Creative gameplay engineer who designs fun and balanced mechanics.")
-    .with_shared_tools(shared_registry.clone());
+    .with_shared_tools(shared_registry.clone())
+    .with_mentisdb(mentis.db.clone());
 
     // ── Orchestration ───────────────────────────────────────────────────────────
 
@@ -537,7 +551,7 @@ Memory Task Pool Keys:\n\
     for task in &tasks {
         let key = format!("teams:{}:unclaimed:{}", pool_id, task.id);
         let value = format!("{} — {}", task.description, task.acceptance_criteria);
-        memory.put(key, value, None);
+        memory_protocol.put_value(&key, &value).await?;
     }
     println!(
         "📦 Pre-populated Memory with {} tasks (pool: {})\n",
@@ -632,13 +646,13 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
     }
 
     // ── Memory Dump ────────────────────────────────────────────────────────
-    let keys = memory.list_keys();
+    let keys = memory_protocol.list_keys();
     if !keys.is_empty() {
         println!("\n{}", "-".repeat(80));
-        println!("  Shared Memory ({} entries)", keys.len());
+        println!("  MentisDB memory ({} keys)", keys.len());
         println!("{}", "-".repeat(80));
         for key in &keys {
-            if let Some((value, _)) = memory.get(key, false) {
+            if let Some(value) = memory_protocol.get_value(key) {
                 let preview_len = 120.min(value.len());
                 let preview_end = value
                     .char_indices()
@@ -649,7 +663,7 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
             }
         }
     } else {
-        println!("\n  Memory is empty (all tasks may have been cleared by agents).");
+        println!("\n  MentisDB memory is empty (all tasks may have been cleared by agents).");
     }
 
     // ── Final HTML ─────────────────────────────────────────────────────────
@@ -657,7 +671,7 @@ via Memory to avoid conflicts. When complete, write the final game to breakout_g
     // Check Memory for the latest version first, then fall back to disk,
     // then fall back to extracting from messages.
 
-    let final_html = if let Some((mem_html, _)) = memory.get("current_game_html", false) {
+    let final_html = if let Some(mem_html) = memory_protocol.get_value("current_game_html") {
         if mem_html.len() > 1000 && mem_html.contains("<canvas") {
             // Memory has the latest version (written by write_game_file tool)
             let unescaped = mem_html
