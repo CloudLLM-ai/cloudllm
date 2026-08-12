@@ -10,6 +10,7 @@
 //! enabling sophisticated coordination patterns.
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocols::MemoryProtocol;
 use cloudllm::tools::Memory;
@@ -62,6 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create an orchestration with these agents
     let mut orchestration = Orchestration::new("decision-orchestration", "Strategic Decision Orchestration")
+        .with_event_handler(Arc::new(LiveConsoleHandler::new()))
         .with_mode(OrchestrationMode::RoundRobin)
         .with_system_context(
             "You are part of an orchestration making strategic decisions. \
