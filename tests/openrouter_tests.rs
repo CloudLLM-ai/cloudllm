@@ -82,9 +82,29 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::ClaudeOpus5Fast, "anthropic/claude-opus-5-fast"),
         (Model::ClaudeOpus48Fast, "anthropic/claude-opus-4.8-fast"),
         (Model::ClaudeOpus47Fast, "anthropic/claude-opus-4.7-fast"),
+        (Model::DeepSeekV4Pro0813, "deepseek/deepseek-v4-pro-0813"),
+        (
+            Model::DeepSeekV4FlashLatest,
+            "deepseek/deepseek-v4-flash-latest",
+        ),
+        (Model::Gemini36Flash, "google/gemini-3.6-flash"),
+        (Model::Gemini35FlashLite, "google/gemini-3.5-flash-lite"),
+        (Model::GPT56Sol, "openai/gpt-5.6-sol"),
+        (Model::GPT56Terra, "openai/gpt-5.6-terra"),
+        (Model::GPT56Luna, "openai/gpt-5.6-luna"),
+        (Model::Grok45, "x-ai/grok-4.5"),
+        (Model::ZAiGlm52, "z-ai/glm-5.2"),
+        (Model::KimiK27Code, "moonshotai/kimi-k2.7-code"),
+        (Model::Qwen37Flash, "qwen/qwen3.7-flash"),
+        (
+            Model::NvidiaNemotron35Lightning,
+            "nvidia/nemotron-3.5-lightning",
+        ),
+        (Model::MetaMuseGlimmer30B, "meta/muse-glimmer-30b"),
+        (Model::ByteDanceSeed20Code, "bytedance-seed/seed-2.0-code"),
     ];
 
-    assert_eq!(expected.len(), 61, "test fixture must cover every variant");
+    assert_eq!(expected.len(), 75, "test fixture must cover every variant");
 
     for (variant, slug) in expected {
         assert_eq!(model_to_string(*variant), *slug);

@@ -237,6 +237,34 @@ pub enum Model {
     ClaudeOpus48Fast,
     /// `anthropic/claude-opus-4.7-fast` – Anthropic Claude Opus 4.7 (fast tier).
     ClaudeOpus47Fast,
+    /// `deepseek/deepseek-v4-pro-0813` – DeepSeek V4 Pro GA snapshot (2026-08-13); 1M ctx.
+    DeepSeekV4Pro0813,
+    /// `deepseek/deepseek-v4-flash-latest` – rolling latest DeepSeek V4 Flash.
+    DeepSeekV4FlashLatest,
+    /// `google/gemini-3.6-flash` – Gemini 3.6 Flash workhorse (Jul 2026); 1M ctx.
+    Gemini36Flash,
+    /// `google/gemini-3.5-flash-lite` – Gemini 3.5 Flash Lite.
+    Gemini35FlashLite,
+    /// `openai/gpt-5.6-sol` – OpenAI GPT-5.6 Sol flagship via OpenRouter.
+    GPT56Sol,
+    /// `openai/gpt-5.6-terra` – OpenAI GPT-5.6 Terra via OpenRouter.
+    GPT56Terra,
+    /// `openai/gpt-5.6-luna` – OpenAI GPT-5.6 Luna via OpenRouter.
+    GPT56Luna,
+    /// `x-ai/grok-4.5` – SpaceXAI Grok 4.5 via OpenRouter.
+    Grok45,
+    /// `z-ai/glm-5.2` – Z.ai GLM 5.2 (open-weight coding/agentic).
+    ZAiGlm52,
+    /// `moonshotai/kimi-k2.7-code` – Moonshot Kimi K2.7 Code.
+    KimiK27Code,
+    /// `qwen/qwen3.7-flash` – Qwen 3.7 Flash.
+    Qwen37Flash,
+    /// `nvidia/nemotron-3.5-lightning` – NVIDIA Nemotron 3.5 Lightning.
+    NvidiaNemotron35Lightning,
+    /// `meta/muse-glimmer-30b` – Meta Muse Glimmer 30B (open-weight agentic).
+    MetaMuseGlimmer30B,
+    /// `bytedance-seed/seed-2.0-code` – ByteDance Seed 2.0 Code (Aug 2026).
+    ByteDanceSeed20Code,
 }
 
 /// Convert a [`Model`] variant into its OpenRouter `vendor/model` slug.
@@ -303,6 +331,20 @@ pub fn model_to_string(model: Model) -> String {
         Model::ClaudeOpus5Fast => "anthropic/claude-opus-5-fast".to_string(),
         Model::ClaudeOpus48Fast => "anthropic/claude-opus-4.8-fast".to_string(),
         Model::ClaudeOpus47Fast => "anthropic/claude-opus-4.7-fast".to_string(),
+        Model::DeepSeekV4Pro0813 => "deepseek/deepseek-v4-pro-0813".to_string(),
+        Model::DeepSeekV4FlashLatest => "deepseek/deepseek-v4-flash-latest".to_string(),
+        Model::Gemini36Flash => "google/gemini-3.6-flash".to_string(),
+        Model::Gemini35FlashLite => "google/gemini-3.5-flash-lite".to_string(),
+        Model::GPT56Sol => "openai/gpt-5.6-sol".to_string(),
+        Model::GPT56Terra => "openai/gpt-5.6-terra".to_string(),
+        Model::GPT56Luna => "openai/gpt-5.6-luna".to_string(),
+        Model::Grok45 => "x-ai/grok-4.5".to_string(),
+        Model::ZAiGlm52 => "z-ai/glm-5.2".to_string(),
+        Model::KimiK27Code => "moonshotai/kimi-k2.7-code".to_string(),
+        Model::Qwen37Flash => "qwen/qwen3.7-flash".to_string(),
+        Model::NvidiaNemotron35Lightning => "nvidia/nemotron-3.5-lightning".to_string(),
+        Model::MetaMuseGlimmer30B => "meta/muse-glimmer-30b".to_string(),
+        Model::ByteDanceSeed20Code => "bytedance-seed/seed-2.0-code".to_string(),
     }
 }
 
