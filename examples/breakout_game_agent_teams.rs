@@ -77,9 +77,8 @@
 //!
 //! The example writes the assembled game to `breakout_game.html` in the current directory.
 
-use async_trait::async_trait;
 use cloudllm::clients::claude::{ClaudeClient, Model};
-use cloudllm::event::{AgentEvent, EventHandler, OrchestrationEvent};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
 use cloudllm::tool_protocols::{
     BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
@@ -93,231 +92,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
-// ── Event Handler ──────────────────────────────────────────────────────────
-
-/// Pretty-prints orchestration and agent events in real-time.
-///
-/// Displays task claims, completions, and failures as they happen, providing
-/// a live progress view of the decentralized task coordination.
-struct TeamsEventHandler {
-    start: Instant,
-}
-
-impl TeamsEventHandler {
-    fn new() -> Self {
-        Self {
-            start: Instant::now(),
-        }
-    }
-
-    fn elapsed_str(&self) -> String {
-        let secs = self.start.elapsed().as_secs();
-        format!("{:02}:{:02}", secs / 60, secs % 60)
-    }
-}
-
-#[async_trait]
-impl EventHandler for TeamsEventHandler {
-    async fn on_agent_event(&self, event: &AgentEvent) {
-        match event {
-            AgentEvent::SendStarted {
-                agent_name,
-                message_preview,
-                ..
-            } => {
-                let preview_len = 60.min(message_preview.len());
-                let preview_end = message_preview
-                    .char_indices()
-                    .nth(preview_len)
-                    .map(|(i, _)| i)
-                    .unwrap_or(message_preview.len());
-                println!(
-                    "  [{}] >> {} thinking... ({}...)",
-                    self.elapsed_str(),
-                    agent_name,
-                    &message_preview[..preview_end]
-                );
-            }
-            AgentEvent::SendCompleted {
-                agent_name,
-                response_length,
-                tokens_used,
-                tool_calls_made,
-                ..
-            } => {
-                let tokens = tokens_used.as_ref().map(|u| u.total_tokens).unwrap_or(0);
-                println!(
-                    "  [{}] << {} responded ({} chars, {} tokens, {} tool calls)",
-                    self.elapsed_str(),
-                    agent_name,
-                    response_length,
-                    tokens,
-                    tool_calls_made
-                );
-            }
-            AgentEvent::ToolCallDetected {
-                agent_name,
-                tool_name,
-                parameters,
-                ..
-            } => {
-                let params_str = serde_json::to_string(parameters).unwrap_or_default();
-                println!(
-                    "  [{}]      └─ {} calling tool '{}' | params={}",
-                    self.elapsed_str(),
-                    agent_name,
-                    tool_name,
-                    if params_str.len() > 300 {
-                        format!("{}...", &params_str[..300])
-                    } else {
-                        params_str
-                    }
-                );
-            }
-            AgentEvent::ToolExecutionCompleted {
-                agent_name,
-                tool_name,
-                parameters,
-                success,
-                error,
-                result,
-                ..
-            } => {
-                if *success {
-                    let result_preview = result
-                        .as_ref()
-                        .map(|r| {
-                            let s = serde_json::to_string(r).unwrap_or_default();
-                            if s.len() > 200 {
-                                format!("{}...", &s[..200])
-                            } else {
-                                s
-                            }
-                        })
-                        .unwrap_or_default();
-                    println!(
-                        "  [{}]      └─ {} tool '{}' ✓ → {}",
-                        self.elapsed_str(),
-                        agent_name,
-                        tool_name,
-                        result_preview
-                    );
-                } else {
-                    let params_str = serde_json::to_string(parameters).unwrap_or_default();
-                    println!(
-                        "  [{}]      └─ {} tool '{}' ✗ {} | params={}",
-                        self.elapsed_str(),
-                        agent_name,
-                        tool_name,
-                        error.as_deref().unwrap_or("unknown error"),
-                        params_str
-                    );
-                }
-            }
-            AgentEvent::LLMCallStarted { agent_name, .. } => {
-                println!(
-                    "  [{}]    {} sending to LLM...",
-                    self.elapsed_str(),
-                    agent_name
-                );
-            }
-            AgentEvent::LLMCallCompleted {
-                agent_name,
-                tokens_used,
-                response_length,
-                ..
-            } => {
-                let tokens = tokens_used
-                    .as_ref()
-                    .map(|u| format!("{}", u.total_tokens))
-                    .unwrap_or_else(|| "?".to_string());
-                println!(
-                    "  [{}]    {} LLM complete ({} chars, {} tokens)",
-                    self.elapsed_str(),
-                    agent_name,
-                    response_length,
-                    tokens
-                );
-            }
-            _ => {}
-        }
-    }
-
-    async fn on_orchestration_event(&self, event: &OrchestrationEvent) {
-        match event {
-            OrchestrationEvent::RunStarted {
-                orchestration_id: _,
-                orchestration_name,
-                mode,
-                agent_count,
-            } => {
-                println!(
-                    "\n🚀 {} — {} mode with {} agents",
-                    orchestration_name, mode, agent_count
-                );
-            }
-            OrchestrationEvent::RoundStarted {
-                orchestration_id: _,
-                round,
-            } => {
-                println!("\n📍 Iteration {} [{}]", round, self.elapsed_str());
-            }
-            OrchestrationEvent::AgentSelected {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                reason,
-            } => {
-                println!("  → {} ({})", agent_name, reason);
-            }
-            OrchestrationEvent::TaskClaimed {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                task_id,
-            } => {
-                println!("    ✋ {} claimed: {}", agent_name, task_id);
-            }
-            OrchestrationEvent::TaskCompleted {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                task_id,
-                result: _,
-            } => {
-                println!("    ✅ {} completed: {}", agent_name, task_id);
-            }
-            OrchestrationEvent::TaskFailed {
-                orchestration_id: _,
-                agent_id: _,
-                agent_name,
-                task_id,
-                error,
-            } => {
-                println!("    ❌ {} failed on {}: {}", agent_name, task_id, error);
-            }
-            OrchestrationEvent::RoundCompleted { .. } => {
-                // Less verbose
-            }
-            OrchestrationEvent::RunCompleted {
-                orchestration_id: _,
-                orchestration_name: _,
-                rounds,
-                total_tokens,
-                is_complete,
-            } => {
-                println!(
-                    "\n✨ Run completed in {} iterations, {} tokens, complete={}",
-                    rounds, total_tokens, is_complete
-                );
-            }
-            _ => {}
-        }
-    }
-}
-
-// ── Memory Setup Helper ────────────────────────────────────────────────────
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -325,6 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("════════════════════════════════════════════════════════════════════════════════");
     println!("    Breakout Game — AnthropicAgentTeams (Decentralized Task Coordination)");
     println!("════════════════════════════════════════════════════════════════════════════════");
+    LiveConsoleHandler::print_env_knobs();
 
     // ── Task Pool ───────────────────────────────────────────────────────────────
 
@@ -770,7 +545,7 @@ Memory Task Pool Keys:\n\
         pool_id
     );
 
-    let event_handler = Arc::new(TeamsEventHandler::new());
+    let event_handler = Arc::new(LiveConsoleHandler::new());
 
     let mut orchestration = Orchestration::new(
         "breakout-builder-teams",
