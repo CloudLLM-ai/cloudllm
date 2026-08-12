@@ -1,4 +1,13 @@
 0.15.13 (unreleased)
+  - fix(http): Chat Completions no longer die at 300s; retry transport blips
+    Grok/DeepSeek reasoning regularly exceeds the pooled client's 5-minute
+    timeout (`error sending request for url (.../chat/completions)`). Native
+    tools + SSE now use a long-running client and retry 429/5xx/reset.
+  - feat: MentisDbMemoryProtocol — durable `memory` tool (same G/P/L commands)
+  - feat(example): RALPH/Breakout/Tetris use MentisDB as the memory tool
+    (no in-process HashMap Memory)
+  - feat(example): RALPH/Breakout/Tetris open embedded MentisDB (no daemon);
+    abort before any LLM call if the local chain cannot be opened
   - feat(example): Pac-Man + Breakout RALPH banners print live-console env knobs
   - feat: live LLM observability — stream reasoning/content + heartbeats
     `Agent::send` / planner turns consume provider SSE when available
