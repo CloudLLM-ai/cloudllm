@@ -110,6 +110,12 @@ pub struct GeminiClient {
 /// Every variant maps 1:1 to the hyphenated model name that the API expects.  Use
 /// [`model_to_string`] when you need the string literal.
 pub enum Model {
+    /// `gemini-3.6-flash` – Gemini 3.6 Flash workhorse (Jul 2026); 1M context.
+    Gemini36Flash,
+    /// `gemini-3.5-flash` – Gemini 3.5 Flash.
+    Gemini35Flash,
+    /// `gemini-3.5-flash-lite` – Gemini 3.5 Flash Lite.
+    Gemini35FlashLite,
     /// `gemini-2.5-pro-latest` – latest stable alias for Gemini 2.5 Pro.
     Gemini25ProLatest,
     /// `gemini-2.5-pro` – high-capability reasoning and coding model.
@@ -296,6 +302,9 @@ pub enum Model {
 #[allow(deprecated)]
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::Gemini36Flash => "gemini-3.6-flash".to_string(),
+        Model::Gemini35Flash => "gemini-3.5-flash".to_string(),
+        Model::Gemini35FlashLite => "gemini-3.5-flash-lite".to_string(),
         Model::Gemini25ProLatest => "gemini-2.5-pro-latest".to_string(),
         Model::Gemini25Pro => "gemini-2.5-pro".to_string(),
         Model::Gemini25FlashLatest => "gemini-2.5-flash-latest".to_string(),

@@ -1,4 +1,12 @@
 0.15.11 AUG/05/2026 (performance pass — not published)
+  - feat(openrouter): Aug 2026 frontier models (enum 61 → 75)
+    - [ADDED] `DeepSeekV4Pro0813` → `deepseek/deepseek-v4-pro-0813` (GA 2026-08-12)
+    - [ADDED] `DeepSeekV4FlashLatest` → `deepseek/deepseek-v4-flash-latest`
+    - [ADDED] `Gemini36Flash` / `Gemini35FlashLite`
+    - [ADDED] `GPT56Sol` / `GPT56Terra` / `GPT56Luna`
+    - [ADDED] `Grok45`, `ZAiGlm52`, `KimiK27Code`, `Qwen37Flash`
+    - [ADDED] `NvidiaNemotron35Lightning`, `MetaMuseGlimmer30B`, `ByteDanceSeed20Code`
+  - feat(gemini): native `Gemini36Flash`, `Gemini35Flash`, `Gemini35FlashLite`
   - feat(grok): add `Model::Grok46` / `Grok46Latest` → `grok-4.6` / `grok-4.6-latest`
   - feat(openrouter): add `Model::Grok46` → `x-ai/grok-4.6`
   - feat(example): rename `pacman_game_ralph` → `pacman_game_ralph_deepseek_v4_flash`
