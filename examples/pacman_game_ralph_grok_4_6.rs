@@ -18,8 +18,8 @@
 //!
 //! - **LiveConsoleHandler**: heartbeats + dark-gray reasoning traces (no silent minutes)
 //! - **MentisDB durable memory** on the shared `cloudllm` chain (agent thoughts + run log)
-//! - **Session Memory tool**: short-lived key/value coordination for the game page (`current_game_html`)
-//! - **write_game_file**: custom tool that writes the game page to disk, session Memory, and MentisDB
+//! - **MentisDB `memory` tool**: durable key/value coordination for the game page (`current_game_html`)
+//! - **write_game_file**: custom tool that writes the game page to disk and MentisDB
 //! - **xAI Grok 4.6 (native GrokClient)**: flagship coding/agentic model via xAI API
 //!
 //! ## Agents
@@ -42,8 +42,9 @@
 //! cargo run --example pacman_game_ralph_grok_4_6
 //! ```
 //!
-//! MentisDB chain key defaults to `cloudllm` under `mentisdbs/` (override with
-//! `MENTISDB_DIR` / `MENTISDB_CHAIN_KEY`). Agents write the playable page to
+//! MentisDB is **embedded** (local files under `mentisdbs/`, no `mentisdbd`).
+//! Override with `MENTISDB_DIR` / `MENTISDB_CHAIN_KEY`. The run aborts if the
+//! chain cannot be opened. Agents write the playable page to
 //! `pacman_game_ralph_grok_4_6.html` in the current directory.
 //!
 //! Long runs print live progress (reasoning in dark gray, heartbeats while waiting).
@@ -54,12 +55,12 @@ use cloudllm::clients::grok::{GrokClient, Model as GrokModel};
 use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
 use cloudllm::tool_protocols::{
-    BashProtocol, CustomToolProtocol, HttpClientProtocol, MemoryProtocol,
+    BashProtocol, CustomToolProtocol, HttpClientProtocol, MentisDbMemoryProtocol,
 };
-use cloudllm::tools::{BashTool, HttpClient, Memory, Platform};
+use cloudllm::tools::{BashTool, HttpClient, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
-    Agent, CloudLLMConfig, MentisDb, ThoughtType,
+    Agent, ThoughtType,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -113,17 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("🗑️  Removed existing {OUTPUT_HTML} (fresh run)");
     }
 
-    // ── MentisDB durable memory (project chain: cloudllm) ───────────────────
-    let mentisdb_dir = std::env::var("MENTISDB_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| CloudLLMConfig::default().mentisdb_dir);
-    let chain_key =
-        std::env::var("MENTISDB_CHAIN_KEY").unwrap_or_else(|_| MENTISDB_CHAIN_KEY.to_string());
-    std::fs::create_dir_all(&mentisdb_dir)?;
-    let mentisdb = Arc::new(RwLock::new(MentisDb::open_with_key(
-        &mentisdb_dir,
-        &chain_key,
-    )?));
+    // ── MentisDB durable memory (embedded local files — no daemon) ──────────
+    let mentis = LiveConsoleHandler::open_embedded_mentisdb(MENTISDB_CHAIN_KEY)?;
+    let mentisdb = mentis.db.clone();
+    let chain_key = mentis.chain_key.clone();
     {
         let mut db = mentisdb.write().await;
         db.append(
@@ -143,21 +137,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
              restart without page reload.",
         )?;
     }
-    println!(
-        "🧠 MentisDB chain '{}' opened at {}",
-        chain_key,
-        mentisdb_dir.display()
-    );
 
-    // Session key/value Memory: agents coordinate the evolving game page here.
-    // MentisDB holds durable run history; this store is the working buffer.
-    let memory = Arc::new(Memory::new());
-    let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
-    memory.put(MEMORY_GAME_KEY.to_string(), String::new(), None);
+    // Durable working buffer: same `memory` tool commands, MentisDB underneath.
+    let memory_protocol = Arc::new(MentisDbMemoryProtocol::new(
+        mentisdb.clone(),
+        "pacman-builder",
+    ));
+    memory_protocol.put_value(MEMORY_GAME_KEY, "").await?;
     println!("📋 Spec-only PRD mode: agents implement the full game from requirements");
     println!("📄 Deliverable path: {OUTPUT_HTML} (must exist when the run finishes)\n");
 
-    let memory_for_tool = memory.clone();
+    let memory_for_tool = memory_protocol.clone();
     let mentisdb_for_tool = mentisdb.clone();
     let chain_key_for_tool = chain_key.clone();
     let custom_protocol = Arc::new(CustomToolProtocol::new());
@@ -166,8 +156,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ToolMetadata::new(
                 "write_game_file",
                 "MANDATORY deliverable tool. Write the COMPLETE playable game page to \
-                 pacman_game_ralph_grok_4_6.html on disk, session Memory (current_game_html), and a \
-                 MentisDB checkpoint. Call this every time you produce or update the game — \
+                 pacman_game_ralph_grok_4_6.html on disk and MentisDB (current_game_html). Call this \
+                 every time you produce or update the game — \
                  a finished run without this file is a failed run. Content must be a full \
                  self-contained web page (not a snippet).",
             )
@@ -200,7 +190,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     let filename = OUTPUT_HTML.to_string();
                     let bytes = content.len();
                     std::fs::write(&filename, &content)?;
-                    memory_for_tool.put(MEMORY_GAME_KEY.to_string(), content.clone(), None);
+                    memory_for_tool
+                        .put_value(MEMORY_GAME_KEY, &content)
+                        .await?;
                     {
                         let mut db = mentisdb_for_tool.write().await;
                         let note = format!(
@@ -241,7 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut shared_registry = ToolRegistry::empty();
     shared_registry
-        .add_protocol("memory", memory_protocol)
+        .add_protocol("memory", memory_protocol.clone())
         .await?;
     shared_registry
         .add_protocol("custom", custom_protocol)
@@ -663,13 +655,13 @@ Complete as many PRD tasks as you can each turn. Leaving no playable file is una
         );
     }
 
-    let keys = memory.list_keys();
+    let keys = memory_protocol.list_keys();
     if !keys.is_empty() {
         println!("\n{}", "-".repeat(80));
-        println!("  Shared Memory ({} entries)", keys.len());
+        println!("  MentisDB memory ({} keys)", keys.len());
         println!("{}", "-".repeat(80));
         for key in &keys {
-            if let Some((value, _)) = memory.get(key, false) {
+            if let Some(value) = memory_protocol.get_value(key) {
                 let preview_len = 120.min(value.len());
                 let preview_end = value
                     .char_indices()
@@ -687,7 +679,7 @@ Complete as many PRD tasks as you can each turn. Leaving no playable file is una
     }
 
     // Recover / ensure the deliverable no matter how agents cooperated.
-    let deliverable = ensure_game_deliverable(&memory, &response.messages)?;
+    let deliverable = ensure_game_deliverable(&memory_protocol, &response.messages)?;
 
     // Durable run summary on the MentisDB cloudllm chain
     {
@@ -798,12 +790,12 @@ fn extract_html(text: &str) -> String {
 ///
 /// Recovery order:
 /// 1. Disk file already written by `write_game_file` during the run
-/// 2. Session Memory `current_game_html`
+/// 2. MentisDB memory key `current_game_html`
 /// 3. Largest HTML document extractable from agent messages
 ///
 /// Returns the final page bytes, or an error if nothing usable was produced.
 fn ensure_game_deliverable(
-    memory: &Memory,
+    memory: &MentisDbMemoryProtocol,
     messages: &[cloudllm::orchestration::OrchestrationMessage],
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // 1) Prefer an on-disk file produced mid-run. Never delete a substantial
@@ -816,13 +808,13 @@ fn ensure_game_deliverable(
         }
     }
 
-    // 2) Session Memory working buffer.
-    if let Some((mem_html, _)) = memory.get(MEMORY_GAME_KEY, false) {
+    // 2) MentisDB working buffer.
+    if let Some(mem_html) = memory.get_value(MEMORY_GAME_KEY) {
         let page = normalize_page_source(&mem_html);
         if looks_like_game_page(&page) || page.len() > 2_000 {
             std::fs::write(OUTPUT_HTML, &page)?;
             println!(
-                "\n✅ Recovered {OUTPUT_HTML} from session Memory ({} bytes)",
+                "\n✅ Recovered {OUTPUT_HTML} from MentisDB memory ({} bytes)",
                 page.len()
             );
             return Ok(page);
@@ -853,14 +845,11 @@ fn ensure_game_deliverable(
     }
 
     // 4) Hard failure — do not pretend the game exists.
-    let mem_len = memory
-        .get(MEMORY_GAME_KEY, false)
-        .map(|(v, _)| v.len())
-        .unwrap_or(0);
+    let mem_len = memory.get_value(MEMORY_GAME_KEY).map(|v| v.len()).unwrap_or(0);
     Err(format!(
         "FATAL: {OUTPUT_HTML} was not produced.\n\
-         Agents never wrote a valid full game page via write_game_file, Memory, or messages.\n\
-         session Memory {MEMORY_GAME_KEY}: {mem_len} bytes; messages scanned: {}.\n\
+         Agents never wrote a valid full game page via write_game_file, MentisDB, or messages.\n\
+         MentisDB {MEMORY_GAME_KEY}: {mem_len} bytes; messages scanned: {}.\n\
          Re-run and ensure every agent turn ends with write_game_file(content=<full page>).",
         messages.len()
     )
