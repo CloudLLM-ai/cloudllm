@@ -14,6 +14,7 @@
 
 use cloudllm::clients::grok::GrokClient;
 use cloudllm::clients::openai::{Model, OpenAIClient};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::ToolRegistry;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolResult};
 use cloudllm::tool_protocols::{CustomToolProtocol, MemoryProtocol};
@@ -165,6 +166,7 @@ impl PanelWorkflow {
 
         // Create an orchestration for parallel worker execution
         let mut orchestration = Orchestration::new("workers-panel", "Worker Analysis Panel")
+            .with_event_handler(Arc::new(LiveConsoleHandler::new()))
             .with_mode(OrchestrationMode::Parallel)
             .with_max_tokens(4096);
 
@@ -266,6 +268,7 @@ Allow Round-2: Workers may now read r1/source.* and r1/energy.* for validation.
 
         // Create orchestration for parallel Round 2 execution
         let mut orchestration = Orchestration::new("workers-r2", "Worker Revision Panel")
+            .with_event_handler(Arc::new(LiveConsoleHandler::new()))
             .with_mode(OrchestrationMode::Parallel)
             .with_max_tokens(4096);
 
