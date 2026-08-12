@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cloudllm::clients::openai::{Model, OpenAIClient};
+use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::ToolProtocol;
 use cloudllm::Agent;
 use mentisdb::server::{default_mentisdb_dir, start_mcp_server, MentisDbServiceConfig};
@@ -78,7 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "Long-running user collaboration, durable memory management, coding, shell, HTTP, and file operations",
         )
         .with_personality("Direct, pragmatic, memory-aware, and concise")
-        .with_tools(registry);
+        .with_tools(registry)
+        .with_event_handler(Arc::new(LiveConsoleHandler::new()));
 
     let system_prompt = build_system_prompt(&chain_key, &filesystem_root, &restored_memory);
     agent.set_system_prompt(&system_prompt);
