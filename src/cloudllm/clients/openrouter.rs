@@ -512,87 +512,26 @@ impl ClientWrapper for OpenRouterClient {
         }
     }
 
-    /// OpenRouter forwards streaming requests to the underlying provider.
-    /// The request is issued against `/api/v1/chat/completions` with
-    /// `stream=true` and the resulting SSE bytes are split into
-    /// [`crate::client_wrapper::MessageChunk`]s using the same approach
-    /// [`crate::clients::openai::OpenAIClient`] uses.
+    /// Live SSE stream against OpenRouter's Chat Completions endpoint.
+    ///
+    /// Yields tokens as they arrive (including `delta.reasoning` /
+    /// `reasoning_content` traces) instead of buffering the full completion.
     fn send_message_stream<'a>(
         &'a self,
         messages: &'a [Message],
-        _tools: Option<&[ToolDefinition]>,
+        tools: Option<&[ToolDefinition]>,
     ) -> crate::client_wrapper::MessageStreamFuture<'a> {
-        Box::pin(async move {
-            let mut formatted_messages = Vec::with_capacity(messages.len());
-            for msg in messages {
-                formatted_messages.push(chat::Message {
-                    role: match &msg.role {
-                        Role::System => "system".to_owned(),
-                        Role::User => "user".to_owned(),
-                        Role::Assistant => "assistant".to_owned(),
-                        Role::Tool { .. } => "tool".to_owned(),
-                    },
-                    content: msg.content.to_string(),
-                });
-            }
-
-            let chat_arguments = chat::ChatArguments::new(&self.model, formatted_messages);
-            let stream_result = self
-                .client
-                .create_chat_stream(chat_arguments, Some("/api/v1/chat/completions".to_string()))
-                .await;
-
-            match stream_result {
-                Ok(mut chunk_stream) => {
-                    use futures_util::StreamExt;
-
-                    let mut chunks: Vec<
-                        Result<crate::client_wrapper::MessageChunk, Box<dyn Error + Send>>,
-                    > = Vec::new();
-
-                    while let Some(chunk_result) = chunk_stream.next().await {
-                        let message_chunk = match chunk_result {
-                            Ok(chunk) => {
-                                let content = chunk
-                                    .choices
-                                    .first()
-                                    .and_then(|choice| choice.delta.content.clone())
-                                    .unwrap_or_default();
-                                let finish_reason = chunk
-                                    .choices
-                                    .first()
-                                    .and_then(|choice| choice.finish_reason.clone());
-                                Ok(crate::client_wrapper::MessageChunk {
-                                    content,
-                                    finish_reason,
-                                })
-                            }
-                            Err(err) => {
-                                if log::log_enabled!(log::Level::Error) {
-                                    log::error!(
-                                        "OpenRouterClient::send_message_stream: chunk error: {}",
-                                        err
-                                    );
-                                }
-                                Err(Box::new(crate::clients::common::StreamError(format!(
-                                    "Stream chunk error: {}",
-                                    err
-                                ))) as Box<dyn Error + Send>)
-                            }
-                        };
-                        chunks.push(message_chunk);
-                    }
-
-                    Ok(Some(crate::clients::common::chunks_to_stream(chunks)))
-                }
-                Err(err) => {
-                    if log::log_enabled!(log::Level::Error) {
-                        log::error!("OpenRouterClient::send_message_stream: API Error: {}", err);
-                    }
-                    Err(err.into())
-                }
-            }
-        })
+        crate::clients::sse_stream::open_chat_completions_stream(
+            &self.base_url,
+            &self.api_key,
+            &self.model,
+            messages,
+            tools,
+            &[
+                ("HTTP-Referer", "https://github.com/CloudLLM-ai/cloudllm"),
+                ("X-Title", "CloudLLM"),
+            ],
+        )
     }
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
