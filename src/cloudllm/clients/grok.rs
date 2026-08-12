@@ -142,10 +142,14 @@ pub enum Model {
     Grok43,
     /// `grok-4.3-latest` – latest Grok 4.3 drop.
     Grok43Latest,
-    /// `grok-4.5` – most intelligent and fastest Grok model (July 2026); 500k context.
+    /// `grok-4.5` – Grok 4.5 (July 2026); 500k context.
     Grok45,
     /// `grok-4.5-latest` – latest Grok 4.5 drop (also aliased as `grok-build-latest` upstream).
     Grok45Latest,
+    /// `grok-4.6` – newest flagship (Aug 2026); coding, agentic tools, long-running agents; 500k context.
+    Grok46,
+    /// `grok-4.6-latest` – latest Grok 4.6 drop.
+    Grok46Latest,
     /// `grok-build-0.1` – Grok build 0.1 model (xai/grok-build-0.1).
     GrokBuild01,
 }
@@ -173,6 +177,8 @@ pub fn model_to_string(model: Model) -> String {
         Model::Grok43Latest => "grok-4.3-latest".to_string(),
         Model::Grok45 => "grok-4.5".to_string(),
         Model::Grok45Latest => "grok-4.5-latest".to_string(),
+        Model::Grok46 => "grok-4.6".to_string(),
+        Model::Grok46Latest => "grok-4.6-latest".to_string(),
         Model::GrokBuild01 => "grok-build-0.1".to_string(),
     }
 }

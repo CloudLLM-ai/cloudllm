@@ -41,6 +41,12 @@ fn grok_45_model_variants_map_to_expected_api_names() {
 }
 
 #[test]
+fn grok_46_model_variants_map_to_expected_api_names() {
+    assert_eq!(model_to_string(Model::Grok46), "grok-4.6");
+    assert_eq!(model_to_string(Model::Grok46Latest), "grok-4.6-latest");
+}
+
+#[test]
 fn grok_43_and_build_still_map() {
     assert_eq!(model_to_string(Model::Grok43), "grok-4.3");
     assert_eq!(model_to_string(Model::Grok43Latest), "grok-4.3-latest");
@@ -54,6 +60,16 @@ fn grok_client_uses_new_grok_45_variants() {
 
     assert_eq!(client.model_name(), "grok-4.5");
     assert_eq!(latest.model_name(), "grok-4.5-latest");
+    assert_eq!(client.provider_name(), "Grok");
+}
+
+#[test]
+fn grok_client_uses_new_grok_46_variants() {
+    let client = GrokClient::new_with_model_enum("test-key", Model::Grok46);
+    let latest = GrokClient::new_with_model_enum("test-key", Model::Grok46Latest);
+
+    assert_eq!(client.model_name(), "grok-4.6");
+    assert_eq!(latest.model_name(), "grok-4.6-latest");
     assert_eq!(client.provider_name(), "Grok");
 }
 
