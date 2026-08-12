@@ -23,6 +23,7 @@ pub mod event;
 pub mod image_generation;
 pub mod live_console;
 pub mod llm_session;
+pub mod mentisdb_memory;
 pub mod mcp_http_adapter;
 pub mod mcp_server;
 pub mod mcp_server_builder;
