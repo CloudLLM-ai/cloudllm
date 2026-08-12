@@ -343,75 +343,8 @@ pub async fn send_with_native_tools(
     http_client: &reqwest::Client,
     usage_slot: &Mutex<Option<TokenUsage>>,
 ) -> Result<Message, Box<dyn Error>> {
-    // Serialise messages to OpenAI wire format
-    let wire_messages: Vec<serde_json::Value> = messages
-        .iter()
-        .map(|msg| match &msg.role {
-            Role::System => serde_json::json!({
-                "role": "system",
-                "content": msg.content.as_ref()
-            }),
-            Role::User => serde_json::json!({
-                "role": "user",
-                "content": msg.content.as_ref()
-            }),
-            Role::Assistant => {
-                if msg.tool_calls.is_empty() {
-                    serde_json::json!({
-                        "role": "assistant",
-                        "content": msg.content.as_ref()
-                    })
-                } else {
-                    let tool_calls: Vec<serde_json::Value> = msg
-                        .tool_calls
-                        .iter()
-                        .map(|tc| {
-                            serde_json::json!({
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.name,
-                                    "arguments": serde_json::to_string(&tc.arguments)
-                                        .unwrap_or_else(|_| "{}".to_string())
-                                }
-                            })
-                        })
-                        .collect();
-                    serde_json::json!({
-                        "role": "assistant",
-                        "content": serde_json::Value::Null,
-                        "tool_calls": tool_calls
-                    })
-                }
-            }
-            Role::Tool { call_id } => serde_json::json!({
-                "role": "tool",
-                "tool_call_id": call_id,
-                "content": msg.content.as_ref()
-            }),
-        })
-        .collect();
-
-    // Serialise tools array
-    let wire_tools: Vec<serde_json::Value> = tools
-        .iter()
-        .map(|t| {
-            serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters_schema
-                }
-            })
-        })
-        .collect();
-
-    let body = serde_json::json!({
-        "model": model,
-        "messages": wire_messages,
-        "tools": wire_tools
-    });
+    let mut body = crate::clients::sse_stream::chat_completions_body(model, messages, Some(tools));
+    crate::clients::sse_stream::apply_blocking_reasoning_options(&mut body, base_url);
 
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
@@ -527,7 +460,7 @@ pub fn chunks_to_stream(
     let stream = futures_util::stream::iter(
         chunks
             .into_iter()
-            .map(|r| r.map_err(|e| e as Box<dyn Error>)),
+            .map(|r| r.map_err(|e| -> Box<dyn Error + Send + Sync> { e.to_string().into() })),
     );
     Box::pin(stream)
 }
