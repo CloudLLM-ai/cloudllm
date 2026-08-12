@@ -1,4 +1,6 @@
-0.15.11 AUG/05/2026 (performance pass — not published)
+0.15.12 AUG/12/2026
+  First crates.io release after 0.15.10. GitHub tag 0.15.11 was cut but never
+  published to crates.io; this crate includes that work plus everything below.
   - chore(example): Pac-Man RALPH DeepSeek harness now uses `DeepSeekV4Pro0813`
     (renamed from `pacman_game_ralph_deepseek_v4_flash`; Flash 0731 failed this PRD)
   - feat(openrouter): Aug 2026 frontier models (enum 61 → 75)
@@ -11,17 +13,12 @@
   - feat(gemini): native `Gemini36Flash`, `Gemini35Flash`, `Gemini35FlashLite`
   - feat(grok): add `Model::Grok46` / `Grok46Latest` → `grok-4.6` / `grok-4.6-latest`
   - feat(openrouter): add `Model::Grok46` → `x-ai/grok-4.6`
-  - feat(example): rename `pacman_game_ralph` → `pacman_game_ralph_deepseek_v4_flash`
-    and add `pacman_game_ralph_grok_4_6` (native GrokClient, 500k context)
+  - feat(example): dual Pac-Man RALPH harnesses — DeepSeek V4 Pro + Grok 4.6
   - fix(orchestration): `with_max_tokens` now applied on `add_agent`
-    - Previously the field was stored but ignored; agents kept Agent::new's 128k
-    - Default orchestration budget aligned to 128_000 (was 8192, unused)
-    - Call `with_max_tokens` before `add_agent` so sessions receive the budget
-  - feat(example): `pacman_game_ralph` uses 1_000_000 context for DeepSeek V4 Flash 0731
-  - fix(example): `pacman_game_ralph` always produces deliverable or fails hard
-    - Delete existing pacman_game_ralph.html at run start (no stale games)
-    - write_game_file always writes the canonical path; rejects empty/snippet content
-    - End-of-run recovery: disk → session Memory → agent messages; exit error if missing
+  - fix(example): Pac-Man run always produces a deliverable or fails hard
+  - Also includes the 0.15.11 GitHub-tag performance/model pass (see below)
+
+0.15.11 AUG/05/2026 (GitHub tag only — crate never published; folded into 0.15.12)
   - feat(openrouter): DeepSeek V4 Flash slug → `deepseek/deepseek-v4-flash-0731`;
     add Moonshot Kimi K3, Qwen 3.8 Max, Meta Muse Spark 1.2, Claude Opus 5
     - `Model::DeepSeekV4Flash` now maps to `deepseek/deepseek-v4-flash-0731`
