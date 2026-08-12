@@ -133,7 +133,7 @@ pub enum Role {
 }
 
 /// How many tokens were spent on prompt vs. completion?
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TokenUsage {
     /// Number of prompt/input tokens billed by the provider.
     pub input_tokens: usize,
@@ -161,24 +161,63 @@ pub struct Message {
     pub tool_calls: Vec<NativeToolCall>,
 }
 
+/// Incremental native tool-call fragment carried by a streamed chat chunk.
+///
+/// Providers typically send the function name once and then stream `arguments`
+/// as JSON fragments. Callers should accumulate by [`index`](Self::index).
+#[derive(Clone, Debug, Default)]
+pub struct StreamedToolCallDelta {
+    /// Zero-based index of this tool call in the assistant message.
+    pub index: usize,
+    /// Provider-assigned call id, present on the first fragment.
+    pub id: Option<String>,
+    /// Tool name, present on the first fragment.
+    pub name: Option<String>,
+    /// Incremental JSON arguments fragment (may be empty).
+    pub arguments: String,
+}
+
 /// Represents a chunk of content in a streaming response.
 /// Each chunk contains a delta (incremental piece) of the assistant's response.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MessageChunk {
-    /// The incremental content delta in this chunk.
-    /// May be empty for chunks that don't contain content (e.g., finish_reason chunks).
+    /// The incremental visible content delta in this chunk.
+    /// May be empty for chunks that don't contain content (e.g., finish_reason,
+    /// reasoning-only, or usage-only chunks).
     pub content: String,
+    /// Incremental reasoning / thinking trace delta.
+    ///
+    /// Empty when the provider is not streaming a reasoning channel. OpenRouter
+    /// uses `delta.reasoning`, DeepSeek/xAI often use `delta.reasoning_content`,
+    /// and some Gemini/Claude-compat paths use `thinking`.
+    pub reasoning: String,
     /// Optional finish reason mirroring the provider specific completion status (e.g. `"stop"`).
     pub finish_reason: Option<String>,
+    /// Incremental native tool-call fragment, if this SSE event carried one.
+    ///
+    /// A single SSE `delta.tool_calls` array with several entries is split into
+    /// one [`MessageChunk`] per fragment so parallel tool calls are not dropped.
+    pub tool_call_delta: Option<StreamedToolCallDelta>,
+    /// Token usage, typically present only on the final streamed event when
+    /// the request set `stream_options.include_usage`.
+    pub usage: Option<TokenUsage>,
 }
 
 /// Type alias for a stream of message chunks compatible with `Send` executors.
 pub type MessageChunkStream =
-    Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error>>> + Send>>;
+    Pin<Box<dyn Stream<Item = Result<MessageChunk, Box<dyn Error + Send + Sync>>> + Send>>;
 
 /// Type alias for the future returned by [`ClientWrapper::send_message_stream`].
+///
+/// The future itself is `Send` so [`crate::Agent::send`] can run inside
+/// `tokio::spawn` (Parallel / Hierarchical orchestration).
 pub type MessageStreamFuture<'a> = Pin<
-    Box<dyn std::future::Future<Output = Result<Option<MessageChunkStream>, Box<dyn Error>>> + 'a>,
+    Box<
+        dyn std::future::Future<
+                Output = Result<Option<MessageChunkStream>, Box<dyn Error + Send + Sync>>,
+            > + Send
+            + 'a,
+    >,
 >;
 
 /// Trait defining the interface to interact with various LLM services.
@@ -226,21 +265,24 @@ pub trait ClientWrapper: Send + Sync {
     ///
     /// Implementors that sit in front of providers without streaming support can inherit the
     /// default implementation which simply resolves to `Ok(None)`.  A `Some(MessageChunkStream)`
-    /// return value must yield [`MessageChunk`] instances that mirror the incremental tokens
-    /// supplied by the upstream service.
+    /// return value must yield [`MessageChunk`] instances **as they arrive** (do not buffer the
+    /// entire completion and replay it). Chunks may carry visible [`MessageChunk::content`],
+    /// [`MessageChunk::reasoning`] traces, tool-call fragments, and a final usage report.
     ///
-    /// The `tools` parameter mirrors [`send_message`](ClientWrapper::send_message); streaming
-    /// with native tool calling is out of scope and implementors may ignore it (returning
-    /// `Ok(None)` is acceptable).
+    /// The `tools` parameter mirrors [`send_message`](ClientWrapper::send_message). Streaming
+    /// implementations that speak OpenAI-compatible Chat Completions should forward tools and
+    /// reassemble [`Message::tool_calls`] from [`MessageChunk::tool_call_delta`]. Returning
+    /// `Ok(None)` remains acceptable for providers that cannot stream.
     ///
-    /// Returning a boxed future avoids imposing `Send` bounds on the internal async machinery,
-    /// which lets implementations use provider SDKs that are not `Send` internally.
+    /// The boxed future is `Send` so agent turns can run on the tokio multi-thread
+    /// scheduler (Parallel / Hierarchical orchestration).
     fn send_message_stream<'a>(
         &'a self,
         _messages: &'a [Message],
         _tools: Option<&[ToolDefinition]>,
     ) -> MessageStreamFuture<'a> {
         Box::pin(async { Ok(None) })
+        // The default future is `Send`; providers that cannot stream inherit this.
     }
 
     /// Return the identifier used to select the upstream model (e.g. `"gpt-4.1"`).
