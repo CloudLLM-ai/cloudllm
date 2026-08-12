@@ -1,4 +1,18 @@
 0.15.13 (unreleased)
+  - feat(example): Pac-Man + Breakout RALPH banners print live-console env knobs
+  - feat: live LLM observability — stream reasoning/content + heartbeats
+    `Agent::send` / planner turns consume provider SSE when available
+    (Grok, OpenRouter, OpenAI, Claude-compat, Gemini-compat) instead of
+    blocking until the full reply. New events: `LLMReasoningDelta`,
+    `LLMContentDelta`, `LLMWaiting`. Shared `LiveConsoleHandler` prints
+    reasoning in dark gray and explains stalls (TTFT / private reasoning /
+    generating). Wired into all long-running examples.
+  - feat: `CLOUDLLM_REASONING_EFFORT=low|medium|high` (speed vs quality),
+    `CLOUDLLM_HEARTBEAT_SECS`, `CLOUDLLM_STREAM_CONTENT`,
+    `CLOUDLLM_STREAM_REASONING`, `CLOUDLLM_NO_COLOR`
+  - fix: OpenAI/OpenRouter `send_message_stream` no longer buffers the
+    entire completion before yielding (was "stream" in name only)
+  - feat(grok): real Chat Completions streaming (was a hard error)
   - fix(example): Pac-Man RALPH PRD — ghosts must move; turns must not miss
     Prior Grok 4.6 one-shot froze ghosts (spawned on tile edges; pathfinding only
     ran in a tiny near-center window) and dropped arrow-key junctions (1–2px turn
