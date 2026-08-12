@@ -620,7 +620,7 @@ impl ImageGenerationClient for OpenAIClient {
 
         let response = http_client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", &self.api_key))
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&request_body)
             .send()
             .await
