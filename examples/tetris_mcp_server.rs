@@ -22,11 +22,13 @@ use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{
     ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolRegistry, ToolResult,
 };
-use cloudllm::tool_protocols::{CustomToolProtocol, McpClientProtocol, MemoryProtocol};
-use cloudllm::tools::Memory;
+use cloudllm::tool_protocols::{
+    CustomToolProtocol, McpClientProtocol, MentisDbMemoryProtocol,
+};
+
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
-    Agent,
+    Agent, ThoughtType,
 };
 use serde_json::json;
 use std::fs;
@@ -286,6 +288,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Model: Claude Sonnet 4.6");
     println!("  Transport: MCP HTTP server on localhost:9090");
     LiveConsoleHandler::print_env_knobs();
+    let mentis = LiveConsoleHandler::open_embedded_mentisdb("cloudllm")?;
+    {
+        let mut db = mentis.db.write().await;
+        db.append(
+            "tetris-builder",
+            ThoughtType::Plan,
+            "Tetris MCP RALPH run starting (embedded MentisDB, no daemon).",
+        )?;
+    }
     println!();
     println!("🎯 PROCESS:");
     println!("  1. MCP server starts on :9090 with memory + file tools");
@@ -340,12 +351,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let baseline_html = starter_html.to_string();
 
     // ── 4. Memory — seed baseline HTML ───────────────────────────────────────
-    let memory = Arc::new(Memory::new());
-    memory.put(
-        "tetris_current_html".to_string(),
-        baseline_html.clone(),
-        None,
-    );
+    let memory_protocol = Arc::new(MentisDbMemoryProtocol::new(
+        mentis.db.clone(),
+        "tetris-builder",
+    ));
+    memory_protocol
+        .put_value("tetris_current_html", &baseline_html)
+        .await?;
 
     println!(
         "📄 Fresh game shell written at {} ({} bytes)",
@@ -355,7 +367,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // ── 5. Build tool protocols ───────────────────────────────────────────────
     // Capture arcs before the server builder consumes them.
-    let memory_protocol = Arc::new(MemoryProtocol::new(memory.clone()));
     let custom_protocol = Arc::new(CustomToolProtocol::new());
 
     // read_file tool
@@ -401,7 +412,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // write_tetris_file tool — capture memory and path arcs before the server builder
     // takes ownership of the custom_protocol Arc clone.
     let default_path = Arc::new(output_path.to_string_lossy().into_owned());
-    let memory_for_tool = memory.clone();
+    let memory_for_tool = memory_protocol.clone();
     let write_tool_path = default_path.clone();
 
     custom_protocol
@@ -480,11 +491,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             byte_count,
                             target_path.display()
                         );
-                        memory_for_tool.put(
-                            "tetris_current_html".to_string(),
-                            normalized.clone(),
-                            None,
-                        );
+                        memory_for_tool.put_value_sync("tetris_current_html", &normalized);
                         eprintln!(
                             "[write_tetris_file] ✅ Updated Memory key 'tetris_current_html'"
                         );
@@ -569,22 +576,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let researcher = Agent::new("tetris-researcher", "Gameplay Researcher", make_client())
         .with_expertise("Canonical Tetris rules, NES/SNES reference behavior")
         .with_personality("Meticulous archivist who cites classic implementations.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let architect = Agent::new("tetris-architect", "System Architect", make_client())
         .with_expertise("HTML5 layout, Canvas rendering, component structure")
         .with_personality("Clean, methodical layout engineer.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let programmer = Agent::new("tetris-programmer", "Gameplay Programmer", make_client())
         .with_expertise("JavaScript game loops, collision detection, rotation systems")
         .with_personality("Fast iteration gameplay engineer.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     let playtester = Agent::new("tetris-playtester", "QA & Polish", make_client())
         .with_expertise("UX polish, accessibility, instructions, audio balancing")
         .with_personality("Enthusiastic playtester with an ear for detail.")
-        .with_shared_tools(shared_registry.clone());
+        .with_shared_tools(shared_registry.clone())
+        .with_mentisdb(mentis.db.clone());
 
     // ── 11. RALPH orchestration ───────────────────────────────────────────────
     let system_context = r#"You are a Tetris builder agent. Your output is tool call JSON, not text.
