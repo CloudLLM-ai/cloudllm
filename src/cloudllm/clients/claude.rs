@@ -190,6 +190,14 @@ impl ClientWrapper for ClaudeClient {
         self.delegate_client.send_message(messages, tools).await
     }
 
+    fn send_message_stream<'a>(
+        &'a self,
+        messages: &'a [Message],
+        tools: Option<&[ToolDefinition]>,
+    ) -> crate::client_wrapper::MessageStreamFuture<'a> {
+        self.delegate_client.send_message_stream(messages, tools)
+    }
+
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         self.delegate_client.usage_slot()
     }
