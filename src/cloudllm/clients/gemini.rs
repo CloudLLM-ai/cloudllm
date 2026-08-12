@@ -526,6 +526,21 @@ impl ClientWrapper for GeminiClient {
         }
     }
 
+    fn send_message_stream<'a>(
+        &'a self,
+        messages: &'a [Message],
+        tools: Option<&[ToolDefinition]>,
+    ) -> crate::client_wrapper::MessageStreamFuture<'a> {
+        crate::clients::sse_stream::open_chat_completions_stream(
+            &self.base_url,
+            &self.api_key,
+            &self.model,
+            messages,
+            tools,
+            &[],
+        )
+    }
+
     /// Expose the storage slot used by [`ClientWrapper::get_last_usage`].
     ///
     /// Returning `Some(...)` enables downstream consumers to pull accurate Gemini billing data.
