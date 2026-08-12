@@ -21,6 +21,7 @@ pub mod config;
 pub mod context_strategy;
 pub mod event;
 pub mod image_generation;
+pub mod live_console;
 pub mod llm_session;
 pub mod mcp_http_adapter;
 pub mod mcp_server;
