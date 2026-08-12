@@ -28,7 +28,7 @@ env_logger = "0.11.11"
 lazy_static = "1.5.0"
 # Stay on reqwest 0.12.x — openai-rust2 exposes reqwest 0.12 Client types for the
 # shared pool. Do NOT bump to 0.13 until openai-rust2 does (type incompatibility).
-reqwest = { version = "0.12.28", features = ["json"] }
+reqwest = { version = "0.12.28", features = ["json", "stream"] }
 futures-util = "0.3.33"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
