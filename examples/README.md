@@ -4,7 +4,17 @@ Runnable demonstrations of CloudLLM patterns, tools, and multi-agent orchestrati
 
 All examples use `cargo run --example <name>` and can run with placeholder API keys (no actual API calls made).
 
-**Total Examples**: 22 | **Updated**: v0.10.2
+Long-running agent / RALPH / debate examples share **`LiveConsoleHandler`**: live
+heartbeats while an LLM call is in flight, reasoning traces in dark gray, and
+compact content progress so stdout is never silent for minutes.
+
+```bash
+export CLOUDLLM_REASONING_EFFORT=low   # optional: shorter thinking, faster runs
+export CLOUDLLM_STREAM_REASONING=full  # default
+export CLOUDLLM_STREAM_CONTENT=compact # default (avoid dumping 300KB of HTML)
+```
+
+**Total Examples**: 22 | **Updated**: v0.15.13
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
@@ -36,6 +46,9 @@ cargo run --example pacman_game_ralph_deepseek_v4_pro
 
 **Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_deepseek_v4_pro.html`
 
+Live stdout: reasoning traces in dark gray + heartbeats while the model thinks.
+Speed knob (quality tradeoff): `export CLOUDLLM_REASONING_EFFORT=low`
+
 ---
 
 ### Pac-Man — RALPH Mode (xAI / Grok 4.6)
@@ -51,6 +64,9 @@ cargo run --example pacman_game_ralph_grok_4_6
 ```
 
 **Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_grok_4_6.html`
+
+Live stdout: reasoning traces in dark gray + heartbeats while the model thinks.
+Speed knob (quality tradeoff): `export CLOUDLLM_REASONING_EFFORT=low`
 
 ---
 
