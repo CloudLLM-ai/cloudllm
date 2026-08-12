@@ -122,6 +122,63 @@ pub fn get_shared_http_client() -> &'static reqwest::Client {
     &SHARED_HTTP_CLIENT
 }
 
+/// HTTP client for LLM completions that may think or generate for a long time.
+///
+/// The pooled client used by [`get_shared_http_client`] has a **300s** request
+/// timeout. Reasoning models (Grok 4.6, DeepSeek V4 Pro) regularly exceed that
+/// on a single Chat Completions call, which surfaces as
+/// `error sending request for url (.../chat/completions)` after exactly five
+/// minutes. This client keeps connect timeout + keepalive but **no** request
+/// deadline.
+pub fn get_long_running_http_client() -> &'static reqwest::Client {
+    use std::sync::OnceLock;
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::ClientBuilder::new()
+            .pool_idle_timeout(Some(Duration::from_secs(90)))
+            .pool_max_idle_per_host(10)
+            .tcp_keepalive(Some(Duration::from_secs(60)))
+            .connect_timeout(Duration::from_secs(30))
+            .build()
+            .expect("Failed to build long-running HTTP client")
+    })
+}
+
+/// How many times to retry a transient Chat Completions transport failure.
+pub fn http_retry_attempts() -> u32 {
+    std::env::var("CLOUDLLM_HTTP_RETRIES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3)
+        .clamp(0, 8)
+}
+
+/// True when an error string looks like a blip worth retrying (reset, timeout, 5xx).
+pub fn is_transient_llm_error(err: &str) -> bool {
+    let e = err.to_ascii_lowercase();
+    e.contains("error sending request")
+        || e.contains("connection reset")
+        || e.contains("connection closed")
+        || e.contains("connection refused")
+        || e.contains("broken pipe")
+        || e.contains("timed out")
+        || e.contains("timeout")
+        || e.contains("temporarily unavailable")
+        || e.contains("error decoding response")
+        || e.contains("http 408")
+        || e.contains("http 425")
+        || e.contains("http 429")
+        || e.contains("http 500")
+        || e.contains("http 502")
+        || e.contains("http 503")
+        || e.contains("http 504")
+        || e.contains("http 529")
+}
+
+fn retry_backoff(attempt: u32) -> Duration {
+    Duration::from_secs(2u64.saturating_pow(attempt).min(16))
+}
+
 /// Send a chat completion request, persist token usage, and surface the assistant content.
 ///
 /// The helper captures the common logic shared by OpenAI-compatible endpoints (OpenAI, Anthropic
@@ -347,33 +404,70 @@ pub async fn send_with_native_tools(
     crate::clients::sse_stream::apply_blocking_reasoning_options(&mut body, base_url);
 
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    // Always use the long-running client: the caller-supplied handle may be the
+    // 300s pooled client, which kills Grok/DeepSeek reasoning mid-call.
+    let _ = http_client;
+    let http = get_long_running_http_client();
+    let retries = http_retry_attempts();
 
-    let resp = http_client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+    let mut attempt = 0u32;
+    let text = loop {
+        let send_result = http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await;
 
-    let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
-
-    if !status.is_success() {
-        if log::log_enabled!(log::Level::Error) {
-            log::error!(
-                "send_with_native_tools: HTTP {} from {}: {}",
-                status,
-                url,
-                text
-            );
+        match send_result {
+            Ok(resp) => {
+                let status = resp.status();
+                let text = resp
+                    .text()
+                    .await
+                    .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+                if status.is_success() {
+                    break text;
+                }
+                let err = format!("send_with_native_tools: HTTP {} — {}", status, text);
+                if log::log_enabled!(log::Level::Error) {
+                    log::error!("{}", err);
+                }
+                if attempt < retries && is_transient_llm_error(&err) {
+                    attempt += 1;
+                    let wait = retry_backoff(attempt);
+                    log::warn!(
+                        "send_with_native_tools: retrying HTTP {} in {:?} (attempt {}/{})",
+                        status,
+                        wait,
+                        attempt,
+                        retries
+                    );
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+                return Err(err.into());
+            }
+            Err(e) => {
+                let err = e.to_string();
+                if attempt < retries && is_transient_llm_error(&err) {
+                    attempt += 1;
+                    let wait = retry_backoff(attempt);
+                    log::warn!(
+                        "send_with_native_tools: retrying transport error in {:?} (attempt {}/{}): {}",
+                        wait,
+                        attempt,
+                        retries,
+                        err
+                    );
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+                return Err(Box::new(e) as Box<dyn Error>);
+            }
         }
-        return Err(format!("send_with_native_tools: HTTP {} — {}", status, text).into());
-    }
+    };
 
     let parsed: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
