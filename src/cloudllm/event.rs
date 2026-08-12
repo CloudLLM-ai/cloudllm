@@ -72,6 +72,9 @@ use mentisdb::ThoughtType;
 /// ```text
 /// SendStarted
 ///   └─ LLMCallStarted { iteration: 1 }
+///       ├─ LLMWaiting { phase: "waiting for first token" }   // every ~10s
+///       ├─ LLMReasoningDelta { text }                       // dark-gray traces
+///       ├─ LLMContentDelta { text }
 ///   └─ LLMCallCompleted { iteration: 1 }
 ///   └─ (if tool call detected in response)
 ///       ├─ ToolCallDetected { iteration: 1 }
@@ -144,10 +147,60 @@ pub enum AgentEvent {
         agent_name: String,
         /// 1-based iteration counter matching the corresponding `LLMCallStarted`.
         iteration: usize,
-        /// Cumulative token usage up to and including this call.
+        /// Token usage for this call when the provider reported it
+        /// (stream `usage` chunk or blocking `get_last_usage`).
         tokens_used: Option<TokenUsage>,
         /// Character length of this specific LLM response.
         response_length: usize,
+    },
+
+    /// Incremental reasoning / thinking tokens from a streamed LLM call.
+    ///
+    /// Fired whenever the provider yields a non-empty `reasoning` /
+    /// `reasoning_content` / `thinking` delta. Use this to show *why* stdout
+    /// appears idle — the model is often thinking, not stuck.
+    LLMReasoningDelta {
+        /// Stable identifier of the agent.
+        agent_id: String,
+        /// Human-readable display name.
+        agent_name: String,
+        /// 1-based iteration counter matching the surrounding `LLMCallStarted`.
+        iteration: usize,
+        /// Incremental reasoning text (may be a few tokens or a short paragraph).
+        text: String,
+    },
+
+    /// Incremental visible content tokens from a streamed LLM call.
+    LLMContentDelta {
+        /// Stable identifier of the agent.
+        agent_id: String,
+        /// Human-readable display name.
+        agent_name: String,
+        /// 1-based iteration counter matching the surrounding `LLMCallStarted`.
+        iteration: usize,
+        /// Incremental assistant content.
+        text: String,
+    },
+
+    /// Periodic heartbeat while an LLM round-trip is in flight.
+    ///
+    /// Emitted roughly every 10 seconds (override with `CLOUDLLM_HEARTBEAT_SECS`)
+    /// so long reasoning or slow TTFT never looks like a hung process.
+    LLMWaiting {
+        /// Stable identifier of the agent.
+        agent_id: String,
+        /// Human-readable display name.
+        agent_name: String,
+        /// 1-based iteration counter matching the surrounding `LLMCallStarted`.
+        iteration: usize,
+        /// Seconds since this LLM round-trip started.
+        elapsed_secs: u64,
+        /// Seconds since the last reasoning or content token (or since start
+        /// if nothing has arrived yet).
+        seconds_since_last_token: u64,
+        /// Coarse phase: `"waiting for first token"`, `"reasoning"`,
+        /// `"generating"`, `"tool-calling"`, or `"blocked"`.
+        phase: String,
     },
 
     // ── Tool operations ──────────────────────────────────────────────────
@@ -355,6 +408,30 @@ pub enum PlannerEvent {
         iteration: usize,
         /// Character length of the assistant response from this call.
         response_length: usize,
+    },
+
+    /// Incremental reasoning / thinking tokens from a streamed planner LLM call.
+    LLMReasoningDelta {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// 1-based iteration counter matching the surrounding `LLMCallStarted`.
+        iteration: usize,
+        /// Incremental reasoning text.
+        text: String,
+    },
+
+    /// Periodic heartbeat while a planner LLM round-trip is in flight.
+    LLMWaiting {
+        /// Unique identifier for the planner turn.
+        plan_id: String,
+        /// 1-based iteration counter matching the surrounding `LLMCallStarted`.
+        iteration: usize,
+        /// Seconds since this LLM round-trip started.
+        elapsed_secs: u64,
+        /// Seconds since the last streamed token (or since start).
+        seconds_since_last_token: u64,
+        /// Coarse phase (`"waiting for first token"`, `"reasoning"`, `"generating"`).
+        phase: String,
     },
 
     /// A tool call was detected in the model response.
