@@ -302,7 +302,7 @@ pub use cloudllm::agent::Agent;
 pub use cloudllm::client_wrapper;
 pub use cloudllm::client_wrapper::{
     ClientWrapper, LLMClientInfo, Message, MessageChunk, MessageChunkStream, MessageStreamFuture,
-    NativeToolCall, Role, ToolDefinition,
+    NativeToolCall, Role, StreamedToolCallDelta, ToolDefinition,
 };
 pub use cloudllm::clients;
 pub use cloudllm::config::CloudLLMConfig;
@@ -321,6 +321,8 @@ pub use mentisdb::{
 // Re-export tool protocol and orchestration functionality
 pub use cloudllm::event;
 pub use cloudllm::event::{AgentEvent, EventHandler, McpEvent, OrchestrationEvent, PlannerEvent};
+pub use cloudllm::live_console;
+pub use cloudllm::live_console::LiveConsoleHandler;
 pub use cloudllm::mcp_server;
 pub use cloudllm::orchestration;
 pub use cloudllm::planner;
