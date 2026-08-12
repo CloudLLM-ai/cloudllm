@@ -4,6 +4,7 @@
 //! conforming to the uniform CloudLLM contract.
 
 pub mod common;
+pub mod sse_stream;
 
 pub mod claude;
 pub mod gemini;
