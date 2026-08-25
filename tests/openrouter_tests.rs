@@ -1,6 +1,7 @@
 use cloudllm::client_wrapper::ClientWrapper;
 use cloudllm::clients::openrouter::{
-    model_to_string, Model, OpenRouterClient, OPENROUTER_DEFAULT_BASE_URL,
+    build_openrouter_body, extract_openrouter_content, model_to_string, Model, OpenRouterClient,
+    OPENROUTER_DEFAULT_BASE_URL,
 };
 use cloudllm::{LLMSession, Role};
 
@@ -153,6 +154,41 @@ fn new_with_base_url_and_model_enum_uses_typed_model() {
 fn default_base_url_points_at_openrouter() {
     assert_eq!(OPENROUTER_DEFAULT_BASE_URL, "https://openrouter.ai/api/v1");
     assert!(!OPENROUTER_DEFAULT_BASE_URL.ends_with('/'));
+}
+
+#[test]
+fn null_content_is_reported_as_a_provider_result_not_a_decode_error() {
+    let body = serde_json::json!({
+        "choices": [{
+            "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "reasoning": "private chain of thought"
+            }
+        }]
+    });
+
+    let error = extract_openrouter_content(&body).expect_err("null content must fail clearly");
+    assert!(error.contains("null content"), "error={}", error);
+    assert!(error.contains("reasoning_present=true"), "error={}", error);
+}
+
+#[test]
+fn explicit_reasoning_effort_is_exposed_on_the_client() {
+    let client = OpenRouterClient::new_with_model_str_and_reasoning_effort(
+        "test-key",
+        "deepseek/deepseek-v4-flash-0731",
+        Some("none"),
+    );
+    assert_eq!(client.reasoning_effort(), Some("none"));
+}
+
+#[test]
+fn non_streaming_body_carries_reasoning_effort() {
+    let body = build_openrouter_body("deepseek/deepseek-v4-flash-0731", &[], "none");
+    assert_eq!(body["model"], "deepseek/deepseek-v4-flash-0731");
+    assert_eq!(body["reasoning"]["effort"], "none");
 }
 
 /// Skip-when-no-key helper, mirrors the convention used in

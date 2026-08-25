@@ -1,3 +1,9 @@
+0.15.14 AUG/25/2026
+  - fix(openrouter): non-stream requests can set reasoning effort and parse
+    provider responses with nullable `message.content` without a serde decode
+    failure. Thinking models that return reasoning-only output now produce a
+    useful provider error instead of `error decoding response body`.
+
 0.15.13 AUG/12/2026
   - fix(http): Chat Completions no longer die at 300s; retry transport blips
     Grok/DeepSeek reasoning regularly exceeds the pooled client's 5-minute

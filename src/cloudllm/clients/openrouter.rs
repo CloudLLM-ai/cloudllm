@@ -86,13 +86,17 @@
 //!   are not yet wired up in v1; add them in a follow-up if needed.
 
 use crate::client_wrapper::{TokenUsage, ToolDefinition};
-use crate::clients::common::{get_shared_http_client, send_and_track, send_with_native_tools};
+use crate::clients::common::{
+    get_long_running_http_client, get_shared_http_client, http_retry_attempts,
+    is_transient_llm_error, send_and_track, send_with_native_tools,
+};
 use crate::{ClientWrapper, Message, Role};
 use async_trait::async_trait;
 use openai_rust::chat;
 use openai_rust2 as openai_rust;
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 
 /// Default OpenRouter base URL.  OpenRouter exposes its OpenAI-compatible API
@@ -362,6 +366,8 @@ pub struct OpenRouterClient {
     api_key: String,
     /// Normalized base URL, e.g. `"https://openrouter.ai/api/v1"` (no trailing slash).
     base_url: String,
+    /// Optional OpenRouter reasoning effort sent on non-streaming requests.
+    reasoning_effort: Option<String>,
 }
 
 impl OpenRouterClient {
@@ -377,7 +383,31 @@ impl OpenRouterClient {
     /// OpenRouter adds new entries regularly and we cannot keep the enum
     /// perfectly in sync.
     pub fn new_with_model_str(secret_key: &str, model_name: &str) -> Self {
-        Self::new_with_base_url(secret_key, model_name, OPENROUTER_DEFAULT_BASE_URL)
+        Self::new_with_base_url_and_reasoning_effort(
+            secret_key,
+            model_name,
+            OPENROUTER_DEFAULT_BASE_URL,
+            crate::clients::sse_stream::reasoning_effort_from_env(),
+        )
+    }
+
+    /// Construct an OpenRouter client with an explicit reasoning effort.
+    ///
+    /// This is useful for applications that require structured output from a
+    /// thinking model. OpenRouter may return `message.content: null` when the
+    /// model spends its completion on reasoning, so callers converting content
+    /// to JSON should normally pass `Some("none")`.
+    pub fn new_with_model_str_and_reasoning_effort(
+        secret_key: &str,
+        model_name: &str,
+        reasoning_effort: Option<&str>,
+    ) -> Self {
+        Self::new_with_base_url_and_reasoning_effort(
+            secret_key,
+            model_name,
+            OPENROUTER_DEFAULT_BASE_URL,
+            reasoning_effort.map(str::to_owned),
+        )
     }
 
     /// Construct a client targeting a custom OpenAI-compatible base URL.
@@ -386,6 +416,20 @@ impl OpenRouterClient {
     /// (e.g. `"https://openrouter.ai/api/v1"`).  Useful for self-hosted
     /// OpenRouter-compatible gateways.
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
+        Self::new_with_base_url_and_reasoning_effort(
+            secret_key,
+            model_name,
+            base_url,
+            crate::clients::sse_stream::reasoning_effort_from_env(),
+        )
+    }
+
+    fn new_with_base_url_and_reasoning_effort(
+        secret_key: &str,
+        model_name: &str,
+        base_url: &str,
+        reasoning_effort: Option<String>,
+    ) -> Self {
         let base_url_normalized = base_url.trim_end_matches('/');
         OpenRouterClient {
             client: openai_rust::Client::new_with_client_and_base_url(
@@ -397,7 +441,13 @@ impl OpenRouterClient {
             token_usage: Mutex::new(None),
             api_key: secret_key.to_string(),
             base_url: base_url_normalized.to_string(),
+            reasoning_effort,
         }
+    }
+
+    /// Return the configured non-streaming reasoning effort, if any.
+    pub fn reasoning_effort(&self) -> Option<&str> {
+        self.reasoning_effort.as_deref()
     }
 
     /// Convenience wrapper around [`OpenRouterClient::new_with_base_url`] for
@@ -474,6 +524,10 @@ impl ClientWrapper for OpenRouterClient {
             });
         }
 
+        if self.reasoning_effort.is_some() {
+            return send_message_with_reasoning(self, messages).await;
+        }
+
         let mut formatted_messages = Vec::with_capacity(messages.len());
         for msg in messages {
             formatted_messages.push(chat::Message {
@@ -536,5 +590,121 @@ impl ClientWrapper for OpenRouterClient {
 
     fn usage_slot(&self) -> Option<&Mutex<Option<TokenUsage>>> {
         Some(&self.token_usage)
+    }
+}
+
+async fn send_message_with_reasoning(
+    client: &OpenRouterClient,
+    messages: &[Message],
+) -> Result<Message, Box<dyn Error>> {
+    let body = build_openrouter_body(
+        client.model_name(),
+        messages,
+        client.reasoning_effort.as_deref().unwrap_or("none"),
+    );
+    let url = format!("{}/chat/completions", client.base_url);
+    let http = get_long_running_http_client();
+    let retries = http_retry_attempts();
+    let mut attempt = 0;
+
+    let text = loop {
+        let result = http
+            .post(&url)
+            .bearer_auth(&client.api_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await;
+        match result {
+            Ok(response) => {
+                let status = response.status();
+                let text = response.text().await?;
+                if status.is_success() {
+                    break text;
+                }
+                let error = format!("OpenRouter HTTP {} body={}", status, text);
+                if attempt < retries && is_transient_llm_error(&error) {
+                    attempt += 1;
+                    tokio::time::sleep(Duration::from_secs(2u64.saturating_pow(attempt).min(16)))
+                        .await;
+                    continue;
+                }
+                return Err(error.into());
+            }
+            Err(error) => {
+                let message = error.to_string();
+                if attempt < retries && is_transient_llm_error(&message) {
+                    attempt += 1;
+                    tokio::time::sleep(Duration::from_secs(2u64.saturating_pow(attempt).min(16)))
+                        .await;
+                    continue;
+                }
+                return Err(error.into());
+            }
+        }
+    };
+
+    let response: serde_json::Value = serde_json::from_str(&text)?;
+    let content = extract_openrouter_content(&response)?;
+    if let Some(usage) = response.get("usage") {
+        *client.token_usage.lock().await = Some(TokenUsage {
+            input_tokens: usage
+                .get("prompt_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+            output_tokens: usage
+                .get("completion_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+            total_tokens: usage
+                .get("total_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+        });
+    }
+    Ok(Message {
+        role: Role::Assistant,
+        content: std::sync::Arc::from(content.as_str()),
+        tool_calls: vec![],
+    })
+}
+
+/// Build a non-streaming OpenRouter Chat Completions request body.
+pub fn build_openrouter_body(
+    model: &str,
+    messages: &[Message],
+    reasoning_effort: &str,
+) -> serde_json::Value {
+    let mut body = crate::clients::sse_stream::chat_completions_body(model, messages, None);
+    body["reasoning"] = serde_json::json!({ "effort": reasoning_effort });
+    body
+}
+
+/// Extract assistant text from an OpenRouter Chat Completions response.
+pub fn extract_openrouter_content(body: &serde_json::Value) -> Result<String, String> {
+    let choice = body
+        .get("choices")
+        .and_then(|value| value.as_array())
+        .and_then(|choices| choices.first())
+        .ok_or_else(|| "OpenRouter response had no choices".to_string())?;
+    let message = choice
+        .get("message")
+        .ok_or_else(|| "OpenRouter response choice had no message".to_string())?;
+    match message.get("content") {
+        Some(serde_json::Value::String(content)) if !content.trim().is_empty() => {
+            Ok(content.clone())
+        }
+        Some(serde_json::Value::Null) | None => Err(format!(
+            "OpenRouter returned null content (finish_reason={}, reasoning_present={})",
+            choice
+                .get("finish_reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or("?"),
+            message
+                .get("reasoning")
+                .is_some_and(|value| !value.is_null())
+        )),
+        Some(serde_json::Value::String(_)) => Err("OpenRouter returned empty content".to_string()),
+        Some(value) => Err(format!("OpenRouter content had unexpected type: {}", value)),
     }
 }
