@@ -4,6 +4,10 @@ use cloudllm::clients::openrouter::{
     OPENROUTER_DEFAULT_BASE_URL,
 };
 use cloudllm::{LLMSession, Role};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 #[test]
 fn minimax_m3_maps_to_expected_openrouter_slug() {
@@ -189,6 +193,52 @@ fn non_streaming_body_carries_reasoning_effort() {
     let body = build_openrouter_body("deepseek/deepseek-v4-flash-0731", &[], "none");
     assert_eq!(body["model"], "deepseek/deepseek-v4-flash-0731");
     assert_eq!(body["reasoning"]["effort"], "none");
+}
+
+/// Verifies that a truncated successful response is retried and ultimately
+/// reports the provider and HTTP status instead of a context-free decode error.
+#[tokio::test]
+async fn reasoning_request_retries_body_read_failures_with_status_context() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("test listener should bind");
+    let address = listener
+        .local_addr()
+        .expect("listener should have an address");
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let server_request_count = Arc::clone(&request_count);
+    let server = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.expect("request should connect");
+            server_request_count.fetch_add(1, Ordering::SeqCst);
+            let mut request = vec![0; 4096];
+            let bytes_read = socket
+                .read(&mut request)
+                .await
+                .expect("request should be readable");
+            assert!(bytes_read > 0, "request must not be empty");
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{}")
+                .await
+                .expect("truncated response should be writable");
+        }
+    });
+
+    let client = OpenRouterClient::new_with_base_url_and_reasoning_effort(
+        "test-key",
+        "test/model",
+        &format!("http://{}", address),
+        Some("none"),
+    );
+    let error = match client.send_message(&[], None).await {
+        Ok(_) => panic!("truncated bodies must fail"),
+        Err(error) => error.to_string(),
+    };
+
+    server.abort();
+    assert_eq!(request_count.load(Ordering::SeqCst), 4, "request count");
+    assert!(error.contains("OpenRouter HTTP 200 OK"), "error={}", error);
+    assert!(error.contains("body read failed"), "error={}", error);
 }
 
 /// Skip-when-no-key helper, mirrors the convention used in

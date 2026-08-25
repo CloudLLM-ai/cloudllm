@@ -387,7 +387,7 @@ impl OpenRouterClient {
             secret_key,
             model_name,
             OPENROUTER_DEFAULT_BASE_URL,
-            crate::clients::sse_stream::reasoning_effort_from_env(),
+            crate::clients::sse_stream::reasoning_effort_from_env().as_deref(),
         )
     }
 
@@ -406,7 +406,7 @@ impl OpenRouterClient {
             secret_key,
             model_name,
             OPENROUTER_DEFAULT_BASE_URL,
-            reasoning_effort.map(str::to_owned),
+            reasoning_effort,
         )
     }
 
@@ -420,15 +420,17 @@ impl OpenRouterClient {
             secret_key,
             model_name,
             base_url,
-            crate::clients::sse_stream::reasoning_effort_from_env(),
+            crate::clients::sse_stream::reasoning_effort_from_env().as_deref(),
         )
     }
 
-    fn new_with_base_url_and_reasoning_effort(
+    /// Construct a client targeting a custom OpenAI-compatible base URL with
+    /// an explicit reasoning effort.
+    pub fn new_with_base_url_and_reasoning_effort(
         secret_key: &str,
         model_name: &str,
         base_url: &str,
-        reasoning_effort: Option<String>,
+        reasoning_effort: Option<&str>,
     ) -> Self {
         let base_url_normalized = base_url.trim_end_matches('/');
         OpenRouterClient {
@@ -441,7 +443,7 @@ impl OpenRouterClient {
             token_usage: Mutex::new(None),
             api_key: secret_key.to_string(),
             base_url: base_url_normalized.to_string(),
-            reasoning_effort,
+            reasoning_effort: reasoning_effort.map(str::to_owned),
         }
     }
 
@@ -618,7 +620,25 @@ async fn send_message_with_reasoning(
         match result {
             Ok(response) => {
                 let status = response.status();
-                let text = response.text().await?;
+                let text = match response.text().await {
+                    Ok(text) => text,
+                    Err(source) => {
+                        let error = format!(
+                            "OpenRouter HTTP {} body read failed: {}",
+                            status,
+                            error_with_sources(&source)
+                        );
+                        if attempt < retries && is_transient_llm_error(&error) {
+                            attempt += 1;
+                            tokio::time::sleep(Duration::from_secs(
+                                2u64.saturating_pow(attempt).min(16),
+                            ))
+                            .await;
+                            continue;
+                        }
+                        return Err(error.into());
+                    }
+                };
                 if status.is_success() {
                     break text;
                 }
@@ -667,6 +687,17 @@ async fn send_message_with_reasoning(
         content: std::sync::Arc::from(content.as_str()),
         tool_calls: vec![],
     })
+}
+
+fn error_with_sources(error: &dyn Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }
 
 /// Build a non-streaming OpenRouter Chat Completions request body.
