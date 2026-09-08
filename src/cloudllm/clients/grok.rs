@@ -80,14 +80,16 @@ use tokio::sync::Mutex;
 
 /// Image generation model identifiers for Grok.
 pub enum ImageModel {
-    /// `grok-imagine-image` – Grok Imagine image generation model
+    /// `grok-imagine-image-2.0` – Grok Imagine image generation model.
+    /// (`auto` quality requires 2.0; the old `grok-imagine-image` alias
+    /// rejects it with HTTP 400.)
     GrokImagineImage,
 }
 
 /// Convert a [`ImageModel`] variant into the string identifier expected by the API.
 fn image_model_to_string(model: ImageModel) -> String {
     match model {
-        ImageModel::GrokImagineImage => "grok-imagine-image".to_string(),
+        ImageModel::GrokImagineImage => "grok-imagine-image-2.0".to_string(),
     }
 }
 
@@ -454,6 +456,6 @@ impl ImageGenerationClient for GrokClient {
     }
 
     fn model_name(&self) -> &str {
-        "grok-imagine-image"
+        "grok-imagine-image-2.0"
     }
 }

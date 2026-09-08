@@ -2215,7 +2215,7 @@ fn test_grok_forwards_quality_auto() {
     rt.block_on(async {
         let client = GrokClient::new_with_base_url(
             "mock-key",
-            "grok-imagine-image",
+            "grok-imagine-image-2.0",
             &format!("http://127.0.0.1:{}", port),
         );
         let options = ImageGenerationOptions {
@@ -2241,7 +2241,7 @@ fn test_grok_forwards_quality_auto() {
     assert_eq!(json.get("quality").and_then(|q| q.as_str()), Some("auto"));
     assert_eq!(
         json.get("model").and_then(|m| m.as_str()),
-        Some("grok-imagine-image")
+        Some("grok-imagine-image-2.0")
     );
 }
 
