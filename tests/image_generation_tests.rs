@@ -129,6 +129,7 @@ fn test_gemini_simple() {
             aspect_ratio: Some("1:1".to_string()),
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client.generate_image("A red square", options).await
@@ -207,6 +208,7 @@ fn test_grok_image_generation_basic() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client
@@ -302,6 +304,7 @@ fn test_grok_image_generation_base64() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
@@ -372,6 +375,7 @@ fn test_grok_image_generation_multiple_images() {
             aspect_ratio: None,
             num_images: Some(2),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client
@@ -445,6 +449,7 @@ fn test_grok_image_generation_detailed_prompt() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client.generate_image(detailed_prompt, options).await
@@ -546,6 +551,7 @@ fn test_grok_image_generation_with_trait_object() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         image_client
@@ -614,6 +620,7 @@ fn test_grok_image_generation_with_factory() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client
@@ -674,6 +681,7 @@ fn test_openai_image_generation_basic() {
             aspect_ratio: Some("4:3".to_string()),
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client
@@ -769,6 +777,7 @@ fn test_openai_image_generation_landscape() {
             aspect_ratio: Some("16:9".to_string()), // Landscape
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client
@@ -824,6 +833,7 @@ fn test_openai_image_generation_multiple() {
             aspect_ratio: None,
             num_images: Some(2),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client
@@ -927,6 +937,7 @@ fn test_openai_image_generation_with_factory() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client
@@ -989,6 +1000,7 @@ fn test_grok_image_generation_error_handling() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("url".to_string()),
+            quality: None,
         };
 
         client.generate_image("A test image", options).await
@@ -1046,6 +1058,7 @@ fn test_grok_image_generation_types() {
         aspect_ratio: Some("16:9".to_string()),
         num_images: Some(2),
         response_format: Some("url".to_string()),
+        quality: None,
     };
 
     assert_eq!(options.aspect_ratio.as_deref(), Some("16:9"));
@@ -1089,6 +1102,7 @@ fn test_gemini_image_generation_basic() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
@@ -1160,6 +1174,7 @@ fn test_gemini_image_generation_landscape() {
             aspect_ratio: Some("16:9".to_string()), // Landscape
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
@@ -1215,6 +1230,7 @@ fn test_gemini_image_generation_portrait() {
             aspect_ratio: Some("9:16".to_string()), // Portrait
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
@@ -1270,6 +1286,7 @@ fn test_gemini_image_generation_square() {
             aspect_ratio: Some("1:1".to_string()), // Square
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
@@ -1331,6 +1348,7 @@ fn test_gemini_image_generation_detailed_prompt() {
             aspect_ratio: Some("4:3".to_string()),
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client.generate_image(detailed_prompt, options).await
@@ -1425,6 +1443,7 @@ fn test_gemini_image_generation_with_trait_object() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         image_client
@@ -1499,6 +1518,7 @@ fn test_gemini_image_generation_with_factory() {
             aspect_ratio: Some("3:2".to_string()),
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
@@ -1560,6 +1580,7 @@ fn test_gemini_image_generation_save_to_file() {
             aspect_ratio: Some("3:4".to_string()),
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
@@ -1643,6 +1664,7 @@ fn test_gemini_image_generation_types() {
             aspect_ratio: Some(ratio.to_string()),
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         assert_eq!(options.aspect_ratio.as_deref(), Some(ratio));
@@ -1685,6 +1707,7 @@ fn test_gemini_image_generation_error_handling() {
             aspect_ratio: None,
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client.generate_image("A test image", options).await
@@ -2121,4 +2144,109 @@ fn test_grok_agent_with_image_generation_tool() {
             panic!("Failed to create Grok image client: {}", e);
         }
     }
+}
+
+/// Verify the Grok Imagine client forwards `quality` in the request body.
+///
+/// Spins up a loopback mock for `POST /images/generations`, captures the
+/// JSON body, and replies with a canned image URL — no API key needed.
+/// Regression test for the `quality: "auto"` rollout (xAI made `auto` the
+/// default tier picker for grok-imagine-image-2.0).
+#[test]
+fn test_grok_forwards_quality_auto() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    init_logger();
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("mock bind");
+    let port = listener.local_addr().unwrap().port();
+    let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let captured_server = captured.clone();
+
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("mock accept");
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 4096];
+        // Read until end of headers, then honor Content-Length for the body.
+        loop {
+            let n = stream.read(&mut tmp).expect("mock read");
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&tmp[..n]);
+            if let Some(hdr_end) = find_subslice(&buf, b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&buf[..hdr_end]).to_string();
+                let content_len = headers
+                    .lines()
+                    .find_map(|l| {
+                        let (k, v) = l.split_once(':')?;
+                        (k.trim().eq_ignore_ascii_case("content-length"))
+                            .then(|| v.trim().parse::<usize>().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                let total = hdr_end + 4 + content_len;
+                while buf.len() < total {
+                    let n = stream.read(&mut tmp).expect("mock read body");
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&tmp[..n]);
+                }
+                *captured_server.lock().unwrap() =
+                    Some(String::from_utf8_lossy(&buf[hdr_end + 4..total]).to_string());
+                break;
+            }
+        }
+        let body = r#"{"data":[{"url":"http://example.com/mock.png"}]}"#;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(resp.as_bytes()).expect("mock write");
+    });
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let client = GrokClient::new_with_base_url(
+            "mock-key",
+            "grok-imagine-image",
+            &format!("http://127.0.0.1:{}", port),
+        );
+        let options = ImageGenerationOptions {
+            aspect_ratio: Some("16:9".to_string()),
+            num_images: Some(1),
+            response_format: Some("url".to_string()),
+            quality: Some("auto".to_string()),
+        };
+        let response = client
+            .generate_image("A mock landscape", options)
+            .await
+            .expect("mock generation");
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(
+            response.images[0].url.as_deref(),
+            Some("http://example.com/mock.png")
+        );
+    });
+
+    server.join().expect("mock server");
+    let body = captured.lock().unwrap().clone().expect("body captured");
+    let json: serde_json::Value = serde_json::from_str(&body).expect("valid JSON body");
+    assert_eq!(json.get("quality").and_then(|q| q.as_str()), Some("auto"));
+    assert_eq!(
+        json.get("model").and_then(|m| m.as_str()),
+        Some("grok-imagine-image")
+    );
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
 }

@@ -52,6 +52,7 @@
 //!             aspect_ratio: None,
 //!             num_images: Some(1),
 //!             response_format: Some("url".to_string()),
+//!             quality: None,
 //!         },
 //!     ).await?;
 //!
@@ -362,16 +363,20 @@ impl ImageGenerationClient for GrokClient {
         if let Some(ref fmt) = options.response_format {
             request_body["response_format"] = serde_json::json!(fmt);
         }
+        if let Some(ref quality) = options.quality {
+            request_body["quality"] = serde_json::json!(quality);
+        }
 
         // Make direct HTTP request to Grok's image generation endpoint
         let http_client = get_shared_http_client();
         let url = format!("{}/images/generations", self.base_url);
 
         log::info!(
-            "Grok Imagine API request: model={}, prompt_len={}, n={}",
+            "Grok Imagine API request: model={}, prompt_len={}, n={}, quality={:?}",
             request_body["model"],
             prompt.len(),
-            n
+            n,
+            options.quality,
         );
 
         let response = http_client

@@ -26,6 +26,7 @@
 //!         aspect_ratio: Some("16:9".to_string()),
 //!         num_images: Some(1),
 //!         response_format: Some("url".to_string()),
+//!         quality: None,
 //!     };
 //!
 //!     let response = client.generate_image(
@@ -57,6 +58,7 @@
 //!         aspect_ratio: None,
 //!         num_images: Some(1),
 //!         response_format: Some("b64_json".to_string()),
+//!         quality: None,
 //!     };
 //!
 //!     let response = client.generate_image(
@@ -88,6 +90,7 @@
 //!         aspect_ratio: Some("16:9".to_string()), // Landscape
 //!         num_images: Some(1),
 //!         response_format: Some("url".to_string()),
+//!         quality: None,
 //!     };
 //!
 //!     let response = client.generate_image(
@@ -114,6 +117,7 @@
 //!         aspect_ratio: None,
 //!         num_images: Some(4), // Generate 4 variations
 //!         response_format: Some("url".to_string()),
+//!         quality: None,
 //!     };
 //!
 //!     let response = client.generate_image(
@@ -225,6 +229,7 @@ use std::error::Error;
 ///     aspect_ratio: None,
 ///     num_images: None,
 ///     response_format: None,
+///     quality: None,
 /// };
 /// ```
 ///
@@ -236,6 +241,7 @@ use std::error::Error;
 ///     aspect_ratio: Some("16:9".to_string()),
 ///     num_images: Some(2),
 ///     response_format: Some("url".to_string()),
+///     quality: Some("auto".to_string()),
 /// };
 /// ```
 #[derive(Clone, Debug, Default)]
@@ -260,6 +266,17 @@ pub struct ImageGenerationOptions {
     ///
     /// If `None`, the provider's default ("url" for most) is used.
     pub response_format: Option<String>,
+
+    /// Quality tier for the generated image (e.g., "auto", "low", "medium", "high").
+    /// Supported values vary by provider:
+    /// - Grok (grok-imagine-image-2.0): "auto" (default — picks the tier per
+    ///   request to cut latency without lowering output quality), "low",
+    ///   "medium", "high"
+    /// - OpenAI (gpt-image-2): "auto", "low", "medium", "high"
+    /// - Gemini: not supported, ignored
+    ///
+    /// If `None`, the provider's default is used.
+    pub quality: Option<String>,
 }
 
 /// A single generated image with optional URL or Base64 encoding.
@@ -501,6 +518,7 @@ pub trait ImageGenerationClient: Send + Sync {
     ///         aspect_ratio: Some("4:3".to_string()),
     ///         num_images: Some(1),
     ///         response_format: Some("url".to_string()),
+    ///         quality: None,
     ///     };
     ///
     ///     match client.generate_image(prompt, options).await {
@@ -644,6 +662,7 @@ pub async fn register_image_generation_tool(
                                     .map(|s| s.to_string()),
                                 num_images: Some(1),
                                 response_format: Some("url".to_string()),
+                                quality: None,
                             },
                         )
                         .await

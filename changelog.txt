@@ -1,3 +1,19 @@
+0.15.16 SEP/08/2026
+  - feat(image): `ImageGenerationOptions.quality` (`auto` | `low` | `medium`
+    | `high`) — forwarded as `quality` by the Grok Imagine and OpenAI
+    (gpt-image-2) clients, ignored by Gemini. xAI made `auto` the default
+    tier picker for grok-imagine-image-2.0 (picks the tier per request to
+    cut latency without lowering output quality); pass
+    `quality: Some("auto")` explicitly so callers are billed at the tier
+    served even before the Nov 2 retirement of the old quality alias.
+
+0.15.15 AUG/25/2026
+  - fix(openrouter): retry truncated response bodies instead of failing the
+    request — body-read failures now report the HTTP status plus the full
+    error source chain and retry transient errors with backoff.
+  - feat(openrouter): `new_with_base_url_and_reasoning_effort` is now public;
+    the reasoning-effort parameter takes `Option<&str>`.
+
 0.15.14 AUG/25/2026
   - fix(openrouter): non-stream requests can set reasoning effort and parse
     provider responses with nullable `message.content` without a serde decode

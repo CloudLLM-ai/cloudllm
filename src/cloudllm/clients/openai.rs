@@ -83,6 +83,7 @@
 //!         aspect_ratio: Some("16:9".to_string()),
 //!         num_images: Some(1),
 //!         response_format: Some("url".to_string()),
+//!         quality: None,
 //!     };
 //!
 //!     let response = client.generate_image(
@@ -519,12 +520,17 @@ impl ImageGenerationClient for OpenAIClient {
         let model_name = image_model_to_string(ImageModel::GPTImage2);
 
         // Build request body for direct HTTP call (honors base_url)
-        let request_body = serde_json::json!({
+        let mut request_body = serde_json::json!({
             "model": model_name,
             "prompt": prompt,
             "n": n,
             "size": size,
         });
+
+        // gpt-image-2 supports quality: auto | low | medium | high
+        if let Some(ref quality) = options.quality {
+            request_body["quality"] = serde_json::json!(quality);
+        }
 
         if log::log_enabled!(log::Level::Debug) {
             log::debug!(

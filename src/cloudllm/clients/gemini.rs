@@ -52,6 +52,7 @@
 //!             aspect_ratio: Some("16:9".to_string()),
 //!             num_images: Some(1),
 //!             response_format: Some("url".to_string()),
+//!             quality: None,
 //!         },
 //!     ).await?;
 //!

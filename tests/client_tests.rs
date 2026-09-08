@@ -247,6 +247,7 @@ fn test_gemini_image_generation() {
             aspect_ratio: Some("16:9".to_string()),
             num_images: Some(1),
             response_format: Some("b64_json".to_string()),
+            quality: None,
         };
 
         client
