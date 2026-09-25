@@ -231,10 +231,14 @@ pub enum Model {
     MetaMuseSpark12,
     /// `anthropic/claude-opus-5` – Anthropic Claude Opus 5.
     ClaudeOpus5,
+    /// `anthropic/claude-opus-5.5` – Anthropic Claude Opus 5.5.
+    ClaudeOpus55,
     /// `anthropic/claude-sonnet-5` – Anthropic Claude Sonnet 5.
     ClaudeSonnet5,
     /// `anthropic/claude-fable-5` – Anthropic Claude Fable 5.
     ClaudeFable5,
+    /// `anthropic/claude-fable-5.1` – Anthropic Claude Fable 5.1.
+    ClaudeFable51,
     /// `anthropic/claude-opus-5-fast` – Anthropic Claude Opus 5 (fast tier).
     ClaudeOpus5Fast,
     /// `anthropic/claude-opus-4.8-fast` – Anthropic Claude Opus 4.8 (fast tier).
@@ -255,8 +259,26 @@ pub enum Model {
     GPT56Terra,
     /// `openai/gpt-5.6-luna` – OpenAI GPT-5.6 Luna via OpenRouter.
     GPT56Luna,
+    /// `openai/gpt-6-astra` – OpenAI GPT-6 Astra.
+    GPT6Astra,
+    /// `openai/gpt-6-astra-pro` – OpenAI GPT-6 Astra Pro.
+    GPT6AstraPro,
+    /// `openai/gpt-6-sol` – OpenAI GPT-6 Sol.
+    GPT6Sol,
+    /// `openai/gpt-6-sol-pro` – OpenAI GPT-6 Sol Pro.
+    GPT6SolPro,
+    /// `openai/gpt-6-luna` – OpenAI GPT-6 Luna.
+    GPT6Luna,
+    /// `openai/gpt-6-luna-pro` – OpenAI GPT-6 Luna Pro.
+    GPT6LunaPro,
     /// `x-ai/grok-4.5` – SpaceXAI Grok 4.5 via OpenRouter.
     Grok45,
+    /// `x-ai/grok-4.7` – xAI Grok 4.7.
+    Grok47,
+    /// `x-ai/grok-4.20` – xAI Grok 4.20.
+    Grok420,
+    /// `x-ai/grok-4.20-multi-agent` – xAI Grok 4.20 Multi-Agent.
+    Grok420MultiAgent,
     /// `z-ai/glm-5.2` – Z.ai GLM 5.2 (open-weight coding/agentic).
     ZAiGlm52,
     /// `moonshotai/kimi-k2.7-code` – Moonshot Kimi K2.7 Code.
@@ -330,8 +352,10 @@ pub fn model_to_string(model: Model) -> String {
         Model::Qwen38Max => "qwen/qwen3.8-max".to_string(),
         Model::MetaMuseSpark12 => "meta/muse-spark-1.2".to_string(),
         Model::ClaudeOpus5 => "anthropic/claude-opus-5".to_string(),
+        Model::ClaudeOpus55 => "anthropic/claude-opus-5.5".to_string(),
         Model::ClaudeSonnet5 => "anthropic/claude-sonnet-5".to_string(),
         Model::ClaudeFable5 => "anthropic/claude-fable-5".to_string(),
+        Model::ClaudeFable51 => "anthropic/claude-fable-5.1".to_string(),
         Model::ClaudeOpus5Fast => "anthropic/claude-opus-5-fast".to_string(),
         Model::ClaudeOpus48Fast => "anthropic/claude-opus-4.8-fast".to_string(),
         Model::ClaudeOpus47Fast => "anthropic/claude-opus-4.7-fast".to_string(),
@@ -342,7 +366,16 @@ pub fn model_to_string(model: Model) -> String {
         Model::GPT56Sol => "openai/gpt-5.6-sol".to_string(),
         Model::GPT56Terra => "openai/gpt-5.6-terra".to_string(),
         Model::GPT56Luna => "openai/gpt-5.6-luna".to_string(),
+        Model::GPT6Astra => "openai/gpt-6-astra".to_string(),
+        Model::GPT6AstraPro => "openai/gpt-6-astra-pro".to_string(),
+        Model::GPT6Sol => "openai/gpt-6-sol".to_string(),
+        Model::GPT6SolPro => "openai/gpt-6-sol-pro".to_string(),
+        Model::GPT6Luna => "openai/gpt-6-luna".to_string(),
+        Model::GPT6LunaPro => "openai/gpt-6-luna-pro".to_string(),
         Model::Grok45 => "x-ai/grok-4.5".to_string(),
+        Model::Grok47 => "x-ai/grok-4.7".to_string(),
+        Model::Grok420 => "x-ai/grok-4.20".to_string(),
+        Model::Grok420MultiAgent => "x-ai/grok-4.20-multi-agent".to_string(),
         Model::ZAiGlm52 => "z-ai/glm-5.2".to_string(),
         Model::KimiK27Code => "moonshotai/kimi-k2.7-code".to_string(),
         Model::Qwen37Flash => "qwen/qwen3.7-flash".to_string(),

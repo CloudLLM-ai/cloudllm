@@ -82,8 +82,10 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::Qwen38Max, "qwen/qwen3.8-max"),
         (Model::MetaMuseSpark12, "meta/muse-spark-1.2"),
         (Model::ClaudeOpus5, "anthropic/claude-opus-5"),
+        (Model::ClaudeOpus55, "anthropic/claude-opus-5.5"),
         (Model::ClaudeSonnet5, "anthropic/claude-sonnet-5"),
         (Model::ClaudeFable5, "anthropic/claude-fable-5"),
+        (Model::ClaudeFable51, "anthropic/claude-fable-5.1"),
         (Model::ClaudeOpus5Fast, "anthropic/claude-opus-5-fast"),
         (Model::ClaudeOpus48Fast, "anthropic/claude-opus-4.8-fast"),
         (Model::ClaudeOpus47Fast, "anthropic/claude-opus-4.7-fast"),
@@ -97,7 +99,16 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::GPT56Sol, "openai/gpt-5.6-sol"),
         (Model::GPT56Terra, "openai/gpt-5.6-terra"),
         (Model::GPT56Luna, "openai/gpt-5.6-luna"),
+        (Model::GPT6Astra, "openai/gpt-6-astra"),
+        (Model::GPT6AstraPro, "openai/gpt-6-astra-pro"),
+        (Model::GPT6Sol, "openai/gpt-6-sol"),
+        (Model::GPT6SolPro, "openai/gpt-6-sol-pro"),
+        (Model::GPT6Luna, "openai/gpt-6-luna"),
+        (Model::GPT6LunaPro, "openai/gpt-6-luna-pro"),
         (Model::Grok45, "x-ai/grok-4.5"),
+        (Model::Grok47, "x-ai/grok-4.7"),
+        (Model::Grok420, "x-ai/grok-4.20"),
+        (Model::Grok420MultiAgent, "x-ai/grok-4.20-multi-agent"),
         (Model::ZAiGlm52, "z-ai/glm-5.2"),
         (Model::KimiK27Code, "moonshotai/kimi-k2.7-code"),
         (Model::Qwen37Flash, "qwen/qwen3.7-flash"),
@@ -109,7 +120,7 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::ByteDanceSeed20Code, "bytedance-seed/seed-2.0-code"),
     ];
 
-    assert_eq!(expected.len(), 75, "test fixture must cover every variant");
+    assert_eq!(expected.len(), 86, "test fixture must cover every variant");
 
     for (variant, slug) in expected {
         assert_eq!(model_to_string(*variant), *slug);
