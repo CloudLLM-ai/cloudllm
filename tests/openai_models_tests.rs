@@ -43,6 +43,16 @@ fn gpt_56_model_variants_map_to_expected_api_names() {
 }
 
 #[test]
+fn gpt_6_model_variants_map_to_expected_api_names() {
+    assert_eq!(model_to_string(Model::GPT6Astra), "gpt-6-astra");
+    assert_eq!(model_to_string(Model::GPT6AstraPro), "gpt-6-astra-pro");
+    assert_eq!(model_to_string(Model::GPT6Sol), "gpt-6-sol");
+    assert_eq!(model_to_string(Model::GPT6SolPro), "gpt-6-sol-pro");
+    assert_eq!(model_to_string(Model::GPT6Luna), "gpt-6-luna");
+    assert_eq!(model_to_string(Model::GPT6LunaPro), "gpt-6-luna-pro");
+}
+
+#[test]
 #[allow(deprecated)]
 fn gpt_55_model_variants_map_to_expected_api_names() {
     assert_eq!(model_to_string(Model::GPT55), "gpt-5.5");

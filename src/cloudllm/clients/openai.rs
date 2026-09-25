@@ -141,6 +141,18 @@ pub fn image_model_to_string(model: ImageModel) -> String {
 /// Official model identifiers supported by OpenAI's Chat Completions API.
 #[allow(non_camel_case_types)]
 pub enum Model {
+    /// `gpt-6-astra` – GPT-6 flagship for the hardest reasoning and coding tasks.
+    GPT6Astra,
+    /// `gpt-6-astra-pro` – higher-capability GPT-6 Astra tier.
+    GPT6AstraPro,
+    /// `gpt-6-sol` – GPT-6 model for complex coding and agentic workflows.
+    GPT6Sol,
+    /// `gpt-6-sol-pro` – higher-capability GPT-6 Sol tier.
+    GPT6SolPro,
+    /// `gpt-6-luna` – efficient GPT-6 model for high-volume workloads.
+    GPT6Luna,
+    /// `gpt-6-luna-pro` – higher-capability GPT-6 Luna tier.
+    GPT6LunaPro,
     /// `gpt-5.6-sol` – Frontier GPT-5.6 model for complex professional work (flagship).
     GPT56Sol,
     /// `gpt-5.6` – Alias that routes to GPT-5.6 Sol.
@@ -252,6 +264,12 @@ pub enum Model {
 #[allow(deprecated)]
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::GPT6Astra => "gpt-6-astra".to_string(),
+        Model::GPT6AstraPro => "gpt-6-astra-pro".to_string(),
+        Model::GPT6Sol => "gpt-6-sol".to_string(),
+        Model::GPT6SolPro => "gpt-6-sol-pro".to_string(),
+        Model::GPT6Luna => "gpt-6-luna".to_string(),
+        Model::GPT6LunaPro => "gpt-6-luna-pro".to_string(),
         Model::GPT56Sol => "gpt-5.6-sol".to_string(),
         Model::GPT56 => "gpt-5.6".to_string(),
         Model::GPT56Terra => "gpt-5.6-terra".to_string(),
