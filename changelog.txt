@@ -1,3 +1,8 @@
+Unreleased
+  - feat(models): add xAI Grok 4.7 and 4.20, OpenAI GPT-6 Astra/Sol/Luna
+    (including Pro tiers), and Anthropic Claude Opus 5.5 and Fable 5.1 to the
+    native and OpenRouter model enums.
+
 0.15.17 SEP/08/2026
   - fix(image): Grok Imagine model `grok-imagine-image` →
     `grok-imagine-image-2.0`. The old alias rejects `quality: "auto"`
