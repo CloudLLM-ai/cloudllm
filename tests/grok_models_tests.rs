@@ -54,6 +54,24 @@ fn grok_43_and_build_still_map() {
 }
 
 #[test]
+fn grok_47_and_420_models_map_to_expected_api_names() {
+    assert_eq!(model_to_string(Model::Grok47), "grok-4.7");
+    assert_eq!(model_to_string(Model::Grok47Latest), "grok-4.7-latest");
+    assert_eq!(
+        model_to_string(Model::Grok4200309Reasoning),
+        "grok-4.20-0309-reasoning"
+    );
+    assert_eq!(
+        model_to_string(Model::Grok4200309NonReasoning),
+        "grok-4.20-0309-non-reasoning"
+    );
+    assert_eq!(
+        model_to_string(Model::Grok420MultiAgent0309),
+        "grok-4.20-multi-agent-0309"
+    );
+}
+
+#[test]
 fn grok_client_uses_new_grok_45_variants() {
     let client = GrokClient::new_with_model_enum("test-key", Model::Grok45);
     let latest = GrokClient::new_with_model_enum("test-key", Model::Grok45Latest);

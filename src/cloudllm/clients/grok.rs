@@ -107,7 +107,7 @@ pub struct GrokClient {
     base_url: String,
 }
 
-/// Grok model identifiers available as of July 2026.
+/// Grok model identifiers available from xAI's API.
 pub enum Model {
     /// `grok-2` – production Grok 2 multi-modal model.
     Grok2,
@@ -153,6 +153,16 @@ pub enum Model {
     Grok46,
     /// `grok-4.6-latest` – latest Grok 4.6 drop.
     Grok46Latest,
+    /// `grok-4.7` – current xAI flagship model.
+    Grok47,
+    /// `grok-4.7-latest` – rolling latest Grok 4.7 release.
+    Grok47Latest,
+    /// `grok-4.20-0309-reasoning` – dated Grok 4.20 reasoning release.
+    Grok4200309Reasoning,
+    /// `grok-4.20-0309-non-reasoning` – dated Grok 4.20 non-reasoning release.
+    Grok4200309NonReasoning,
+    /// `grok-4.20-multi-agent-0309` – dated Grok 4.20 multi-agent release.
+    Grok420MultiAgent0309,
     /// `grok-build-0.1` – Grok build 0.1 model (xai/grok-build-0.1).
     GrokBuild01,
 }
@@ -182,6 +192,11 @@ pub fn model_to_string(model: Model) -> String {
         Model::Grok45Latest => "grok-4.5-latest".to_string(),
         Model::Grok46 => "grok-4.6".to_string(),
         Model::Grok46Latest => "grok-4.6-latest".to_string(),
+        Model::Grok47 => "grok-4.7".to_string(),
+        Model::Grok47Latest => "grok-4.7-latest".to_string(),
+        Model::Grok4200309Reasoning => "grok-4.20-0309-reasoning".to_string(),
+        Model::Grok4200309NonReasoning => "grok-4.20-0309-non-reasoning".to_string(),
+        Model::Grok420MultiAgent0309 => "grok-4.20-multi-agent-0309".to_string(),
         Model::GrokBuild01 => "grok-build-0.1".to_string(),
     }
 }
