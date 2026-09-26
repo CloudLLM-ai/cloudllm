@@ -14,59 +14,40 @@ export CLOUDLLM_STREAM_REASONING=full  # default
 export CLOUDLLM_STREAM_CONTENT=compact # default (avoid dumping 300KB of HTML)
 ```
 
-**Total Examples**: 22 | **Updated**: v0.15.13
+**Total Examples**: 21 | **Updated**: v0.15.13
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
-### Pac-Man — RALPH Mode (OpenRouter / DeepSeek V4 Pro)
-**File**: `pacman_game_ralph_deepseek_v4_pro.rs` ⭐ **FEATURED**
+### Pac-Man — RALPH Mode (interactive model picker)
+**File**: `pacman_game_ralph.rs` ⭐ **FEATURED**
 
-Complete 18-task classic Pac-Man build via RALPH, driven by OpenRouter
-`deepseek/deepseek-v4-pro-0813` (V4 Pro GA snapshot). Flash 0731 was too weak for this harness.
+Builds a complete classic Pac-Man game from the shared 18-task PRD. Run without
+arguments for a keyboard-driven, framed terminal menu, or select a model directly
+for automation. Every model writes its own `pacman_game_ralph_<model>.html` file.
 
-**Spec-only harness** — the Rust example ships **no game implementation**, only PRD tasks,
-system context, and acceptance criteria. Agents author the full page from scratch
-(session Memory starts empty). Designed to evaluate coding-model capability.
+**Available model IDs**:
+- `grok-4.7` — xAI; requires `XAI_API_KEY`
+- `deepseek-v4.1-flash` — OpenRouter; requires `OPENROUTER_API_KEY`
+- `gpt-6-luna` — OpenRouter; requires `OPENROUTER_API_KEY`
 
-**Demonstrates**:
-- RALPH orchestration with task completion markers
-- 4 specialized agents (maze architect, Pac-Man programmer, ghost AI engineer, audio/VFX)
-- **MentisDB durable memory** on the shared `cloudllm` chain (run plan, constraints, checkpoints)
-- **Authentic per-color ghost AI** in the PRD: Blinky chase, Pinky ambush (+ UP quirk),
-  Inky flank via Blinky, Clyde shy 8-tile rule; scatter/chase cycles; frightened/eaten house return
-- Playability specs in prose: fixed-rate simulation, moderate pacing, board safety, audible SFX
-- Read-Modify-Write via session Memory + `write_game_file` (also logs MentisDB snapshots)
-- OpenRouter client with DeepSeek V4 Pro 0813 (**1M** context via `with_max_tokens`)
-
-**Setup**:
+**Interactive menu**:
 ```bash
-export OPENROUTER_API_KEY=sk-or-...
-cargo run --example pacman_game_ralph_deepseek_v4_pro
+cargo run --example pacman_game_ralph
+```
+Use ↑/↓ to highlight a model, Enter to run, and Esc to quit.
+
+**Automation / direct selection**:
+```bash
+cargo run --example pacman_game_ralph -- --model grok-4.7
+cargo run --example pacman_game_ralph -- --model deepseek-v4.1-flash
+cargo run --example pacman_game_ralph -- --model gpt-6-luna
+cargo run --example pacman_game_ralph -- --help
 ```
 
-**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_deepseek_v4_pro.html`
-
-Live stdout: reasoning traces in dark gray + heartbeats while the model thinks.
-Speed knob (quality tradeoff): `export CLOUDLLM_REASONING_EFFORT=low`
-
----
-
-### Pac-Man — RALPH Mode (xAI / Grok 4.6)
-**File**: `pacman_game_ralph_grok_4_6.rs` ⭐ **FEATURED**
-
-Same pure-PRD Pac-Man RALPH harness as the DeepSeek variant, driven by native
-`GrokClient` with **`grok-4.6`** (SpaceXAI / xAI flagship; **500k** context).
-
-**Setup**:
-```bash
-export XAI_API_KEY=xai-...
-cargo run --example pacman_game_ralph_grok_4_6
-```
-
-**Runtime**: ~20-45 minutes | **Output**: `pacman_game_ralph_grok_4_6.html`
-
-Live stdout: reasoning traces in dark gray + heartbeats while the model thinks.
-Speed knob (quality tradeoff): `export CLOUDLLM_REASONING_EFFORT=low`
+Set the selected provider's key before launch. Runs take approximately 20–45 minutes;
+live reasoning and heartbeats are printed while agents work. Reduce hidden reasoning with
+`CLOUDLLM_REASONING_EFFORT=low`. Add future options to the `MODEL_OPTIONS` registry in
+the example source.
 
 ---
 
@@ -575,8 +556,8 @@ cargo build --examples
 | `ANTHROPIC_API_KEY` | Claude models | breakout_game_ralph, breakout_game_agent_teams, digimon_vs_pokemon_debate, anthropic_teams |
 | `GROK_API_KEY` | Grok models | agent_panel_with_moderator_and_access_to_tools, interactive_session |
 | `GEMINI_API_KEY` | Google Gemini | (optional, if enabled) |
-| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph_deepseek_v4_pro |
-| `XAI_API_KEY` | xAI Grok | pacman_game_ralph_grok_4_6, interactive_session, … |
+| `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph |
+| `XAI_API_KEY` | xAI Grok | pacman_game_ralph, interactive_session, … |
 | `RUST_LOG` | All examples | Set to debug, info, or trace for logging |
 
 ### API Key Format
