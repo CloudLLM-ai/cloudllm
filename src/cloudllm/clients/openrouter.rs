@@ -135,6 +135,12 @@ pub enum Model {
     XiaomiMimoV25,
     /// `xiaomi/mimo-v2.5-pro` – Xiaomi MiMo v2.5 Pro.
     XiaomiMimoV25Pro,
+    /// `xiaomi/mimo-v2.6-flash` – Xiaomi MiMo v2.6 Flash.
+    XiaomiMimoV26Flash,
+    /// `xiaomi/mimo-v2.6-pro` – Xiaomi MiMo v2.6 Pro.
+    XiaomiMimoV26Pro,
+    /// `xiaomi/mimo-v2.6-pro-ultraspeed` – Xiaomi MiMo v2.6 Pro UltraSpeed.
+    XiaomiMimoV26ProUltraspeed,
     /// `deepseek/deepseek-v4-pro` – DeepSeek v4 Pro.
     DeepSeekV4Pro,
     /// `deepseek/deepseek-v3.2` – DeepSeek v3.2.
@@ -157,6 +163,12 @@ pub enum Model {
     MinimaxM27,
     /// `moonshotai/kimi-k2.6` – Moonshot Kimi K2.6.
     MoonshotKimiK26,
+    /// `moonshotai/kimi-k2` – Moonshot Kimi K2.
+    MoonshotKimiK2,
+    /// `moonshotai/kimi-k2-0905` – Moonshot Kimi K2 September 5 snapshot.
+    MoonshotKimiK20905,
+    /// `moonshotai/kimi-k2-thinking` – Moonshot Kimi K2 Thinking.
+    MoonshotKimiK2Thinking,
     /// `openai/gpt-4o-mini` – OpenAI GPT-4o mini via OpenRouter.
     GPT4oMini,
     /// `openai/gpt-5.5` – OpenAI GPT-5.5 via OpenRouter.
@@ -187,10 +199,22 @@ pub enum Model {
     Gemini31FlashLitePreview,
     /// `z-ai/glm-4.7` – Z-AI GLM 4.7.
     ZAiGlm47,
+    /// `z-ai/glm-4.5` – Z-AI GLM 4.5.
+    ZAiGlm45,
+    /// `z-ai/glm-4.5v` – Z-AI GLM 4.5V vision model.
+    ZAiGlm45V,
+    /// `z-ai/glm-4.6` – Z-AI GLM 4.6.
+    ZAiGlm46,
+    /// `z-ai/glm-4.6v` – Z-AI GLM 4.6V vision model.
+    ZAiGlm46V,
+    /// `z-ai/glm-4.7-flash` – Z-AI GLM 4.7 Flash.
+    ZAiGlm47Flash,
     /// `qwen/qwen3.6-plus` – Qwen 3.6 Plus.
     Qwen36Plus,
     /// `qwen/qwen3.7-max` – Qwen 3.7 Max.
     Qwen37Max,
+    /// `qwen/qwen3.7-plus` – Qwen 3.7 Plus.
+    Qwen37Plus,
     /// `minimax/minimax-m2.5` – MiniMax M2.5.
     MinimaxM25,
     /// `openai/gpt-5.4-mini` – OpenAI GPT-5.4 mini via OpenRouter.
@@ -203,6 +227,18 @@ pub enum Model {
     MistralNemo,
     /// `z-ai/glm-5` – Z-AI GLM 5.
     ZAiGlm5,
+    /// `z-ai/glm-5-turbo` – Z-AI GLM 5 Turbo.
+    ZAiGlm5Turbo,
+    /// `z-ai/glm-5.3` – Z-AI GLM 5.3.
+    ZAiGlm53,
+    /// `z-ai/glm-5.3-flash` – Z-AI GLM 5.3 Flash.
+    ZAiGlm53Flash,
+    /// `z-ai/glm-5.3-flashx` – Z-AI GLM 5.3 FlashX.
+    ZAiGlm53FlashX,
+    /// `z-ai/glm-5.3-prime` – Z-AI GLM 5.3 Prime.
+    ZAiGlm53Prime,
+    /// `z-ai/glm-5v-turbo` – Z-AI GLM 5V Turbo.
+    ZAiGlm5VTurbo,
     /// `z-ai/glm-4.5-air` – Z-AI GLM 4.5 Air.
     ZAiGlm45Air,
     /// `qwen/qwen3-embedding-8b` – Qwen 3 Embedding 8B.
@@ -227,6 +263,18 @@ pub enum Model {
     MoonshotKimiK3,
     /// `qwen/qwen3.8-max` – Qwen 3.8 Max.
     Qwen38Max,
+    /// `qwen/qwen3.8-2.4t-a95b` – Qwen 3.8 2.4T A95B.
+    Qwen3824TA95B,
+    /// `qwen/qwen3.8-27b` – Qwen 3.8 27B.
+    Qwen3827B,
+    /// `qwen/qwen3.8-flash` – Qwen 3.8 Flash.
+    Qwen38Flash,
+    /// `qwen/qwen3.8-max-0902` – Qwen 3.8 Max (September 2 snapshot).
+    Qwen38Max0902,
+    /// `qwen/qwen3.8-max-prime` – Qwen 3.8 Max Prime.
+    Qwen38MaxPrime,
+    /// `qwen/qwen3.8-omni-flash` – Qwen 3.8 Omni Flash.
+    Qwen38OmniFlash,
     /// `meta/muse-spark-1.2` – Meta Muse Spark 1.2.
     MetaMuseSpark12,
     /// `anthropic/claude-opus-5` – Anthropic Claude Opus 5.
@@ -249,6 +297,8 @@ pub enum Model {
     DeepSeekV4Pro0813,
     /// `deepseek/deepseek-v4-flash-latest` – rolling latest DeepSeek V4 Flash.
     DeepSeekV4FlashLatest,
+    /// `deepseek/deepseek-v4.1-flash` – DeepSeek V4.1 Flash (1M-token context).
+    DeepSeekV41Flash,
     /// `google/gemini-3.6-flash` – Gemini 3.6 Flash workhorse (Jul 2026); 1M ctx.
     Gemini36Flash,
     /// `google/gemini-3.5-flash-lite` – Gemini 3.5 Flash Lite.
@@ -304,6 +354,9 @@ pub fn model_to_string(model: Model) -> String {
         Model::OpenRouterOwlAlpha => "openrouter/owl-alpha".to_string(),
         Model::XiaomiMimoV25 => "xiaomi/mimo-v2.5".to_string(),
         Model::XiaomiMimoV25Pro => "xiaomi/mimo-v2.5-pro".to_string(),
+        Model::XiaomiMimoV26Flash => "xiaomi/mimo-v2.6-flash".to_string(),
+        Model::XiaomiMimoV26Pro => "xiaomi/mimo-v2.6-pro".to_string(),
+        Model::XiaomiMimoV26ProUltraspeed => "xiaomi/mimo-v2.6-pro-ultraspeed".to_string(),
         Model::DeepSeekV4Pro => "deepseek/deepseek-v4-pro".to_string(),
         Model::DeepSeekV32 => "deepseek/deepseek-v3.2".to_string(),
         Model::Gemini3FlashPreview => "google/gemini-3-flash-preview".to_string(),
@@ -315,6 +368,9 @@ pub fn model_to_string(model: Model) -> String {
         Model::Gemini35Flash => "google/gemini-3.5-flash".to_string(),
         Model::MinimaxM27 => "minimax/minimax-m2.7".to_string(),
         Model::MoonshotKimiK26 => "moonshotai/kimi-k2.6".to_string(),
+        Model::MoonshotKimiK2 => "moonshotai/kimi-k2".to_string(),
+        Model::MoonshotKimiK20905 => "moonshotai/kimi-k2-0905".to_string(),
+        Model::MoonshotKimiK2Thinking => "moonshotai/kimi-k2-thinking".to_string(),
         Model::GPT4oMini => "openai/gpt-4o-mini".to_string(),
         Model::GPT55 => "openai/gpt-5.5".to_string(),
         Model::ClaudeOpus48 => "anthropic/claude-opus-4.8".to_string(),
@@ -330,14 +386,26 @@ pub fn model_to_string(model: Model) -> String {
         Model::StepfunStep37Flash => "stepfun/step-3.7-flash".to_string(),
         Model::Gemini31FlashLitePreview => "google/gemini-3.1-flash-lite-preview".to_string(),
         Model::ZAiGlm47 => "z-ai/glm-4.7".to_string(),
+        Model::ZAiGlm45 => "z-ai/glm-4.5".to_string(),
+        Model::ZAiGlm45V => "z-ai/glm-4.5v".to_string(),
+        Model::ZAiGlm46 => "z-ai/glm-4.6".to_string(),
+        Model::ZAiGlm46V => "z-ai/glm-4.6v".to_string(),
+        Model::ZAiGlm47Flash => "z-ai/glm-4.7-flash".to_string(),
         Model::Qwen36Plus => "qwen/qwen3.6-plus".to_string(),
         Model::Qwen37Max => "qwen/qwen3.7-max".to_string(),
+        Model::Qwen37Plus => "qwen/qwen3.7-plus".to_string(),
         Model::MinimaxM25 => "minimax/minimax-m2.5".to_string(),
         Model::GPT54Mini => "openai/gpt-5.4-mini".to_string(),
         Model::GPT5Mini => "openai/gpt-5-mini".to_string(),
         Model::MoonshotKimiK25 => "moonshotai/kimi-k2.5".to_string(),
         Model::MistralNemo => "mistralai/mistral-nemo".to_string(),
         Model::ZAiGlm5 => "z-ai/glm-5".to_string(),
+        Model::ZAiGlm5Turbo => "z-ai/glm-5-turbo".to_string(),
+        Model::ZAiGlm53 => "z-ai/glm-5.3".to_string(),
+        Model::ZAiGlm53Flash => "z-ai/glm-5.3-flash".to_string(),
+        Model::ZAiGlm53FlashX => "z-ai/glm-5.3-flashx".to_string(),
+        Model::ZAiGlm53Prime => "z-ai/glm-5.3-prime".to_string(),
+        Model::ZAiGlm5VTurbo => "z-ai/glm-5v-turbo".to_string(),
         Model::ZAiGlm45Air => "z-ai/glm-4.5-air".to_string(),
         Model::Qwen3Embedding8B => "qwen/qwen3-embedding-8b".to_string(),
         Model::ClaudeSonnet45 => "anthropic/claude-sonnet-4.5".to_string(),
@@ -350,6 +418,12 @@ pub fn model_to_string(model: Model) -> String {
         Model::Grok46 => "x-ai/grok-4.6".to_string(),
         Model::MoonshotKimiK3 => "moonshotai/kimi-k3".to_string(),
         Model::Qwen38Max => "qwen/qwen3.8-max".to_string(),
+        Model::Qwen3824TA95B => "qwen/qwen3.8-2.4t-a95b".to_string(),
+        Model::Qwen3827B => "qwen/qwen3.8-27b".to_string(),
+        Model::Qwen38Flash => "qwen/qwen3.8-flash".to_string(),
+        Model::Qwen38Max0902 => "qwen/qwen3.8-max-0902".to_string(),
+        Model::Qwen38MaxPrime => "qwen/qwen3.8-max-prime".to_string(),
+        Model::Qwen38OmniFlash => "qwen/qwen3.8-omni-flash".to_string(),
         Model::MetaMuseSpark12 => "meta/muse-spark-1.2".to_string(),
         Model::ClaudeOpus5 => "anthropic/claude-opus-5".to_string(),
         Model::ClaudeOpus55 => "anthropic/claude-opus-5.5".to_string(),
@@ -361,6 +435,7 @@ pub fn model_to_string(model: Model) -> String {
         Model::ClaudeOpus47Fast => "anthropic/claude-opus-4.7-fast".to_string(),
         Model::DeepSeekV4Pro0813 => "deepseek/deepseek-v4-pro-0813".to_string(),
         Model::DeepSeekV4FlashLatest => "deepseek/deepseek-v4-flash-latest".to_string(),
+        Model::DeepSeekV41Flash => "deepseek/deepseek-v4.1-flash".to_string(),
         Model::Gemini36Flash => "google/gemini-3.6-flash".to_string(),
         Model::Gemini35FlashLite => "google/gemini-3.5-flash-lite".to_string(),
         Model::GPT56Sol => "openai/gpt-5.6-sol".to_string(),
