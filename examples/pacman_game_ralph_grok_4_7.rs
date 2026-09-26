@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates the RALPH (autonomous iterative loop) orchestration mode
 //! by having multiple specialized agents collaborate to **implement from scratch** a
-//! complete Pac-Man game in a single `pacman_game_ralph_grok_4_6.html` file.
+//! complete Pac-Man game in a single `pacman_game_ralph_grok_4_7.html` file.
 //!
 //! **Important:** this file is a **pure PRD / prompt harness**. It contains no game
 //! source (no HTML, CSS, or JavaScript samples) — only product requirements, task
@@ -20,7 +20,7 @@
 //! - **MentisDB durable memory** on the shared `cloudllm` chain (agent thoughts + run log)
 //! - **MentisDB `memory` tool**: durable key/value coordination for the game page (`current_game_html`)
 //! - **write_game_file**: custom tool that writes the game page to disk and MentisDB
-//! - **xAI Grok 4.6 (native GrokClient)**: flagship coding/agentic model via xAI API
+//! - **xAI Grok 4.7 (native GrokClient)**: flagship coding/agentic model via xAI API
 //!
 //! ## Agents
 //!
@@ -39,13 +39,13 @@
 //!
 //! ```bash
 //! export XAI_API_KEY=xai-...
-//! cargo run --example pacman_game_ralph_grok_4_6
+//! cargo run --example pacman_game_ralph_grok_4_7
 //! ```
 //!
 //! MentisDB is **embedded** (local files under `mentisdbs/`, no `mentisdbd`).
 //! Override with `MENTISDB_DIR` / `MENTISDB_CHAIN_KEY`. The run aborts if the
 //! chain cannot be opened. Agents write the playable page to
-//! `pacman_game_ralph_grok_4_6.html` in the current directory.
+//! `pacman_game_ralph_grok_4_7.html` in the current directory.
 //!
 //! Long runs print live progress (reasoning in dark gray, heartbeats while waiting).
 //! To spend less time in hidden reasoning (quality tradeoff):
@@ -71,10 +71,10 @@ use tokio::sync::RwLock;
 const MENTISDB_CHAIN_KEY: &str = "cloudllm";
 
 /// Canonical playable deliverable written by agents and recovered at end-of-run.
-const OUTPUT_HTML: &str = "pacman_game_ralph_grok_4_6.html";
+const OUTPUT_HTML: &str = "pacman_game_ralph_grok_4_7.html";
 
 /// Session Memory key holding the latest full game page source.
-const MEMORY_GAME_KEY: &str = "current_game_html_grok_4_6";
+const MEMORY_GAME_KEY: &str = "current_game_html_grok_4_7";
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
@@ -88,14 +88,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(key) => key,
         Err(_) => {
             eprintln!("\n❌ Error: XAI_API_KEY environment variable is not set.");
-            eprintln!("\nThis example requires an xAI API key for Grok 4.6.");
+            eprintln!("\nThis example requires an xAI API key for Grok 4.7.");
             eprintln!("\nTo fix this:");
             eprintln!("  1. Get your API key from https://console.x.ai/team/default/api-keys");
             eprintln!("  2. Set the environment variable:");
             eprintln!("     export XAI_API_KEY=xai-...");
             eprintln!("  3. Run the example again:");
             eprintln!("     cargo run --example pacman_game_ralph");
-            eprintln!("\nModel: grok-4.6 via xAI");
+            eprintln!("\nModel: grok-4.7 via xAI");
             eprintln!("Expected runtime: 20-45 minutes (10 iterations × 4 agents)\n");
             std::process::exit(1);
         }
@@ -104,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n{}", "=".repeat(80));
     println!("  RALPH Orchestration Mode — Classic Pac-Man Game Builder");
     println!("  Provider: xAI (Grok)");
-    println!("  Model:    grok-4.6 (Grok 4.6, 500k ctx)");
+    println!("  Model:    grok-4.7 (Grok 4.7, 500k ctx)");
     println!("{}", "=".repeat(80));
     LiveConsoleHandler::print_env_knobs();
 
@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ThoughtType::Plan,
             "Pac-Man RALPH run starting: four agents will implement a full classic Pac-Man page \
              from pure PRD specifications (no starter game source). Deliverable: \
-             pacman_game_ralph_grok_4_6.html. Non-negotiables: fixed-rate simulation, moderate pacing, \
+              pacman_game_ralph_grok_4_7.html. Non-negotiables: fixed-rate simulation, moderate pacing, \
              Pac-Man never leaves the board, audible SFX after user input, restart without reload.",
         )?;
         db.append(
@@ -156,14 +156,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ToolMetadata::new(
                 "write_game_file",
                 "MANDATORY deliverable tool. Write the COMPLETE playable game page to \
-                 pacman_game_ralph_grok_4_6.html on disk and MentisDB (current_game_html). Call this \
+                 pacman_game_ralph_grok_4_7.html on disk and MentisDB (current_game_html). Call this \
                  every time you produce or update the game — \
                  a finished run without this file is a failed run. Content must be a full \
                  self-contained web page (not a snippet).",
             )
             .with_parameter(
                 ToolParameter::new("filename", ToolParameterType::String).with_description(
-                    "Ignored for path selection; the harness always writes pacman_game_ralph_grok_4_6.html",
+                    "Ignored for path selection; the harness always writes pacman_game_ralph_grok_4_7.html",
                 ),
             )
             .with_parameter(
@@ -242,9 +242,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     shared_registry.add_protocol("http", http_protocol).await?;
     let shared_registry = Arc::new(RwLock::new(shared_registry));
 
-    // ── Agents (xAI Grok 4.6) ───────────────────────────────────────────────
+    // ── Agents (xAI Grok 4.7) ───────────────────────────────────────────────
 
-    let make_client = || Arc::new(GrokClient::new_with_model_enum(&api_key, GrokModel::Grok46));
+    let make_client = || Arc::new(GrokClient::new_with_model_enum(&api_key, GrokModel::Grok47));
 
     let architect = Agent::new("maze-architect", "Maze Architect", make_client())
         .with_expertise(
@@ -479,7 +479,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 You are on a multi-agent team building a complete classic Pac-Man game from a product \
 specification only. There is no starter implementation. You must design and implement the \
 entire playable game yourselves and deliver it as one self-contained web page file named \
-pacman_game_ralph_grok_4_6.html (all presentation and behavior inline; no external libraries, fonts, \
+pacman_game_ralph_grok_4_7.html (all presentation and behavior inline; no external libraries, fonts, \
 or assets).\n\n\
 \
 ## Memory architecture\n\
@@ -491,7 +491,7 @@ so teammates can read/modify/write within this run. Prefer this for coordinating
 - write_game_file always updates disk, session Memory, and a MentisDB snapshot note.\n\n\
 \
 ## Deliverable (non-negotiable)\n\
-A single offline-playable page named pacman_game_ralph_grok_4_6.html that a human can open in a browser \
+A single offline-playable page named pacman_game_ralph_grok_4_7.html that a human can open in a browser \
 and play immediately. Every productive turn MUST call write_game_file with the complete page. \
 Also keep the same content in session Memory under current_game_html. A run that ends without \
 a valid game page on disk is a failed run.\n\n\
@@ -560,7 +560,7 @@ pellets and every remaining dot by walking the corridors.\n\n\
 \
 ## Tools\n\
 - Memory: read, write, and list session keys (especially current_game_html).\n\
-- write_game_file: write the complete game page to pacman_game_ralph_grok_4_6.html and session Memory; \
+- write_game_file: write the complete game page to pacman_game_ralph_grok_4_7.html and session Memory; \
 the harness also records a MentisDB snapshot on the project chain.\n\
 - Shell tools if needed for local checks.\n";
 
@@ -573,7 +573,7 @@ the harness also records a MentisDB snapshot on the project chain.\n\
                 max_iterations: 10,
             })
             .with_system_context(system_context)
-            // Grok 4.6 supports ~500k context on xAI; apply via
+            // Grok 4.7 supports ~500k context on xAI; apply via
             // Orchestration::with_max_tokens so add_agent sets each LLMSession budget.
             .with_max_tokens(500_000)
             .with_event_handler(event_handler);
@@ -599,11 +599,11 @@ first user input; all four ghosts actually walk and hunt (none sit idle); every 
 turn at a junction is taken (queued direction, no skipped intersections); Pac-Man stays centered \
 in corridors and can eat every pellet including all four power pellets by occupying their tiles.\n\n\
 Every turn that advances the game MUST call write_game_file with the complete page so \
-pacman_game_ralph_grok_4_6.html exists on disk. Coordinate through Memory key current_game_html. \
+pacman_game_ralph_grok_4_7.html exists on disk. Coordinate through Memory key current_game_html. \
 Complete as many PRD tasks as you can each turn. Leaving no playable file is unacceptable.";
 
     println!("Starting RALPH orchestration with 4 agents and 18 PRD tasks...\n");
-    println!("Model: grok-4.6 via xAI (500k context budget)\n");
+    println!("Model: grok-4.7 via xAI (500k context budget)\n");
 
     let start = Instant::now();
     let response = orchestration.run(prompt, 1).await?;
@@ -786,7 +786,7 @@ fn extract_html(text: &str) -> String {
     normalized[start..end].to_string()
 }
 
-/// Ensure `pacman_game_ralph_grok_4_6.html` exists with a valid game page.
+/// Ensure `pacman_game_ralph_grok_4_7.html` exists with a valid game page.
 ///
 /// Recovery order:
 /// 1. Disk file already written by `write_game_file` during the run
@@ -845,7 +845,10 @@ fn ensure_game_deliverable(
     }
 
     // 4) Hard failure — do not pretend the game exists.
-    let mem_len = memory.get_value(MEMORY_GAME_KEY).map(|v| v.len()).unwrap_or(0);
+    let mem_len = memory
+        .get_value(MEMORY_GAME_KEY)
+        .map(|v| v.len())
+        .unwrap_or(0);
     Err(format!(
         "FATAL: {OUTPUT_HTML} was not produced.\n\
          Agents never wrote a valid full game page via write_game_file, MentisDB, or messages.\n\
