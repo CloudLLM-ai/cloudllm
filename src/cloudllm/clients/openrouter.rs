@@ -277,6 +277,8 @@ pub enum Model {
     Qwen38OmniFlash,
     /// `meta/muse-spark-1.2` – Meta Muse Spark 1.2.
     MetaMuseSpark12,
+    /// `meta/muse-spark-1.3` – Meta Muse Spark 1.3.
+    MetaMuseSpark13,
     /// `anthropic/claude-opus-5` – Anthropic Claude Opus 5.
     ClaudeOpus5,
     /// `anthropic/claude-opus-5.5` – Anthropic Claude Opus 5.5.
@@ -425,6 +427,7 @@ pub fn model_to_string(model: Model) -> String {
         Model::Qwen38MaxPrime => "qwen/qwen3.8-max-prime".to_string(),
         Model::Qwen38OmniFlash => "qwen/qwen3.8-omni-flash".to_string(),
         Model::MetaMuseSpark12 => "meta/muse-spark-1.2".to_string(),
+        Model::MetaMuseSpark13 => "meta/muse-spark-1.3".to_string(),
         Model::ClaudeOpus5 => "anthropic/claude-opus-5".to_string(),
         Model::ClaudeOpus55 => "anthropic/claude-opus-5.5".to_string(),
         Model::ClaudeSonnet5 => "anthropic/claude-sonnet-5".to_string(),

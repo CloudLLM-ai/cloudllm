@@ -108,6 +108,7 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::Qwen38MaxPrime, "qwen/qwen3.8-max-prime"),
         (Model::Qwen38OmniFlash, "qwen/qwen3.8-omni-flash"),
         (Model::MetaMuseSpark12, "meta/muse-spark-1.2"),
+        (Model::MetaMuseSpark13, "meta/muse-spark-1.3"),
         (Model::ClaudeOpus5, "anthropic/claude-opus-5"),
         (Model::ClaudeOpus55, "anthropic/claude-opus-5.5"),
         (Model::ClaudeSonnet5, "anthropic/claude-sonnet-5"),
@@ -148,7 +149,7 @@ fn top_weekly_models_map_to_expected_openrouter_slugs() {
         (Model::ByteDanceSeed20Code, "bytedance-seed/seed-2.0-code"),
     ];
 
-    assert_eq!(expected.len(), 111, "test fixture must cover every variant");
+    assert_eq!(expected.len(), 112, "test fixture must cover every variant");
 
     for (variant, slug) in expected {
         assert_eq!(model_to_string(*variant), *slug);
