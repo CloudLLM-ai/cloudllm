@@ -49,6 +49,8 @@ mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.3.6", features = ["
 [dev-dependencies]
 tempfile = "3.27.0"
 futures-util = "0.3.33"
+ratatui = "0.30.2"
+crossterm = "0.29.0"
 
 [features]
 # MCP Server builder with HTTP support (requires axum and tower)

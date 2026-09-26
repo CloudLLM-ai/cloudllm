@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates the RALPH (autonomous iterative loop) orchestration mode
 //! by having multiple specialized agents collaborate to **implement from scratch** a
-//! complete Pac-Man game in a single `pacman_game_ralph_deepseek_v4_pro.html` file.
+//! complete Pac-Man game in a model-specific HTML file.
 //!
 //! **Important:** this file is a **pure PRD / prompt harness**. It contains no game
 //! source (no HTML, CSS, or JavaScript samples) — only product requirements, task
@@ -20,7 +20,8 @@
 //! - **MentisDB durable memory** on the shared `cloudllm` chain (agent thoughts + run log)
 //! - **Session Memory tool**: short-lived key/value coordination for the game page (`current_game_html`)
 //! - **write_game_file**: custom tool that writes the game page to disk, session Memory, and MentisDB
-//! - **OpenRouter + DeepSeek V4 Pro 0813**: frontier coding/agent model via OpenRouter
+//! - **Model picker**: choose a provider model in a keyboard-driven terminal menu
+//! - **Automation**: select a model with `--model <id>` to skip the menu
 //!
 //! ## Agents
 //!
@@ -38,19 +39,23 @@
 //! ## Running
 //!
 //! ```bash
-//! export OPENROUTER_API_KEY=sk-or-...
-//! cargo run --example pacman_game_ralph_deepseek_v4_pro
+//! cargo run --example pacman_game_ralph
+//! cargo run --example pacman_game_ralph -- --model grok-4.7
+//! cargo run --example pacman_game_ralph -- --model deepseek-v4.1-flash
+//! cargo run --example pacman_game_ralph -- --model gpt-6-luna
 //! ```
 //!
 //! MentisDB is **embedded** (local files under `mentisdbs/`, no `mentisdbd`).
 //! Override with `MENTISDB_DIR` / `MENTISDB_CHAIN_KEY`. The run aborts if the
 //! chain cannot be opened. Agents write the playable page to
-//! `pacman_game_ralph_deepseek_v4_pro.html` in the current directory.
+//! A separate `pacman_game_ralph_<model>.html` deliverable is written for each model.
 //!
 //! Long runs print live progress (reasoning in dark gray, heartbeats while waiting).
 //! To spend less time in hidden reasoning (quality tradeoff):
 //! `export CLOUDLLM_REASONING_EFFORT=low`
 
+use cloudllm::client_wrapper::ClientWrapper;
+use cloudllm::clients::grok::{GrokClient, Model as GrokModel};
 use cloudllm::clients::openrouter::{Model as OpenRouterModel, OpenRouterClient};
 use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{ToolMetadata, ToolParameter, ToolParameterType, ToolRegistry};
@@ -62,6 +67,18 @@ use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
     Agent, ThoughtType,
 };
+use crossterm::event::{self, Event, KeyCode};
+use crossterm::execute;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{
+    Block, Borders, Clear as ClearWidget, List, ListItem, ListState, Paragraph,
+};
+use ratatui::Terminal;
+use std::io::{self, IsTerminal, Stdout};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -70,11 +87,240 @@ use tokio::sync::RwLock;
 /// Default MentisDB chain for CloudLLM examples and project memory.
 const MENTISDB_CHAIN_KEY: &str = "cloudllm";
 
-/// Canonical playable deliverable written by agents and recovered at end-of-run.
-const OUTPUT_HTML: &str = "pacman_game_ralph_deepseek_v4_pro.html";
+/// An available provider/model pairing for the Pac-Man run.
+struct ModelOption {
+    /// Stable selector accepted by `--model`.
+    id: &'static str,
+    /// Human-readable menu title.
+    label: &'static str,
+    /// Provider label shown in the UI and run banner.
+    provider: &'static str,
+    /// API key environment variable required by this option.
+    api_key_env: &'static str,
+    /// Context budget passed to each agent session.
+    max_tokens: usize,
+    /// Creates this option's client for the supplied API key.
+    client_factory: fn(&str) -> Arc<dyn ClientWrapper>,
+}
 
-/// Session Memory key holding the latest full game page source.
-const MEMORY_GAME_KEY: &str = "current_game_html_deepseek_v4_pro";
+/// All supported model choices live here; add an entry to extend the selector.
+const MODEL_OPTIONS: &[ModelOption] = &[
+    ModelOption {
+        id: "grok-4.7",
+        label: "Grok 4.7 — xAI flagship (500k context)",
+        provider: "xAI",
+        api_key_env: "XAI_API_KEY",
+        max_tokens: 500_000,
+        client_factory: grok_47_client,
+    },
+    ModelOption {
+        id: "deepseek-v4.1-flash",
+        label: "DeepSeek V4.1 Flash — OpenRouter (1M context)",
+        provider: "OpenRouter",
+        api_key_env: "OPENROUTER_API_KEY",
+        max_tokens: 1_000_000,
+        client_factory: deepseek_v41_flash_client,
+    },
+    ModelOption {
+        id: "gpt-6-luna",
+        label: "GPT-6 Luna — OpenRouter",
+        provider: "OpenRouter",
+        api_key_env: "OPENROUTER_API_KEY",
+        max_tokens: 1_000_000,
+        client_factory: gpt6_luna_client,
+    },
+];
+
+fn grok_47_client(api_key: &str) -> Arc<dyn ClientWrapper> {
+    Arc::new(GrokClient::new_with_model_enum(api_key, GrokModel::Grok47))
+}
+
+fn deepseek_v41_flash_client(api_key: &str) -> Arc<dyn ClientWrapper> {
+    Arc::new(OpenRouterClient::new_with_model_enum(
+        api_key,
+        OpenRouterModel::DeepSeekV41Flash,
+    ))
+}
+
+fn gpt6_luna_client(api_key: &str) -> Arc<dyn ClientWrapper> {
+    Arc::new(OpenRouterClient::new_with_model_enum(
+        api_key,
+        OpenRouterModel::GPT6Luna,
+    ))
+}
+
+fn find_model_option(id: &str) -> Option<&'static ModelOption> {
+    MODEL_OPTIONS.iter().find(|option| option.id == id)
+}
+
+fn model_option_from_args(args: &[String]) -> Result<Option<&'static ModelOption>, String> {
+    let mut selected = None;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if let Some(id) = arg.strip_prefix("--model=") {
+            if selected.is_some() {
+                return Err("pass --model only once".to_string());
+            }
+            selected = Some(model_for_cli(id)?);
+        } else if arg == "--model" {
+            if selected.is_some() {
+                return Err("pass --model only once".to_string());
+            }
+            index += 1;
+            let id = args
+                .get(index)
+                .ok_or_else(|| "--model requires a model id".to_string())?;
+            selected = Some(model_for_cli(id)?);
+        } else if arg == "--help" || arg == "-h" {
+            return Err("help requested".to_string());
+        } else {
+            return Err(format!("unknown argument: {arg}"));
+        }
+        index += 1;
+    }
+    Ok(selected)
+}
+
+fn model_for_cli(id: &str) -> Result<&'static ModelOption, String> {
+    find_model_option(id).ok_or_else(|| {
+        format!(
+            "unknown model '{id}'. Available models: {}",
+            MODEL_OPTIONS
+                .iter()
+                .map(|option| option.id)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
+}
+
+fn print_usage() {
+    println!(
+        "Pac-Man RALPH model runner\n\nUsage:\n  cargo run --example pacman_game_ralph\n  cargo run --example pacman_game_ralph -- --model <model-id>\n\nAvailable models:"
+    );
+    for option in MODEL_OPTIONS {
+        println!("  {:<24} {}", option.id, option.label);
+    }
+}
+
+fn choose_model() -> Result<&'static ModelOption, Box<dyn std::error::Error + Send + Sync>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match model_option_from_args(&args) {
+        Ok(Some(option)) => Ok(option),
+        Ok(None) if io::stdin().is_terminal() => choose_from_menu().map_err(Into::into),
+        Ok(None) => Err(
+            "no interactive terminal; select a model with --model <model-id> (or use --help)"
+                .into(),
+        ),
+        Err(error) if error == "help requested" => {
+            print_usage();
+            std::process::exit(0);
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn choose_from_menu() -> io::Result<&'static ModelOption> {
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+    enable_raw_mode()?;
+    let menu_result = model_menu(&mut terminal);
+    let cleanup_result = disable_raw_mode();
+    execute!(terminal.backend_mut(), Clear(ClearType::All))?;
+    terminal.show_cursor()?;
+    cleanup_result?;
+    menu_result
+}
+
+fn model_menu(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+) -> io::Result<&'static ModelOption> {
+    let mut selected = 0usize;
+    loop {
+        terminal.draw(|frame| {
+            let area = centered_rect(72, 60, frame.area());
+            frame.render_widget(ClearWidget, area);
+            let items = MODEL_OPTIONS
+                .iter()
+                .map(|option| ListItem::new(option.label))
+                .collect::<Vec<_>>();
+            let mut state = ListState::default();
+            state.select(Some(selected));
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .title(" PAC-MAN RALPH // SELECT MODEL ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Cyan)),
+                )
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol(" ▶ ");
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(5), Constraint::Length(3)])
+                .split(area);
+            frame.render_stateful_widget(list, chunks[0], &mut state);
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled("↑/↓", Style::default().fg(Color::Yellow)),
+                    Span::raw(" move   "),
+                    Span::styled("Enter", Style::default().fg(Color::Green)),
+                    Span::raw(" launch   "),
+                    Span::styled("Esc", Style::default().fg(Color::Red)),
+                    Span::raw(" quit"),
+                ]))
+                .block(Block::default().borders(Borders::ALL)),
+                chunks[1],
+            );
+        })?;
+
+        if let Event::Key(key) = event::read()? {
+            match key.code {
+                KeyCode::Up => selected = selected.saturating_sub(1),
+                KeyCode::Down => selected = (selected + 1).min(MODEL_OPTIONS.len() - 1),
+                KeyCode::Enter => return Ok(&MODEL_OPTIONS[selected]),
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "selection cancelled",
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn centered_rect(width_percent: u16, height_percent: u16, area: Rect) -> Rect {
+    let width = area.width.saturating_mul(width_percent).saturating_div(100);
+    let height = area
+        .height
+        .saturating_mul(height_percent)
+        .saturating_div(100);
+    Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    )
+}
+
+fn model_file_suffix(id: &str) -> String {
+    id.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
@@ -84,34 +330,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    let api_key = match std::env::var("OPENROUTER_API_KEY") {
-        Ok(key) => key,
-        Err(_) => {
-            eprintln!("\n❌ Error: OPENROUTER_API_KEY environment variable is not set.");
-            eprintln!("\nThis example requires an OpenRouter API key for DeepSeek V4 Pro 0813.");
-            eprintln!("\nTo fix this:");
-            eprintln!("  1. Get your API key from https://openrouter.ai/keys");
-            eprintln!("  2. Set the environment variable:");
-            eprintln!("     export OPENROUTER_API_KEY=sk-or-...");
-            eprintln!("  3. Run the example again:");
-            eprintln!("     cargo run --example pacman_game_ralph");
-            eprintln!("\nModel: deepseek/deepseek-v4-pro-0813 via OpenRouter");
-            eprintln!("Expected runtime: 20-45 minutes (10 iterations × 4 agents)\n");
-            std::process::exit(1);
-        }
-    };
+    let selected_model = choose_model()?;
+    let api_key = std::env::var(selected_model.api_key_env).map_err(|_| {
+        format!(
+            "{} requires {}. Set it before running this example.",
+            selected_model.id, selected_model.api_key_env
+        )
+    })?;
+    let suffix = model_file_suffix(selected_model.id);
+    let output_html = format!("pacman_game_ralph_{suffix}.html");
+    let memory_game_key = format!("current_game_html_{suffix}");
+    let client = (selected_model.client_factory)(&api_key);
 
     println!("\n{}", "=".repeat(80));
     println!("  RALPH Orchestration Mode — Classic Pac-Man Game Builder");
-    println!("  Provider: OpenRouter");
-    println!("  Model:    deepseek/deepseek-v4-pro-0813 (DeepSeek V4 Pro 0813, 1M ctx)");
+    println!("  Provider: {}", selected_model.provider);
+    println!("  Model:    {}", selected_model.id);
     println!("{}", "=".repeat(80));
     LiveConsoleHandler::print_env_knobs();
 
     // Never keep a stale deliverable from a previous run.
-    if PathBuf::from(OUTPUT_HTML).exists() {
-        std::fs::remove_file(OUTPUT_HTML)?;
-        println!("🗑️  Removed existing {OUTPUT_HTML} (fresh run)");
+    if PathBuf::from(&output_html).exists() {
+        std::fs::remove_file(&output_html)?;
+        println!("🗑️  Removed existing {output_html} (fresh run)");
     }
 
     // ── MentisDB durable memory (embedded local files — no daemon) ──────────
@@ -120,14 +361,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let chain_key = mentis.chain_key.clone();
     {
         let mut db = mentisdb.write().await;
-        db.append(
-            "pacman-builder",
-            ThoughtType::Plan,
-            "Pac-Man RALPH run starting: four agents will implement a full classic Pac-Man page \
-             from pure PRD specifications (no starter game source). Deliverable: \
-             pacman_game_ralph_deepseek_v4_pro.html. Non-negotiables: fixed-rate simulation, moderate pacing, \
+        let plan = format!(
+            "Pac-Man RALPH run starting with {}: four agents will implement a full classic Pac-Man page. \
+             Deliverable: {output_html}. Non-negotiables: fixed-rate simulation, moderate pacing, \
              Pac-Man never leaves the board, audible SFX after user input, restart without reload.",
-        )?;
+            selected_model.id
+        );
+        db.append("pacman-builder", ThoughtType::Plan, &plan)?;
         db.append(
             "pacman-builder",
             ThoughtType::Constraint,
@@ -143,11 +383,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         mentisdb.clone(),
         "pacman-builder",
     ));
-    memory_protocol.put_value(MEMORY_GAME_KEY, "").await?;
+    memory_protocol.put_value(&memory_game_key, "").await?;
     println!("📋 Spec-only PRD mode: agents implement the full game from requirements");
-    println!("📄 Deliverable path: {OUTPUT_HTML} (must exist when the run finishes)\n");
+    println!("📄 Deliverable path: {output_html} (must exist when the run finishes)\n");
 
     let memory_for_tool = memory_protocol.clone();
+    let memory_game_key_for_tool = memory_game_key.clone();
+    let output_html_for_tool = output_html.clone();
     let mentisdb_for_tool = mentisdb.clone();
     let chain_key_for_tool = chain_key.clone();
     let custom_protocol = Arc::new(CustomToolProtocol::new());
@@ -155,15 +397,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .register_async_tool(
             ToolMetadata::new(
                 "write_game_file",
-                "MANDATORY deliverable tool. Write the COMPLETE playable game page to \
-                 pacman_game_ralph_deepseek_v4_pro.html on disk, session Memory (current_game_html), and a \
-                 MentisDB checkpoint. Call this every time you produce or update the game — \
-                 a finished run without this file is a failed run. Content must be a full \
-                 self-contained web page (not a snippet).",
+                format!(
+                    "MANDATORY deliverable tool. Write the COMPLETE playable game page to \
+                     {output_html} on disk, session Memory ({memory_game_key}), and a MentisDB checkpoint. \
+                     Call this every time you produce or update the game — a finished run without this file \
+                     is a failed run. Content must be a full self-contained web page (not a snippet)."
+                ),
             )
             .with_parameter(
                 ToolParameter::new("filename", ToolParameterType::String).with_description(
-                    "Ignored for path selection; the harness always writes pacman_game_ralph_deepseek_v4_pro.html",
+                    format!("Ignored for path selection; the harness always writes {output_html}"),
                 ),
             )
             .with_parameter(
@@ -174,6 +417,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ),
             Arc::new(move |params| {
                 let memory_for_tool = memory_for_tool.clone();
+                let memory_game_key_for_tool = memory_game_key_for_tool.clone();
+                let output_html_for_tool = output_html_for_tool.clone();
                 let mentisdb_for_tool = mentisdb_for_tool.clone();
                 let chain_key_for_tool = chain_key_for_tool.clone();
                 Box::pin(async move {
@@ -187,17 +432,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         .into());
                     }
                     // Always the canonical path so agents cannot scatter wrong filenames.
-                    let filename = OUTPUT_HTML.to_string();
+                    let filename = output_html_for_tool.clone();
                     let bytes = content.len();
                     std::fs::write(&filename, &content)?;
                     memory_for_tool
-                        .put_value(MEMORY_GAME_KEY, &content)
+                        .put_value(&memory_game_key_for_tool, &content)
                         .await?;
                     {
                         let mut db = mentisdb_for_tool.write().await;
                         let note = format!(
                             "Game page written to '{filename}' ({bytes} bytes) on chain '{chain_key_for_tool}'. \
-                             Session Memory key {MEMORY_GAME_KEY} updated for teammate agents."
+                             Session Memory key {memory_game_key_for_tool} updated for teammate agents."
                         );
                         if let Err(err) =
                             db.append("pacman-builder", ThoughtType::StateSnapshot, &note)
@@ -212,7 +457,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Ok(cloudllm::tool_protocol::ToolResult::success(serde_json::json!({
                         "written": filename,
                         "bytes": bytes,
-                        "session_memory_key": MEMORY_GAME_KEY,
+                        "session_memory_key": memory_game_key_for_tool,
                         "mentisdb_chain": chain_key_for_tool,
                     })))
                 })
@@ -242,14 +487,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     shared_registry.add_protocol("http", http_protocol).await?;
     let shared_registry = Arc::new(RwLock::new(shared_registry));
 
-    // ── Agents (OpenRouter + DeepSeek V4 Pro 0813) ────────────────────────
+    // ── Agents (selected provider model) ────────────────────────────────────
 
-    let make_client = || {
-        Arc::new(OpenRouterClient::new_with_model_enum(
-            &api_key,
-            OpenRouterModel::DeepSeekV4Pro0813,
-        ))
-    };
+    let make_client = || client.clone();
 
     let architect = Agent::new("maze-architect", "Maze Architect", make_client())
         .with_expertise(
@@ -484,7 +724,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 You are on a multi-agent team building a complete classic Pac-Man game from a product \
 specification only. There is no starter implementation. You must design and implement the \
 entire playable game yourselves and deliver it as one self-contained web page file named \
-pacman_game_ralph_deepseek_v4_pro.html (all presentation and behavior inline; no external libraries, fonts, \
+pacman_game_ralph_deepseek_v4_1_flash.html (all presentation and behavior inline; no external libraries, fonts, \
 or assets).\n\n\
 \
 ## Memory architecture\n\
@@ -496,7 +736,7 @@ so teammates can read/modify/write within this run. Prefer this for coordinating
 - write_game_file always updates disk, session Memory, and a MentisDB snapshot note.\n\n\
 \
 ## Deliverable (non-negotiable)\n\
-A single offline-playable page named pacman_game_ralph_deepseek_v4_pro.html that a human can open in a browser \
+A single offline-playable page named pacman_game_ralph_deepseek_v4_1_flash.html that a human can open in a browser \
 and play immediately. Every productive turn MUST call write_game_file with the complete page. \
 Also keep the same content in session Memory under current_game_html. A run that ends without \
 a valid game page on disk is a failed run.\n\n\
@@ -565,9 +805,12 @@ pellets and every remaining dot by walking the corridors.\n\n\
 \
 ## Tools\n\
 - Memory: read, write, and list session keys (especially current_game_html).\n\
-- write_game_file: write the complete game page to pacman_game_ralph_deepseek_v4_pro.html and session Memory; \
+- write_game_file: write the complete game page to pacman_game_ralph_deepseek_v4_1_flash.html and session Memory; \
 the harness also records a MentisDB snapshot on the project chain.\n\
 - Shell tools if needed for local checks.\n";
+    let system_context = system_context
+        .replace("pacman_game_ralph_deepseek_v4_1_flash.html", &output_html)
+        .replace("current_game_html", &memory_game_key);
 
     let event_handler = Arc::new(LiveConsoleHandler::new());
 
@@ -578,9 +821,8 @@ the harness also records a MentisDB snapshot on the project chain.\n\
                 max_iterations: 10,
             })
             .with_system_context(system_context)
-            // DeepSeek V4 Pro 0813 supports ~1M context on OpenRouter; apply via
-            // Orchestration::with_max_tokens so add_agent sets each LLMSession budget.
-            .with_max_tokens(1_000_000)
+            // Set each agent's context budget from the selected model's catalog entry.
+            .with_max_tokens(selected_model.max_tokens)
             .with_event_handler(event_handler);
 
     orchestration.add_agent(architect)?;
@@ -603,15 +845,21 @@ without reloading; audible sounds for pellets, power pellets, eating ghosts, and
 first user input; all four ghosts actually walk and hunt (none sit idle); every legal arrow-key \
 turn at a junction is taken (queued direction, no skipped intersections); Pac-Man stays centered \
 in corridors and can eat every pellet including all four power pellets by occupying their tiles.\n\n\
-Every turn that advances the game MUST call write_game_file with the complete page so \
-pacman_game_ralph_deepseek_v4_pro.html exists on disk. Coordinate through Memory key current_game_html. \
-Complete as many PRD tasks as you can each turn. Leaving no playable file is unacceptable.";
+    Every turn that advances the game MUST call write_game_file with the complete page so \
+    pacman_game_ralph_deepseek_v4_1_flash.html exists on disk. Coordinate through Memory key current_game_html. \
+    Complete as many PRD tasks as you can each turn. Leaving no playable file is unacceptable.";
+    let prompt = prompt
+        .replace("pacman_game_ralph_deepseek_v4_1_flash.html", &output_html)
+        .replace("current_game_html", &memory_game_key);
 
     println!("Starting RALPH orchestration with 4 agents and 18 PRD tasks...\n");
-    println!("Model: deepseek/deepseek-v4-pro-0813 via OpenRouter (1M context budget)\n");
+    println!(
+        "Model: {} ({} token context budget)\n",
+        selected_model.id, selected_model.max_tokens
+    );
 
     let start = Instant::now();
-    let response = orchestration.run(prompt, 1).await?;
+    let response = orchestration.run(&prompt, 1).await?;
     let elapsed = start.elapsed();
 
     let minutes = elapsed.as_secs() / 60;
@@ -684,7 +932,12 @@ Complete as many PRD tasks as you can each turn. Leaving no playable file is una
     }
 
     // Recover / ensure the deliverable no matter how agents cooperated.
-    let deliverable = ensure_game_deliverable(&memory_protocol, &response.messages)?;
+    let deliverable = ensure_game_deliverable(
+        &memory_protocol,
+        &response.messages,
+        &output_html,
+        &memory_game_key,
+    )?;
 
     // Durable run summary on the MentisDB cloudllm chain
     {
@@ -699,7 +952,7 @@ Complete as many PRD tasks as you can each turn. Leaving no playable file is una
             seconds,
             response.messages.len(),
             deliverable.len(),
-            OUTPUT_HTML,
+            output_html,
             chain_key
         );
         let thought_type = if response.is_complete {
@@ -719,10 +972,10 @@ Complete as many PRD tasks as you can each turn. Leaving no playable file is una
     }
 
     println!(
-        "\n✅ Deliverable ready: {OUTPUT_HTML} ({} bytes)",
+        "\n✅ Deliverable ready: {output_html} ({} bytes)",
         deliverable.len()
     );
-    println!("Open {OUTPUT_HTML} in a browser to play!");
+    println!("Open {output_html} in a browser to play!");
 
     Ok(())
 }
@@ -791,7 +1044,7 @@ fn extract_html(text: &str) -> String {
     normalized[start..end].to_string()
 }
 
-/// Ensure `pacman_game_ralph_deepseek_v4_pro.html` exists with a valid game page.
+/// Ensure the model-specific output file exists with a valid game page.
 ///
 /// Recovery order:
 /// 1. Disk file already written by `write_game_file` during the run
@@ -802,24 +1055,26 @@ fn extract_html(text: &str) -> String {
 fn ensure_game_deliverable(
     memory: &MentisDbMemoryProtocol,
     messages: &[cloudllm::orchestration::OrchestrationMessage],
+    output_html: &str,
+    memory_game_key: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // 1) Prefer an on-disk file produced mid-run. Never delete a substantial
     // page after a long run — a picky heuristic used to wipe the only deliverable.
-    if let Ok(disk) = std::fs::read_to_string(OUTPUT_HTML) {
+    if let Ok(disk) = std::fs::read_to_string(output_html) {
         let disk = normalize_page_source(&disk);
         if looks_like_game_page(&disk) || disk.len() > 2_000 {
-            println!("\n✅ Using on-disk {OUTPUT_HTML} ({} bytes)", disk.len());
+            println!("\n✅ Using on-disk {output_html} ({} bytes)", disk.len());
             return Ok(disk);
         }
     }
 
     // 2) MentisDB working buffer.
-    if let Some(mem_html) = memory.get_value(MEMORY_GAME_KEY) {
+    if let Some(mem_html) = memory.get_value(memory_game_key) {
         let page = normalize_page_source(&mem_html);
         if looks_like_game_page(&page) || page.len() > 2_000 {
-            std::fs::write(OUTPUT_HTML, &page)?;
+            std::fs::write(output_html, &page)?;
             println!(
-                "\n✅ Recovered {OUTPUT_HTML} from MentisDB memory ({} bytes)",
+                "\n✅ Recovered {output_html} from MentisDB memory ({} bytes)",
                 page.len()
             );
             return Ok(page);
@@ -841,20 +1096,23 @@ fn ensure_game_deliverable(
         }
     }
     if let Some(page) = best {
-        std::fs::write(OUTPUT_HTML, &page)?;
+        std::fs::write(output_html, &page)?;
         println!(
-            "\n✅ Recovered {OUTPUT_HTML} from agent messages ({} bytes)",
+            "\n✅ Recovered {output_html} from agent messages ({} bytes)",
             page.len()
         );
         return Ok(page);
     }
 
     // 4) Hard failure — do not pretend the game exists.
-    let mem_len = memory.get_value(MEMORY_GAME_KEY).map(|v| v.len()).unwrap_or(0);
+    let mem_len = memory
+        .get_value(memory_game_key)
+        .map(|v| v.len())
+        .unwrap_or(0);
     Err(format!(
-        "FATAL: {OUTPUT_HTML} was not produced.\n\
+        "FATAL: {output_html} was not produced.\n\
          Agents never wrote a valid full game page via write_game_file, MentisDB, or messages.\n\
-         MentisDB {MEMORY_GAME_KEY}: {mem_len} bytes; messages scanned: {}.\n\
+         MentisDB {memory_game_key}: {mem_len} bytes; messages scanned: {}.\n\
          Re-run and ensure every agent turn ends with write_game_file(content=<full page>).",
         messages.len()
     )
