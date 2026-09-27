@@ -45,10 +45,10 @@
 //! cargo run --example pacman_game_ralph -- --model gpt-6-luna
 //! ```
 //!
-//! MentisDB is **embedded** (local files under `mentisdbs/`, no `mentisdbd`).
-//! Override with `MENTISDB_DIR` / `MENTISDB_CHAIN_KEY`. The run aborts if the
-//! chain cannot be opened. Agents write the playable page to
-//! A separate `pacman_game_ralph_<model>.html` deliverable is written for each model.
+//! MentisDB is **embedded** (each run gets an isolated directory under
+//! `mentisdbs/`, no `mentisdbd`). Override the root with `MENTISDB_DIR` and
+//! the chain name with `MENTISDB_CHAIN_KEY`. A separate
+//! `pacman_game_ralph_<model>.html` deliverable is written for each model.
 //!
 //! Long runs print live progress (reasoning in dark gray, heartbeats while waiting).
 //! To spend less time in hidden reasoning (quality tradeoff):
@@ -65,7 +65,7 @@ use cloudllm::tool_protocols::{
 use cloudllm::tools::{BashTool, HttpClient, Platform};
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},
-    Agent, ThoughtType,
+    Agent, CloudLLMConfig, ThoughtType,
 };
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
@@ -84,8 +84,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
-/// Default MentisDB chain for CloudLLM examples and project memory.
-const MENTISDB_CHAIN_KEY: &str = "cloudllm";
+/// Keep Pac-Man runs isolated from the shared CloudLLM example chain.
+const MENTISDB_CHAIN_KEY: &str = "pacman_ralph";
 
 /// An available provider/model pairing for the Pac-Man run.
 struct ModelOption {
@@ -129,6 +129,14 @@ const MODEL_OPTIONS: &[ModelOption] = &[
         max_tokens: 1_000_000,
         client_factory: gpt6_luna_client,
     },
+    ModelOption {
+        id: "meta-muse-spark-1.3",
+        label: "Meta Muse Spark 1.3 — OpenRouter (1M context)",
+        provider: "OpenRouter",
+        api_key_env: "OPENROUTER_API_KEY",
+        max_tokens: 1_000_000,
+        client_factory: meta_muse_spark_13_client,
+    },
 ];
 
 fn grok_47_client(api_key: &str) -> Arc<dyn ClientWrapper> {
@@ -146,6 +154,13 @@ fn gpt6_luna_client(api_key: &str) -> Arc<dyn ClientWrapper> {
     Arc::new(OpenRouterClient::new_with_model_enum(
         api_key,
         OpenRouterModel::GPT6Luna,
+    ))
+}
+
+fn meta_muse_spark_13_client(api_key: &str) -> Arc<dyn ClientWrapper> {
+    Arc::new(OpenRouterClient::new_with_model_enum(
+        api_key,
+        OpenRouterModel::MetaMuseSpark13,
     ))
 }
 
@@ -224,6 +239,7 @@ fn choose_model() -> Result<&'static ModelOption, Box<dyn std::error::Error + Se
 fn choose_from_menu() -> io::Result<&'static ModelOption> {
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     enable_raw_mode()?;
+    terminal.clear()?;
     let menu_result = model_menu(&mut terminal);
     let cleanup_result = disable_raw_mode();
     execute!(terminal.backend_mut(), Clear(ClearType::All))?;
@@ -347,7 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  Provider: {}", selected_model.provider);
     println!("  Model:    {}", selected_model.id);
     println!("{}", "=".repeat(80));
-    LiveConsoleHandler::print_env_knobs();
+    LiveConsoleHandler::print_env_knobs_with_chain(MENTISDB_CHAIN_KEY);
 
     // Never keep a stale deliverable from a previous run.
     if PathBuf::from(&output_html).exists() {
@@ -355,8 +371,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("🗑️  Removed existing {output_html} (fresh run)");
     }
 
-    // ── MentisDB durable memory (embedded local files — no daemon) ──────────
-    let mentis = LiveConsoleHandler::open_embedded_mentisdb(MENTISDB_CHAIN_KEY)?;
+    // Keep each invocation's binary chain and registry isolated from concurrent runs.
+    let mentisdb_root = std::env::var("MENTISDB_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| CloudLLMConfig::default().mentisdb_dir);
+    let mentisdb_dir = mentisdb_root.join(format!("pacman_{}_{}", suffix, std::process::id()));
+    let mentisdb_chain_key =
+        std::env::var("MENTISDB_CHAIN_KEY").unwrap_or_else(|_| MENTISDB_CHAIN_KEY.to_string());
+    println!("  MentisDB run directory: {}", mentisdb_dir.display());
+    let mentis = LiveConsoleHandler::open_embedded_mentisdb_at(mentisdb_dir, mentisdb_chain_key)?;
     let mentisdb = mentis.db.clone();
     let chain_key = mentis.chain_key.clone();
     {
