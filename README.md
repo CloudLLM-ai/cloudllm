@@ -78,7 +78,7 @@ Add CloudLLM to your project:
 
 ```toml
 [dependencies]
-cloudllm = "0.13.0"
+cloudllm = "0.15.18"
 ```
 
 The crate targets `tokio` 1.x and Rust 1.70+.

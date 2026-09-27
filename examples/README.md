@@ -14,7 +14,7 @@ export CLOUDLLM_STREAM_REASONING=full  # default
 export CLOUDLLM_STREAM_CONTENT=compact # default (avoid dumping 300KB of HTML)
 ```
 
-**Total Examples**: 21 | **Updated**: v0.15.13
+**Total Examples**: 21 | **Updated**: v0.15.18
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
@@ -29,6 +29,7 @@ for automation. Every model writes its own `pacman_game_ralph_<model>.html` file
 - `grok-4.7` — xAI; requires `XAI_API_KEY`
 - `deepseek-v4.1-flash` — OpenRouter; requires `OPENROUTER_API_KEY`
 - `gpt-6-luna` — OpenRouter; requires `OPENROUTER_API_KEY`
+- `meta-muse-spark-1.3` — OpenRouter; requires `OPENROUTER_API_KEY`
 
 **Interactive menu**:
 ```bash
@@ -41,13 +42,18 @@ Use ↑/↓ to highlight a model, Enter to run, and Esc to quit.
 cargo run --example pacman_game_ralph -- --model grok-4.7
 cargo run --example pacman_game_ralph -- --model deepseek-v4.1-flash
 cargo run --example pacman_game_ralph -- --model gpt-6-luna
+cargo run --example pacman_game_ralph -- --model meta-muse-spark-1.3
 cargo run --example pacman_game_ralph -- --help
 ```
 
 Set the selected provider's key before launch. Runs take approximately 20–45 minutes;
 live reasoning and heartbeats are printed while agents work. Reduce hidden reasoning with
 `CLOUDLLM_REASONING_EFFORT=low`. Add future options to the `MODEL_OPTIONS` registry in
-the example source.
+the example source. The run uses its own embedded `pacman_ralph` MentisDB chain by default,
+separate from the shared `cloudllm` chain. Each process stores its chain and registry in a
+model-and-process-specific subdirectory under `mentisdbs/`, so different model runs can
+run concurrently without sharing mutable memory files. Override the root directory with
+`MENTISDB_DIR` or the chain name with `MENTISDB_CHAIN_KEY` if needed.
 
 ---
 
