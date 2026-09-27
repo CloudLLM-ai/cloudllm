@@ -17,6 +17,7 @@ fn format_mins() {
 #[test]
 fn print_env_knobs_does_not_panic() {
     LiveConsoleHandler::print_env_knobs();
+    LiveConsoleHandler::print_env_knobs_with_chain("pacman_ralph");
 }
 
 #[test]

@@ -159,6 +159,11 @@ impl LiveConsoleHandler {
     /// Call this at the start of long RALPH / team examples so a run log shows
     /// what was actually set (versus the default).
     pub fn print_env_knobs() {
+        Self::print_env_knobs_with_chain("cloudllm");
+    }
+
+    /// Print environment knobs using the example's default embedded chain name.
+    pub fn print_env_knobs_with_chain(default_chain_key: &str) {
         println!("  Environment knobs (export before launch to change this run):");
         print_knob(
             "CLOUDLLM_REASONING_EFFORT",
@@ -199,7 +204,7 @@ impl LiveConsoleHandler {
         print_knob(
             "MENTISDB_CHAIN_KEY",
             env_raw("MENTISDB_CHAIN_KEY"),
-            "cloudllm",
+            default_chain_key,
             "embedded chain name under MENTISDB_DIR",
         );
         print_knob(
@@ -224,8 +229,8 @@ impl LiveConsoleHandler {
         let dir = std::env::var("MENTISDB_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| CloudLLMConfig::default().mentisdb_dir);
-        let chain_key = std::env::var("MENTISDB_CHAIN_KEY")
-            .unwrap_or_else(|_| default_chain_key.to_string());
+        let chain_key =
+            std::env::var("MENTISDB_CHAIN_KEY").unwrap_or_else(|_| default_chain_key.to_string());
         Self::open_embedded_mentisdb_at(dir, chain_key)
     }
 
