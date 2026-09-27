@@ -11,6 +11,8 @@
     from the shared chain and concurrent runs; report the correct chain default.
   - fix(docs): correct streaming doctest error bounds so the published examples
     compile with the `Send + Sync` stream error type.
+  - chore(package): exclude local task, MentisDB, and generated Pac-Man HTML
+    artifacts from the published crate archive.
 
 0.15.17 SEP/08/2026
   - fix(image): Grok Imagine model `grok-imagine-image` →

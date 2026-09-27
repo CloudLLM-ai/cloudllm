@@ -11,6 +11,13 @@ description = "A batteries-included Rust toolkit for building intelligent agents
 repository = "https://github.com/CloudLLM-ai/cloudllm"
 license = "MIT"
 documentation = "https://docs.rs/cloudllm/latest/cloudllm/"
+exclude = [
+    "/.task_html_structure.json",
+    "/breakout_game_ralph.html",
+    "/index.html",
+    "/mentisdbs/**",
+    "/pacman_game_ralph_*.html",
+]
 
 [dependencies]
 tokio = { version = "1.53.1", features = ["full"] }
