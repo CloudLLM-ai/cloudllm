@@ -22,9 +22,7 @@ use cloudllm::live_console::LiveConsoleHandler;
 use cloudllm::tool_protocol::{
     ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol, ToolRegistry, ToolResult,
 };
-use cloudllm::tool_protocols::{
-    CustomToolProtocol, McpClientProtocol, MentisDbMemoryProtocol,
-};
+use cloudllm::tool_protocols::{CustomToolProtocol, McpClientProtocol, MentisDbMemoryProtocol};
 
 use cloudllm::{
     orchestration::{Orchestration, OrchestrationMode, RalphTask},

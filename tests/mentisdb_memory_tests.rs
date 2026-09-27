@@ -7,11 +7,9 @@ use cloudllm::tool_protocols::MentisDbMemoryProtocol;
 #[tokio::test]
 async fn put_get_list_roundtrip() {
     let tmp = tempfile::tempdir().unwrap();
-    let handle = LiveConsoleHandler::open_embedded_mentisdb_at(
-        tmp.path().to_path_buf(),
-        "kv-test".into(),
-    )
-    .unwrap();
+    let handle =
+        LiveConsoleHandler::open_embedded_mentisdb_at(tmp.path().to_path_buf(), "kv-test".into())
+            .unwrap();
     let proto = MentisDbMemoryProtocol::new(handle.db.clone(), "writer");
     proto
         .put_value("current_game_html", "<html>ok</html>")

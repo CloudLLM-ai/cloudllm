@@ -74,11 +74,9 @@ impl MentisDbMemoryProtocol {
             .unwrap_or_else(|e| e.into_inner())
             .insert(key.to_string(), value.to_string());
         if let Ok(mut db) = self.db.try_write() {
-            let input = ThoughtInput::new(
-                ThoughtType::StateSnapshot,
-                format!("KV {}\n{}", key, value),
-            )
-            .with_tags([KV_TAG, &format!("kv:{}", key)]);
+            let input =
+                ThoughtInput::new(ThoughtType::StateSnapshot, format!("KV {}\n{}", key, value))
+                    .with_tags([KV_TAG, &format!("kv:{}", key)]);
             let _ = db.append_thought(&self.writer_id, input);
         }
     }
@@ -91,11 +89,9 @@ impl MentisDbMemoryProtocol {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         {
             let mut db = self.db.write().await;
-            let input = ThoughtInput::new(
-                ThoughtType::StateSnapshot,
-                format!("KV {}\n{}", key, value),
-            )
-            .with_tags([KV_TAG, &format!("kv:{}", key)]);
+            let input =
+                ThoughtInput::new(ThoughtType::StateSnapshot, format!("KV {}\n{}", key, value))
+                    .with_tags([KV_TAG, &format!("kv:{}", key)]);
             db.append_thought(&self.writer_id, input)
                 .map_err(|e| -> Box<dyn Error + Send + Sync> { e.to_string().into() })?;
         }

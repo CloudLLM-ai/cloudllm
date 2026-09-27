@@ -282,7 +282,8 @@ pub fn open_chat_completions_stream(
                     let err = format!("stream HTTP {} from {}: {}", status, url, text);
                     if attempt < retries && crate::clients::common::is_transient_llm_error(&err) {
                         attempt += 1;
-                        let wait = std::time::Duration::from_secs(2u64.saturating_pow(attempt).min(16));
+                        let wait =
+                            std::time::Duration::from_secs(2u64.saturating_pow(attempt).min(16));
                         log::warn!(
                             "sse_stream: retrying HTTP {} in {:?} (attempt {}/{})",
                             status,
@@ -299,7 +300,8 @@ pub fn open_chat_completions_stream(
                     let err = format!("stream connect error: {}", e);
                     if attempt < retries && crate::clients::common::is_transient_llm_error(&err) {
                         attempt += 1;
-                        let wait = std::time::Duration::from_secs(2u64.saturating_pow(attempt).min(16));
+                        let wait =
+                            std::time::Duration::from_secs(2u64.saturating_pow(attempt).min(16));
                         log::warn!(
                             "sse_stream: retrying connect in {:?} (attempt {}/{}): {}",
                             wait,
