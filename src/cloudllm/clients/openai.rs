@@ -48,7 +48,7 @@
 //! use futures_util::StreamExt;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //!     let key = std::env::var("OPEN_AI_SECRET")?;
 //!     let client = OpenAIClient::new_with_model_enum(&key, Model::GPT41Mini);
 //!     let request = [Message {

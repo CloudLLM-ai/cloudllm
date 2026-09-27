@@ -9,6 +9,8 @@
     and preserve a separate HTML deliverable per model.
   - fix(example): isolate each Pac-Man process's embedded MentisDB directory
     from the shared chain and concurrent runs; report the correct chain default.
+  - fix(docs): correct streaming doctest error bounds so the published examples
+    compile with the `Send + Sync` stream error type.
 
 0.15.17 SEP/08/2026
   - fix(image): Grok Imagine model `grok-imagine-image` →

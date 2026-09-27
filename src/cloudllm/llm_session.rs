@@ -135,7 +135,7 @@ impl LLMSession {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Arc::new(OpenAIClient::new_with_model_enum(
     ///     &std::env::var("OPEN_AI_SECRET")?,
-    ///     Model::GPT41Nano,
+    ///     Model::GPT5Nano,
     /// ));
     /// let mut session = LLMSession::new(client, "You are helpful.".into(), 8_192);
     /// let reply = session.send_message(Role::User, "Hello!".into(), None).await?;
@@ -184,7 +184,7 @@ impl LLMSession {
     /// use futures_util::StreamExt;
     ///
     /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     /// let client = Arc::new(OpenAIClient::new_with_model_enum(
     ///     &std::env::var("OPEN_AI_SECRET")?,
     ///     Model::GPT41Mini,
