@@ -20,21 +20,21 @@ fmt: ## Format the code using cargo fmt
 	${CARGO_CMD} fmt
 
 # Check for errors without building
-check: ## Run cargo check to analyze the code without compiling
-	${CARGO_CMD} check --workspace
+check: ## Run cargo check --release to analyze the code without compiling
+	${CARGO_CMD} check --release --workspace
 
 # Strict linter, fails on warnings and suggests fixes
 clippy: ## Run clippy across the workspace and fail on warnings
 	${CARGO_CMD} fmt
-	${CARGO_CMD} clippy --workspace --all-targets --all-features -- -D warnings
+	${CARGO_CMD} clippy --release --workspace --all-targets --all-features -- -D warnings
 
 # Run tests
-test: ## Run tests using cargo test
-	${CARGO_CMD} test --workspace
+test: ## Run tests using cargo test --release
+	${CARGO_CMD} test --release --workspace
 
 # Generate documentation
-doc: ## Generate project documentation using cargo doc
-	${CARGO_CMD} doc --workspace --all-features
+doc: ## Generate project documentation using cargo doc --release
+	${CARGO_CMD} doc --release --workspace --all-features
 
 # Publish workspace crates to crates.io in dependency order
 publish: ## Publish cloudllm_mcp then cloudllm to crates.io
