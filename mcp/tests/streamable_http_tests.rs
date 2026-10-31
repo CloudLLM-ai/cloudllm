@@ -527,3 +527,35 @@ async fn test_resources_list_returns_spec_compliant_resources() {
     assert_eq!(resource["mimeType"], "text/markdown");
     assert!(resource.get("mime_type").is_none());
 }
+
+/// Regression: the legacy `POST /resources/list` route serializes the same
+/// spec-shaped resources as the streamable-HTTP `resources/list` method.
+#[tokio::test]
+async fn test_legacy_resources_list_route_returns_spec_compliant_resources() {
+    let router = mcp::http::axum_router(
+        &HttpServerConfig {
+            addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            bearer_token: None,
+            bearer_authorizer: None,
+            ip_filter: IpFilter::new(),
+            event_handler: None,
+        },
+        Arc::new(ResourceProtocolStub),
+    );
+    let mut req = Request::builder()
+        .method(Method::POST)
+        .uri("/resources/list")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from("{}"))
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(client_addr()));
+    let response = router.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let resource = &body["resources"][0];
+    assert_eq!(resource["uri"], "stub://skill");
+    assert_eq!(resource["name"], "stub://skill");
+    assert_eq!(resource["mimeType"], "text/markdown");
+    assert!(resource.get("mime_type").is_none());
+}
