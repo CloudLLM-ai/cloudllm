@@ -14,7 +14,7 @@ use mcp::streamable_http::{
     streamable_http_router, StreamableHttpConfig, CURRENT_MCP_PROTOCOL_VERSION,
     SUPPORTED_MCP_PROTOCOL_VERSIONS,
 };
-use mcp::{IpFilter, ToolMetadata, ToolProtocol, ToolResult};
+use mcp::{IpFilter, ResourceMetadata, ToolMetadata, ToolProtocol, ToolResult};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -451,4 +451,79 @@ async fn test_unknown_method_returns_bad_request() {
         .as_str()
         .unwrap()
         .contains("Method not found"));
+}
+
+// ── Resource listing ──────────────────────────────────────────────────────
+
+/// Protocol that exposes a single resource and no tools.
+struct ResourceProtocolStub;
+
+#[async_trait::async_trait]
+impl ToolProtocol for ResourceProtocolStub {
+    async fn execute(
+        &self,
+        _tool_name: &str,
+        _parameters: serde_json::Value,
+    ) -> Result<ToolResult, Box<dyn std::error::Error + Send + Sync>> {
+        Err("no tools".into())
+    }
+
+    async fn list_tools(
+        &self,
+    ) -> Result<Vec<ToolMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(vec![])
+    }
+
+    async fn get_tool_metadata(
+        &self,
+        tool_name: &str,
+    ) -> Result<ToolMetadata, Box<dyn std::error::Error + Send + Sync>> {
+        Err(format!("no tool {tool_name}").into())
+    }
+
+    fn protocol_name(&self) -> &str {
+        "resource-stub"
+    }
+
+    fn supports_resources(&self) -> bool {
+        true
+    }
+
+    async fn list_resources(
+        &self,
+    ) -> Result<Vec<ResourceMetadata>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(vec![
+            ResourceMetadata::new("stub://skill", "Stub skill").with_mime_type("text/markdown")
+        ])
+    }
+}
+
+#[tokio::test]
+async fn test_resources_list_returns_spec_compliant_resources() {
+    let config = StreamableHttpConfig::new("test-server", "0.1.0");
+    let router = streamable_http_router(
+        &HttpServerConfig {
+            addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            bearer_token: None,
+            bearer_authorizer: None,
+            ip_filter: IpFilter::new(),
+            event_handler: None,
+        },
+        &config,
+        Arc::new(ResourceProtocolStub),
+    );
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "resources/list",
+        "params": {}
+    });
+    let (status, text) = post_json(&router, body).await;
+    assert_eq!(status, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let resource = &response["result"]["resources"][0];
+    assert_eq!(resource["uri"], "stub://skill");
+    assert_eq!(resource["name"], "stub://skill");
+    assert_eq!(resource["mimeType"], "text/markdown");
+    assert!(resource.get("mime_type").is_none());
 }
