@@ -46,28 +46,81 @@ use std::collections::HashMap;
 use std::error::Error;
 
 /// Metadata describing a resource
+///
+/// Serializes to the MCP `Resource` shape returned by `resources/list`:
+/// `uri` and `name` are always present, `mimeType` uses the spec's camelCase
+/// key, and `title` / `mimeType` are omitted when unset. Deserialization also
+/// accepts the legacy `mime_type` key and a missing `name`.
+///
+/// # Example
+///
+/// ```rust
+/// use mcp::ResourceMetadata;
+///
+/// let resource = ResourceMetadata::new("file:///config.yaml", "Application configuration")
+///     .with_name("config")
+///     .with_title("Config")
+///     .with_mime_type("text/yaml");
+///
+/// let wire = serde_json::to_value(&resource).unwrap();
+/// assert_eq!(wire["uri"], "file:///config.yaml");
+/// assert_eq!(wire["name"], "config");
+/// assert_eq!(wire["title"], "Config");
+/// assert_eq!(wire["mimeType"], "text/yaml");
+///
+/// // Without `with_name`, the name defaults to the URI.
+/// let plain = ResourceMetadata::new("schema:///users", "User table schema");
+/// assert_eq!(plain.name, "schema:///users");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceMetadata {
     /// Unique resource identifier (URI)
     /// Examples: "file:///config.yaml", "schema:///users", "db:///schema.sql"
     pub uri: String,
+    /// Programmatic name of the resource, required by the MCP spec.
+    /// [`ResourceMetadata::new`] defaults it to the URI.
+    #[serde(default)]
+    pub name: String,
+    /// Optional human-readable display name
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Human-readable description of the resource
     pub description: String,
     /// Optional MIME type of the resource content
+    #[serde(default, alias = "mime_type", skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl ResourceMetadata {
-    /// Create a new resource with URI and description
+    /// Create a new resource with URI and description.
+    ///
+    /// The resource `name` defaults to the URI; override it with
+    /// [`ResourceMetadata::with_name`].
     pub fn new(uri: impl Into<String>, description: impl Into<String>) -> Self {
+        let uri = uri.into();
         Self {
-            uri: uri.into(),
+            name: uri.clone(),
+            uri,
+            title: None,
             description: description.into(),
             mime_type: None,
             metadata: HashMap::new(),
         }
+    }
+
+    /// Set the programmatic name for this resource
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    /// Set the human-readable display title for this resource
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// Set the MIME type for this resource
