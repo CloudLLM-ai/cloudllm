@@ -1,4 +1,4 @@
-UNRELEASED
+0.16.0 UNRELEASED
   - fix(cloudllm_mcp)!: `resources/list` now returns spec-compliant MCP
     `Resource` objects (PR #56, Austin Faulkner-Pearce). `ResourceMetadata`
     gains the spec-required `name` (defaults to the URI in `new()`; override
