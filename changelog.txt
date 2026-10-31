@@ -1,3 +1,22 @@
+UNRELEASED
+  - fix(cloudllm_mcp)!: `resources/list` now returns spec-compliant MCP
+    `Resource` objects (PR #56, Austin Faulkner-Pearce). `ResourceMetadata`
+    gains the spec-required `name` (defaults to the URI in `new()`; override
+    with `with_name()`) and the optional `title` (`with_title()`), and writes
+    `mimeType` instead of `mime_type`; `title` and `mimeType` are omitted when
+    unset. Strict clients (official TS/Python SDKs, Cursor, Claude Code,
+    OpenCode, Gemini CLI, rmcp) rejected the whole list over the missing
+    `name`. Fixed on both the streamable-HTTP method and the legacy
+    `POST /resources/list` route.
+  - fix(cloudllm_mcp): deserializing `ResourceMetadata` is lenient: the legacy
+    `mime_type` key is accepted, a missing `name` falls back to the URI (never
+    `""`), and the spec-optional `description` and `metadata` default to empty
+    so resources from spec-compliant servers parse.
+  - BREAKING: `ResourceMetadata` has new public fields, so code that builds it
+    with a struct literal or destructures it exhaustively must be updated
+    (`new()` and the builders are unchanged). Wire: `mime_type` → `mimeType`.
+    Release as `cloudllm_mcp` 0.4.0.
+
 0.15.18 SEP/27/2026
   - feat(models): update the OpenRouter catalog with Meta Muse Spark 1.3, Qwen
     3.7/3.8, Kimi, Xiaomi MiMo 2.6, Z-AI GLM 4.5–5.3, and DeepSeek V4.1 Flash.
