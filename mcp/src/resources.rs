@@ -49,8 +49,13 @@ use std::error::Error;
 ///
 /// Serializes to the MCP `Resource` shape returned by `resources/list`:
 /// `uri` and `name` are always present, `mimeType` uses the spec's camelCase
-/// key, and `title` / `mimeType` are omitted when unset. Deserialization also
-/// accepts the legacy `mime_type` key and a missing `name`.
+/// key, and `title` / `mimeType` are omitted when unset.
+///
+/// Deserialization accepts any spec-shaped `Resource` as well as the legacy
+/// pre-0.4 shape: the `mime_type` key is read as an alias of `mimeType`, a
+/// missing `name` falls back to the URI (as [`ResourceMetadata::new`] does),
+/// and a missing `description` or `metadata` defaults to empty, so a
+/// round-trip never emits an empty `name`.
 ///
 /// # Example
 ///
@@ -73,25 +78,56 @@ use std::error::Error;
 /// assert_eq!(plain.name, "schema:///users");
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", from = "ResourceMetadataWire")]
 pub struct ResourceMetadata {
     /// Unique resource identifier (URI)
     /// Examples: "file:///config.yaml", "schema:///users", "db:///schema.sql"
     pub uri: String,
     /// Programmatic name of the resource, required by the MCP spec.
     /// [`ResourceMetadata::new`] defaults it to the URI.
-    #[serde(default)]
     pub name: String,
     /// Optional human-readable display name
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Human-readable description of the resource
     pub description: String,
-    /// Optional MIME type of the resource content
-    #[serde(default, alias = "mime_type", skip_serializing_if = "Option::is_none")]
+    /// Optional MIME type of the resource content, written as `mimeType`
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
+}
+
+/// The lenient shape [`ResourceMetadata`] deserializes from: every field the
+/// MCP spec makes optional (and the `name` older servers left out) may be
+/// missing, and the legacy `mime_type` key is accepted.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceMetadataWire {
+    uri: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: String,
+    #[serde(default, alias = "mime_type")]
+    mime_type: Option<String>,
+    #[serde(default)]
+    metadata: HashMap<String, serde_json::Value>,
+}
+
+impl From<ResourceMetadataWire> for ResourceMetadata {
+    fn from(wire: ResourceMetadataWire) -> Self {
+        Self {
+            name: wire.name.unwrap_or_else(|| wire.uri.clone()),
+            uri: wire.uri,
+            title: wire.title,
+            description: wire.description,
+            mime_type: wire.mime_type,
+            metadata: wire.metadata,
+        }
+    }
 }
 
 impl ResourceMetadata {
