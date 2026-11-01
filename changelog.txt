@@ -1,4 +1,14 @@
 0.16.0 UNRELEASED
+  - security(cloudllm_mcp): `McpClientProtocol` buffered whole response bodies
+    with no limit, so a malicious or compromised MCP server could exhaust the
+    client's memory. Bodies are now capped (default 10 MiB, checked against
+    `Content-Length` and while streaming); change it with the new
+    `with_max_response_bytes()`. Responses above the cap fail with a
+    `ToolError::ProtocolError`.
+  - security(cloudllm_mcp): `McpClientProtocol` followed HTTP redirects, so a
+    server could redirect a tool-call POST (arguments in the body) to a host
+    the operator never configured, including internal addresses. Redirects are
+    no longer followed; a 3xx is an error. Point the client at the final URL.
   - security(cloudllm_mcp): a configured static bearer token that is the empty
     string (for example `with_bearer_token("")` fed from an unset variable)
     accepted a client presenting an empty token. An empty secret now never

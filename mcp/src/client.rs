@@ -8,6 +8,50 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Default cap on a response body read by [`McpClientProtocol`]: 10 MiB.
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+
+/// Build the HTTP client. Redirects are never followed: an MCP endpoint is
+/// configured explicitly, and a server that answers with a redirect could
+/// otherwise steer requests (with tool arguments in the body) to a host the
+/// operator never chose, including internal addresses.
+fn build_http_client(timeout_secs: u64) -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("Failed to build HTTP client")
+}
+
+/// Read a JSON response body, refusing to buffer more than `max` bytes.
+///
+/// Checks `Content-Length` up front and counts streamed bytes for chunked
+/// bodies that declare none.
+async fn read_json_capped(
+    mut response: reqwest::Response,
+    max: usize,
+) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+    let too_large = || {
+        Box::new(ToolError::ProtocolError(format!(
+            "MCP server response exceeds the {max} byte limit"
+        ))) as Box<dyn Error + Send + Sync>
+    };
+    if response
+        .content_length()
+        .is_some_and(|len| len > max as u64)
+    {
+        return Err(too_large());
+    }
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len() + chunk.len() > max {
+            return Err(too_large());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(serde_json::from_slice(&body)?)
+}
+
 /// HTTP client adapter for MCP-compatible tool servers.
 pub struct McpClientProtocol {
     endpoint: String,
@@ -16,6 +60,7 @@ pub struct McpClientProtocol {
     cache_ttl_secs: u64,
     last_cache_refresh: Arc<RwLock<Option<std::time::Instant>>>,
     event_handler: Option<Arc<dyn McpEventHandler>>,
+    max_response_bytes: usize,
 }
 
 impl McpClientProtocol {
@@ -23,23 +68,26 @@ impl McpClientProtocol {
     pub fn new(endpoint: String) -> Self {
         Self {
             endpoint,
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
-                .build()
-                .expect("Failed to build HTTP client"),
+            client: build_http_client(30),
             tools_cache: Arc::new(RwLock::new(None)),
             cache_ttl_secs: 300,
             last_cache_refresh: Arc::new(RwLock::new(None)),
             event_handler: None,
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         }
     }
 
     /// Override the request timeout.
     pub fn with_timeout(mut self, timeout_secs: u64) -> Self {
-        self.client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(timeout_secs))
-            .build()
-            .expect("Failed to build HTTP client");
+        self.client = build_http_client(timeout_secs);
+        self
+    }
+
+    /// Cap the size of any response body the client will read (default
+    /// [`DEFAULT_MAX_RESPONSE_BYTES`]). A server that sends more is treated as
+    /// hostile and the call fails instead of buffering the body in memory.
+    pub fn with_max_response_bytes(mut self, max: usize) -> Self {
+        self.max_response_bytes = max;
         self
     }
 
@@ -78,7 +126,7 @@ impl McpClientProtocol {
             ))));
         }
 
-        let body: serde_json::Value = response.json().await?;
+        let body = read_json_capped(response, self.max_response_bytes).await?;
         let tools: Vec<ToolMetadata> =
             if let Some(arr) = body.get("tools").and_then(|v| v.as_array()) {
                 serde_json::from_value(serde_json::Value::Array(arr.clone())).map_err(|e| {
@@ -173,7 +221,7 @@ impl ToolProtocol for McpClientProtocol {
                     return Err(Box::new(ToolError::ExecutionFailed(err_msg)));
                 }
 
-                let body: serde_json::Value = resp.json().await?;
+                let body = read_json_capped(resp, self.max_response_bytes).await?;
                 let result: ToolResult = if let Some(r) = body.get("result") {
                     serde_json::from_value(r.clone()).map_err(|e| {
                         Box::new(ToolError::ProtocolError(format!(
