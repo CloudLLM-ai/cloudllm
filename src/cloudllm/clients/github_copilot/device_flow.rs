@@ -295,11 +295,13 @@ impl GitHubDeviceFlow {
     ///
     /// # Errors
     ///
-    /// [`CopilotAuthError::Transport`] when GitHub cannot be reached,
-    /// [`CopilotAuthError::OAuth`] when GitHub rejects the request (an unknown
-    /// `client_id`, or an app with device flow turned off), and
-    /// [`CopilotAuthError::HttpStatus`] or
-    /// [`CopilotAuthError::InvalidResponse`] for other bad answers.
+    /// - [`CopilotAuthError::HttpStatus`] with status 404 when GitHub does not
+    ///   know the `client_id`.
+    /// - [`CopilotAuthError::OAuth`] when GitHub rejects the request, for
+    ///   example `device_flow_disabled` when the app has device flow off.
+    /// - [`CopilotAuthError::Transport`] when GitHub cannot be reached.
+    /// - [`CopilotAuthError::HttpStatus`] or
+    ///   [`CopilotAuthError::InvalidResponse`] for other bad answers.
     pub async fn request_code(&self) -> Result<DeviceCode, CopilotAuthError> {
         let url = format!("{}/login/device/code", self.github_base_url);
         let form = [
@@ -403,7 +405,10 @@ impl GitHubDeviceFlow {
 ///
 /// GitHub answers OAuth errors such as `authorization_pending` with HTTP 200
 /// and an `error` field, so a 200 body is returned for the caller to inspect.
-/// A 4xx body that is JSON with an `error` field is returned the same way.
+/// A 400 or 401 body that is JSON with an `error` field is an OAuth error too
+/// (RFC 6749 §5.2) and is returned the same way. Any other status is
+/// [`CopilotAuthError::HttpStatus`]: GitHub answers an unknown `client_id`
+/// with `404 {"error":"Not Found"}`, which is not an OAuth error code.
 async fn post_form(
     url: &str,
     form: &[(&str, &str)],
@@ -417,7 +422,8 @@ async fn post_form(
     let status = response.status();
     let text = response.text().await?;
     match serde_json::from_str::<serde_json::Value>(&text) {
-        Ok(body) if status.is_success() || body.get("error").is_some() => Ok(body),
+        Ok(body) if status.is_success() => Ok(body),
+        Ok(body) if matches!(status.as_u16(), 400 | 401) && body.get("error").is_some() => Ok(body),
         Err(error) if status.is_success() => Err(CopilotAuthError::InvalidResponse(format!(
             "not JSON ({error}): {text}"
         ))),

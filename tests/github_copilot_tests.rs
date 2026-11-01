@@ -188,6 +188,19 @@ async fn device_flow_surfaces_oauth_errors_from_the_code_request() {
     }
 }
 
+/// Verifies that GitHub's answer to an unknown client ID (404 with a JSON
+/// `error` that is not an OAuth code) is `HttpStatus`, not an OAuth error.
+#[tokio::test]
+async fn device_flow_reports_an_unknown_client_id_as_404() {
+    let server = MockServer::start(vec![(404, r#"{"error":"Not Found"}"#.to_owned())]).await;
+
+    let flow = GitHubDeviceFlow::new("unknown").with_github_base_url(&server.base_url);
+    match flow.request_code().await {
+        Err(CopilotAuthError::HttpStatus { status, .. }) => assert_eq!(status, 404),
+        other => panic!("expected HttpStatus 404, got {:?}", other),
+    }
+}
+
 /// Verifies that a non-JSON error page becomes `HttpStatus` with the body.
 #[tokio::test]
 async fn device_flow_reports_http_failures() {
