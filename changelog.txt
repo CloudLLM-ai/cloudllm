@@ -1,4 +1,19 @@
 0.16.0 UNRELEASED
+  - feat(clients): GitHub Copilot provider (#54), `cloudllm::clients::github_copilot`.
+    `GitHubDeviceFlow` signs a user in with GitHub's OAuth device flow (honours
+    the poll interval and `slow_down`, reports expired / declined logins as
+    typed errors). `CopilotTokenProvider` trades the GitHub token for Copilot's
+    short-lived session token at `/copilot_internal/v2/token`, uses the API
+    host it names, caches it and trades again before expiry. `CopilotClient`
+    is a `ClientWrapper` over Copilot's Chat Completions API (chat, native
+    tools, streaming, usage) that retries once with a fresh token on 401.
+    `list_models()` reads the account's model catalogue. `CopilotIdentity` sets
+    the `Editor-Version` / `Copilot-Integration-Id` headers. CloudLLM ships no
+    OAuth `client_id` or integration ID; callers supply their own. New
+    example: `github_copilot_chat`.
+  - feat(clients): `common::send_with_native_tools_and_headers`, the blocking
+    Chat Completions helper with extra per-request headers;
+    `send_with_native_tools` now delegates to it.
   - security(cloudllm_mcp): `McpClientProtocol` buffered whole response bodies
     with no limit, so a malicious or compromised MCP server could exhaust the
     client's memory. Bodies are now capped (default 10 MiB, checked against

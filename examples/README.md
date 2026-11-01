@@ -370,6 +370,25 @@ cargo run --example openai_web_search_example
 
 ---
 
+### GitHub Copilot Chat
+**File**: `github_copilot_chat.rs`
+
+Signs in to GitHub with the OAuth device flow, lists the chat models your
+Copilot plan includes, and streams a reply from one of them through
+`CopilotClient`. After the first login it prints the token to export, so later
+runs skip the sign-in.
+
+**Setup**:
+```bash
+export GITHUB_COPILOT_CLIENT_ID=Iv1....          # your OAuth app, device flow enabled
+export GITHUB_COPILOT_INTEGRATION_ID=...         # optional Copilot-Integration-Id
+export GITHUB_COPILOT_OAUTH_TOKEN=gho_...        # optional, skips the login
+export GITHUB_COPILOT_MODEL=gpt-4.1              # optional, default: first chat model
+cargo run --example github_copilot_chat
+```
+
+---
+
 ### OpenRouter Basic Example
 **File**: `openrouter_basic.rs`
 
@@ -563,6 +582,7 @@ cargo build --examples
 | `GROK_API_KEY` | Grok models | agent_panel_with_moderator_and_access_to_tools, interactive_session |
 | `GEMINI_API_KEY` | Google Gemini | (optional, if enabled) |
 | `OPENROUTER_API_KEY` | OpenRouter (300+ models) | openrouter_basic, pacman_game_ralph |
+| `GITHUB_COPILOT_CLIENT_ID` / `GITHUB_COPILOT_OAUTH_TOKEN` | GitHub Copilot | github_copilot_chat |
 | `XAI_API_KEY` | xAI Grok | pacman_game_ralph, interactive_session, … |
 | `RUST_LOG` | All examples | Set to debug, info, or trace for logging |
 

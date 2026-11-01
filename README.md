@@ -25,7 +25,7 @@ multi-protocol tool support, and multi-agent orchestration. It provides:
 * **Stateful Sessions**: A [`LLMSession`](https://docs.rs/cloudllm/latest/cloudllm/struct.LLMSession.html) for
   managing conversation history with context trimming and token accounting,
 * **Provider Flexibility**: Unified [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/index.html)
-  trait for OpenAI, Claude, Gemini, Grok, OpenRouter, and custom OpenAI-compatible endpoints.
+  trait for OpenAI, Claude, Gemini, Grok, OpenRouter, GitHub Copilot, and custom OpenAI-compatible endpoints.
 
 The entire public API is documented with _compilable_ examples—run `cargo doc --open` to browse the
 crate-level manual.
@@ -448,6 +448,7 @@ CloudLLM ships wrappers for popular OpenAI-compatible services:
 | Google Gemini | `cloudllm::clients::gemini` | `GeminiClient::new_with_model_enum` |
 | xAI Grok | `cloudllm::clients::grok` | `GrokClient::new_with_model_enum` |
 | OpenRouter (300+ models) | `cloudllm::clients::openrouter` | `OpenRouterClient::new_with_model_enum`, `OpenRouterClient::new_with_model_str` |
+| GitHub Copilot (models in your Copilot plan) | `cloudllm::clients::github_copilot` | `GitHubDeviceFlow::authorize`, `CopilotTokenProvider::from_github_token`, `CopilotClient::new` |
 
 Providers share the [`ClientWrapper`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/trait.ClientWrapper.html)
 contract, so you can swap them without changing downstream code. As of v0.15.6, all five
@@ -476,6 +477,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+### GitHub Copilot: sign in with GitHub
+
+A GitHub Copilot plan gives access to models from several vendors behind one
+API. `cloudllm::clients::github_copilot` signs a user in with GitHub's OAuth
+device flow (a code to type at <https://github.com/login/device>, no browser
+redirect), trades the GitHub token for Copilot's short-lived session token and
+keeps it fresh, and exposes the result as an ordinary `ClientWrapper`:
+
+```rust,no_run
+use std::sync::Arc;
+use cloudllm::ClientWrapper;
+use cloudllm::client_wrapper::{Message, Role};
+use cloudllm::clients::github_copilot::{
+    list_models, CopilotClient, CopilotIdentity, CopilotTokenProvider, GitHubDeviceFlow,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Sign in once; store token.secret() so later runs can skip this step.
+    let token = GitHubDeviceFlow::new("<your OAuth app client_id>")
+        .authorize(|code| println!("Open {} and enter {}", code.verification_uri, code.user_code))
+        .await?;
+
+    // 2. One provider per account; share it between clients.
+    let provider = Arc::new(
+        CopilotTokenProvider::from_github_token(token)
+            .with_identity(CopilotIdentity::default().with_integration_id("<your integration id>")),
+    );
+
+    // 3. See what the plan offers, then chat.
+    for model in list_models(&provider).await?.iter().filter(|m| m.is_chat()) {
+        println!("{}", model.id);
+    }
+    let copilot = CopilotClient::new(provider, "gpt-4.1");
+    let reply = copilot
+        .send_message(
+            &[Message { role: Role::User, content: "Hello!".into(), tool_calls: vec![] }],
+            None,
+        )
+        .await?;
+    println!("{}", reply.content);
+    Ok(())
+}
+```
+
+CloudLLM ships no OAuth `client_id` or `Copilot-Integration-Id` of its own.
+Register an OAuth app with device flow enabled and pass its ID. Which models a
+token can reach depends on the plan and can also depend on the app that minted
+it. Run `cargo run --example github_copilot_chat` to try it.
 
 Every wrapper exposes token accounting via [`ClientWrapper::get_last_usage`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/trait.ClientWrapper.html#method.get_last_usage).
 
