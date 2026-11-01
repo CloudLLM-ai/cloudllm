@@ -144,11 +144,13 @@ impl SseMessage {
     /// Format as a proper text/event-stream line sequence.
     pub fn format(&self) -> String {
         let mut out = String::new();
+        // `event` and `id` are single-line fields; a CR or LF would end the
+        // field and let the value smuggle in extra fields or whole events.
         if let Some(ref event) = self.event {
-            out.push_str(&format!("event: {}\n", event));
+            out.push_str(&format!("event: {}\n", strip_line_breaks(event)));
         }
         if let Some(ref id) = self.id {
-            out.push_str(&format!("id: {}\n", id));
+            out.push_str(&format!("id: {}\n", strip_line_breaks(id)));
         }
         out.push_str(&format!(
             "data: {}\n\n",
@@ -174,6 +176,14 @@ pub enum SsePayloadMode {
     /// Include tool arguments, results and error messages in events. Opt in
     /// only when every subscriber is trusted with every caller's data.
     Full,
+}
+
+/// Remove CR and LF so a value cannot break out of its SSE field line.
+fn strip_line_breaks(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| !matches!(c, '\r' | '\n'))
+        .collect()
 }
 
 /// Broadcast channel wrapping McpEvent for SSE streaming.

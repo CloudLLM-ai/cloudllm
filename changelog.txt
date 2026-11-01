@@ -1,4 +1,8 @@
 0.16.0 UNRELEASED
+  - security(cloudllm_mcp): `SseMessage::format()` wrote the `event:` and
+    `id:` values verbatim, so a CR or LF in either could end the field and
+    forge extra fields or whole events on the stream. Line breaks are now
+    stripped from both (the `data:` JSON was already single-line).
   - security(cloudllm_mcp): the streamable-HTTP Origin check was a string
     prefix match, so `http://localhost.evil.com` and `http://127.0.0.1.evil.com`
     passed as loopback. A page on an attacker-controlled domain could reach a

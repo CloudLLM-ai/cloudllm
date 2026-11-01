@@ -309,3 +309,43 @@ async fn loopback_origins_with_any_port_are_allowed() {
         );
     }
 }
+
+// ── SSE framing injection ───────────────────────────────────────────────────
+
+#[test]
+fn sse_event_name_and_id_cannot_inject_extra_events() {
+    let mut msg = mcp::SseMessage::with_event("x\n\ndata: {\"forged\":true}", json!({"ok": 1}));
+    msg.id = Some("7\r\nevent: forged".to_string());
+    let wire = msg.format();
+    // Exactly one event: one blank-line terminator, at the very end.
+    assert_eq!(wire.matches("\n\n").count(), 1, "framing broken: {wire:?}");
+    assert!(wire.ends_with("\n\n"));
+    assert!(!wire.contains('\r'));
+    assert_eq!(
+        wire.lines().filter(|l| l.starts_with("data:")).count(),
+        1,
+        "forged data line: {wire:?}"
+    );
+    assert_eq!(wire.lines().filter(|l| l.starts_with("event:")).count(), 1);
+}
+
+// ── Empty static token must fail closed ─────────────────────────────────────
+
+#[tokio::test]
+async fn empty_static_bearer_token_does_not_authenticate_anyone() {
+    let (router, _b) = router(Some(""), false);
+    for header in ["Bearer ", "Bearer"] {
+        let mut req = Request::builder()
+            .method(Method::POST)
+            .uri("/")
+            .header("content-type", "application/json")
+            .header("authorization", header)
+            .body(Body::from(
+                json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}).to_string(),
+            ))
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(addr()));
+        let status = router.clone().oneshot(req).await.unwrap().status();
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "header {header:?}");
+    }
+}
