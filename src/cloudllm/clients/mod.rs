@@ -8,6 +8,7 @@ pub mod sse_stream;
 
 pub mod claude;
 pub mod gemini;
+pub mod github_copilot;
 pub mod grok;
 pub mod openai;
 pub mod openrouter;
