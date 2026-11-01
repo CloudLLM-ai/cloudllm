@@ -400,6 +400,84 @@ pub async fn send_with_native_tools(
     http_client: &reqwest::Client,
     usage_slot: &Mutex<Option<TokenUsage>>,
 ) -> Result<Message, Box<dyn Error>> {
+    send_with_native_tools_and_headers(
+        base_url,
+        api_key,
+        model,
+        messages,
+        tools,
+        &[],
+        http_client,
+        usage_slot,
+    )
+    .await
+}
+
+/// [`send_with_native_tools`] with extra HTTP headers on every attempt.
+///
+/// Some OpenAI-compatible gateways refuse a request unless it carries
+/// headers of their own. GitHub Copilot, for example, wants
+/// `Editor-Version` and `Copilot-Integration-Id`; OpenRouter accepts
+/// optional attribution headers. Pass them as `(name, value)` pairs in
+/// `extra_headers`; they are added after `Authorization` and
+/// `Content-Type`, and a retry re-sends them.
+///
+/// `tools` may be empty. The body then carries no `tools` array and the call
+/// is a plain Chat Completions request, which lets a client use one code
+/// path for both cases.
+///
+/// Everything else (retries on transient errors, token usage written to
+/// `usage_slot`, parsing of `choices[0].message.tool_calls`) behaves exactly
+/// as in [`send_with_native_tools`].
+///
+/// # Errors
+///
+/// Returns an error when the request fails after all retries, when the
+/// server answers with a non-success status, or when the body is not a
+/// Chat Completions response.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use std::sync::Arc;
+/// use tokio::sync::Mutex;
+/// use cloudllm::client_wrapper::{Message, Role};
+/// use cloudllm::clients::common::{get_shared_http_client, send_with_native_tools_and_headers};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let usage = Mutex::new(None);
+/// let msg = Message {
+///     role: Role::User,
+///     content: Arc::from("Say hi"),
+///     tool_calls: vec![],
+/// };
+/// let reply = send_with_native_tools_and_headers(
+///     "https://gateway.example.com/v1",
+///     "secret",
+///     "some-model",
+///     &[msg],
+///     &[],
+///     &[("X-Gateway-Tenant", "acme")],
+///     get_shared_http_client(),
+///     &usage,
+/// )
+/// .await?;
+/// println!("{}", reply.content);
+/// # Ok(())
+/// # }
+/// ```
+#[allow(clippy::too_many_arguments)]
+pub async fn send_with_native_tools_and_headers(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    messages: &[Message],
+    tools: &[ToolDefinition],
+    extra_headers: &[(&str, &str)],
+    http_client: &reqwest::Client,
+    usage_slot: &Mutex<Option<TokenUsage>>,
+) -> Result<Message, Box<dyn Error>> {
     let mut body = crate::clients::sse_stream::chat_completions_body(model, messages, Some(tools));
     crate::clients::sse_stream::apply_blocking_reasoning_options(&mut body, base_url);
 
@@ -412,13 +490,13 @@ pub async fn send_with_native_tools(
 
     let mut attempt = 0u32;
     let text = loop {
-        let send_result = http
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await;
+        let request = extra_headers.iter().fold(
+            http.post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json"),
+            |request, (name, value)| request.header(*name, *value),
+        );
+        let send_result = request.json(&body).send().await;
 
         match send_result {
             Ok(resp) => {
