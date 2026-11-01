@@ -1,4 +1,10 @@
 0.16.0 UNRELEASED
+  - security(cloudllm_mcp): the streamable-HTTP Origin check was a string
+    prefix match, so `http://localhost.evil.com` and `http://127.0.0.1.evil.com`
+    passed as loopback. A page on an attacker-controlled domain could reach a
+    loopback MCP server from the victim's browser. The Origin is now parsed and
+    its host compared exactly (`localhost`, `127.0.0.1`, `[::1]`, any numeric
+    port, http or https); userinfo, paths and non-numeric ports are rejected.
   - security(cloudllm_mcp)!: SSE events no longer carry tool arguments, tool
     results or error text by default. `SseBroadcaster` broadcast every
     caller's `tools/call` result and every `McpEvent::ToolCallReceived`

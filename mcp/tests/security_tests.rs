@@ -246,3 +246,66 @@ async fn sse_full_mode_is_an_explicit_opt_in() {
     post_tool_call(&router_with(b)).await;
     assert!(next_text(&mut rx).await.contains(SECRET));
 }
+
+// ── Origin validation ───────────────────────────────────────────────────────
+
+async fn post_with_origin(origin: &str) -> StatusCode {
+    let (router, _b) = router(None, false);
+    let mut req = Request::builder()
+        .method(Method::POST)
+        .uri("/")
+        .header("content-type", "application/json")
+        .header("origin", origin)
+        .body(Body::from(
+            json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}).to_string(),
+        ))
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(addr()));
+    router.oneshot(req).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn origin_must_match_loopback_host_exactly() {
+    for evil in [
+        "http://localhost.evil.com",
+        "http://127.0.0.1.evil.com",
+        "http://127.0.0.10",
+        "https://localhost.evil.com:8443",
+        "http://localhostevil.com",
+        "http://localhost@evil.com",
+        "http://localhost:80@evil.com",
+        "http://localhost:evil",
+        "http://[::1].evil.com",
+        "http://localhost/",
+        "ftp://localhost",
+        "null",
+        "",
+    ] {
+        assert_eq!(
+            post_with_origin(evil).await,
+            StatusCode::FORBIDDEN,
+            "origin {evil:?} must be rejected"
+        );
+    }
+}
+
+#[tokio::test]
+async fn loopback_origins_with_any_port_are_allowed() {
+    for ok in [
+        "http://localhost",
+        "http://localhost:3000",
+        "https://localhost:8443",
+        "http://LOCALHOST:3000",
+        "http://127.0.0.1",
+        "http://127.0.0.1:9471",
+        "https://127.0.0.1:1",
+        "http://[::1]",
+        "http://[::1]:5173",
+    ] {
+        assert_eq!(
+            post_with_origin(ok).await,
+            StatusCode::OK,
+            "origin {ok:?} must be allowed"
+        );
+    }
+}

@@ -991,12 +991,52 @@ fn validate_origin(config: &StreamableHttpRuntimeConfig, headers: &HeaderMap) ->
         return true;
     };
 
-    origin.starts_with("http://127.0.0.1")
-        || origin.starts_with("http://localhost")
-        || origin.starts_with("http://[::1]")
-        || origin.starts_with("https://127.0.0.1")
-        || origin.starts_with("https://localhost")
-        || origin.starts_with("https://[::1]")
+    origin_is_loopback(origin)
+}
+
+/// True when `origin` is an `http(s)` origin whose host is exactly
+/// `localhost`, `127.0.0.1` or `[::1]`, with an optional numeric port.
+///
+/// A browser `Origin` is `scheme "://" host [":" port]` with no userinfo,
+/// path, query or fragment, so anything else is rejected. Matching the host
+/// exactly (not as a string prefix) keeps `http://localhost.evil.com` and
+/// `http://127.0.0.1.evil.com` out.
+fn origin_is_loopback(origin: &str) -> bool {
+    let Some(authority) = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+    else {
+        return false;
+    };
+
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        match rest.split_once(']') {
+            Some((inner, tail)) => (
+                &authority[..inner.len() + 2],
+                match tail {
+                    "" => None,
+                    t => match t.strip_prefix(':') {
+                        Some(p) => Some(p),
+                        None => return false,
+                    },
+                },
+            ),
+            None => return false,
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+
+    if let Some(port) = port {
+        if port.parse::<u16>().is_err() || !port.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+    }
+
+    host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "[::1]"
 }
 
 fn negotiate_protocol_version(server_protocol_version: &str) -> &str {
