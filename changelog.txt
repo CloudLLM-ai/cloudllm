@@ -19,6 +19,39 @@
   - feat(clients): `common::send_with_native_tools_and_headers`, the blocking
     Chat Completions helper with extra per-request headers;
     `send_with_native_tools` now delegates to it.
+  - security(cloudllm_mcp): the legacy HTTP routes (`/tools/list`,
+    `/tools/execute`, `/resources/list`, `/resources/read`) performed no
+    `Origin` validation, so a web page in the operator's browser could call an
+    unauthenticated local server cross-origin. They now apply the same Origin
+    check as the streamable transport (loopback origins only;
+    `RequestGuard::with_skip_origin_validation` / `MCPServerBuilder::
+    with_skip_origin_validation` opt out). Running with no bearer token or
+    authorizer remains permitted, as on the streamable transport, but
+    `AxumHttpAdapter` now prints a startup warning when it is left open.
+    Migration: browser clients on non-loopback origins must opt out of the
+    Origin check or use a token plus the opt-out.
+  - security(cloudllm_mcp): neither transport checked the `Host` header, which
+    left loopback servers open to DNS rebinding (a hostile domain re-resolved
+    to 127.0.0.1 is same-origin to the browser, so Origin checks do not
+    apply). A server bound to a loopback address now accepts only
+    `localhost`, `127.0.0.1` and `[::1]` (any port) by default; configure
+    `with_allowed_hosts` (builder, `StreamableHttpConfig`, `RequestGuard`) to
+    replace that list, e.g. for a reverse proxy. Non-loopback binds are
+    unchanged unless a list is set. Migration: loopback servers behind a proxy
+    that forwards a public Host must set the allow-list. Custom
+    `HttpServerAdapter`s get the policy through the new
+    `start_with_guard` (default: ignored).
+  - security(cloudllm_mcp): 500 responses (legacy routes and JSON-RPC) echoed
+    the raw error string, which can contain paths, connection strings or
+    other internals. Untyped internal errors now return a generic message
+    with a request id and the real error is written to stderr under the same
+    id; typed `ToolError` messages are unchanged.
+  - fix(cloudllm_mcp): the generic 401 body named MentisDB environment
+    variables and CLI commands; it is now product-neutral. Streamable
+    authentication, Host and Origin failures now emit
+    `McpEvent::RequestRejected` to the configured event handler. A lagging
+    SSE subscriber is told that events were dropped (with a count) instead of
+    "SSE stream closed".
   - security(cloudllm_mcp): `McpClientProtocol` buffered whole response bodies
     with no limit, so a malicious or compromised MCP server could exhaust the
     client's memory. Bodies are now capped (default 10 MiB, checked against

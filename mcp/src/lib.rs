@@ -23,7 +23,7 @@ pub use client::McpClientProtocol;
 pub use events::{McpEvent, McpEventHandler};
 pub use http::{
     BearerAuthContext, BearerTokenAuthorizer, HttpServerAdapter, HttpServerConfig,
-    HttpServerInstance,
+    HttpServerInstance, RequestGuard,
 };
 pub use protocol::{
     Tool, ToolDefinition, ToolError, ToolMetadata, ToolParameter, ToolParameterType, ToolProtocol,

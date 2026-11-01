@@ -2,7 +2,7 @@
 
 use crate::builder_utils::{AuthConfig, IpFilter};
 use crate::events::McpEventHandler;
-use crate::http::{HttpServerAdapter, HttpServerConfig, HttpServerInstance};
+use crate::http::{HttpServerAdapter, HttpServerConfig, HttpServerInstance, RequestGuard};
 use crate::protocol::ToolProtocol;
 use crate::server::UnifiedMcpServer;
 use std::error::Error;
@@ -16,6 +16,7 @@ pub struct MCPServerBuilder {
     auth: AuthConfig,
     adapter: Arc<dyn HttpServerAdapter>,
     event_handler: Option<Arc<dyn McpEventHandler>>,
+    guard: RequestGuard,
 }
 
 impl MCPServerBuilder {
@@ -27,6 +28,7 @@ impl MCPServerBuilder {
             auth: AuthConfig::None,
             adapter: Self::default_adapter(),
             event_handler: None,
+            guard: RequestGuard::new(),
         }
     }
 
@@ -88,6 +90,25 @@ impl MCPServerBuilder {
         self
     }
 
+    /// Accept only these `Host` header values (DNS-rebinding defence; port
+    /// ignored). Without a list, a loopback bind accepts only `localhost`,
+    /// `127.0.0.1` and `[::1]`; set this when a reverse proxy forwards a public
+    /// host name to a loopback bind.
+    pub fn with_allowed_hosts<I, S>(mut self, hosts: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.guard = self.guard.with_allowed_hosts(hosts);
+        self
+    }
+
+    /// Skip the `Origin` check on the HTTP routes (LAN browser clients).
+    pub fn with_skip_origin_validation(mut self, skip: bool) -> Self {
+        self.guard = self.guard.with_skip_origin_validation(skip);
+        self
+    }
+
     /// Override the HTTP adapter.
     pub fn with_adapter(mut self, adapter: Arc<dyn HttpServerAdapter>) -> Self {
         self.adapter = adapter;
@@ -123,7 +144,7 @@ impl MCPServerBuilder {
         };
 
         self.adapter
-            .start(
+            .start_with_guard(
                 HttpServerConfig {
                     addr,
                     bearer_token,
@@ -132,6 +153,7 @@ impl MCPServerBuilder {
                     event_handler: self.event_handler,
                 },
                 Arc::new(self.server),
+                self.guard,
             )
             .await
     }

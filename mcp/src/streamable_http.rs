@@ -60,6 +60,10 @@ pub struct StreamableHttpConfig {
     /// Set this to `true` when deploying on a LAN where non-localhost
     /// origins need to connect (e.g., `http://192.168.1.x`).
     pub skip_origin_validation: bool,
+    /// Accepted `Host` header values (see [`RequestGuard`](crate::http::RequestGuard)).
+    /// Empty means the default: loopback names on a loopback bind, no check
+    /// otherwise.
+    pub allowed_hosts: Vec<String>,
 }
 
 impl StreamableHttpConfig {
@@ -73,6 +77,7 @@ impl StreamableHttpConfig {
             server_version: server_version.into(),
             instructions: None,
             skip_origin_validation: false,
+            allowed_hosts: Vec::new(),
         }
     }
 
@@ -97,6 +102,18 @@ impl StreamableHttpConfig {
     /// Set optional instructions returned during initialization.
     pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
+        self
+    }
+
+    /// Restrict the accepted `Host` header to these names (DNS-rebinding
+    /// defence); port ignored. Required when serving a loopback bind through a
+    /// reverse proxy that forwards the public host name.
+    pub fn with_allowed_hosts<I, S>(mut self, hosts: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.allowed_hosts = hosts.into_iter().map(Into::into).collect();
         self
     }
 
@@ -449,7 +466,9 @@ struct StreamableHttpRuntimeConfig {
     bearer_token: Option<String>,
     bearer_authorizer: Option<Arc<dyn BearerTokenAuthorizer>>,
     ip_filter: IpFilter,
-    skip_origin_validation: bool,
+    guard: crate::http::RequestGuard,
+    bind_addr: SocketAddr,
+    event_handler: Option<Arc<dyn McpEventHandler>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -615,7 +634,11 @@ pub fn streamable_http_router_with_sse(
             bearer_token: http_config.bearer_token.clone(),
             bearer_authorizer: http_config.bearer_authorizer.clone(),
             ip_filter: http_config.ip_filter.clone(),
-            skip_origin_validation: transport.skip_origin_validation,
+            guard: crate::http::RequestGuard::new()
+                .with_allowed_hosts(&transport.allowed_hosts)
+                .with_skip_origin_validation(transport.skip_origin_validation),
+            bind_addr: http_config.addr,
+            event_handler: http_config.event_handler.clone(),
         },
         transport: transport.clone(),
         sse_broadcaster,
@@ -649,7 +672,9 @@ async fn streamable_http_post_handler(
         addr,
         message.method.clone().unwrap_or_default(),
         message.params.clone(),
-    ) {
+    )
+    .await
+    {
         return rejection;
     }
 
@@ -715,15 +740,28 @@ async fn streamable_http_post_handler(
 /// Every route that can reveal data or run a tool goes through this single
 /// function so the POST and GET paths cannot drift apart again. Returns
 /// `Some(response)` to reject the request, `None` to let it proceed.
-fn check_access(
+async fn check_access(
     state: &StreamableHttpState,
     headers: &HeaderMap,
     client_addr: SocketAddr,
     action: String,
     payload: Option<Value>,
 ) -> Option<Response> {
+    let cfg = &state.http_config;
+
+    if !cfg.guard.host_allowed(cfg.bind_addr, headers) {
+        reject_event(cfg, client_addr, "Host not allowed").await;
+        return Some(json_error_response(
+            StatusCode::FORBIDDEN,
+            None,
+            -32002,
+            "Forbidden host".to_string(),
+            None,
+        ));
+    }
+
     if !authorize(
-        &state.http_config,
+        cfg,
         headers,
         BearerAuthContext {
             client_addr,
@@ -732,6 +770,7 @@ fn check_access(
             payload,
         },
     ) {
+        reject_event(cfg, client_addr, "Unauthorized").await;
         return Some(json_error_response(
             StatusCode::UNAUTHORIZED,
             None,
@@ -739,12 +778,13 @@ fn check_access(
             crate::http::BEARER_TOKEN_REQUIRED_MESSAGE.to_string(),
             Some(json!({
                 "error_description": crate::http::BEARER_TOKEN_REQUIRED_MESSAGE,
-                "hint": "Send `Authorization: Bearer <token>` with a token issued by the server's bearer-token CLI.",
+                "hint": "Send `Authorization: Bearer <token>` with a token issued by the server operator.",
             })),
         ));
     }
 
-    if !validate_origin(&state.http_config, headers) {
+    if !cfg.guard.origin_allowed(headers) {
+        reject_event(cfg, client_addr, "Origin not allowed").await;
         return Some(json_error_response(
             StatusCode::FORBIDDEN,
             None,
@@ -755,6 +795,18 @@ fn check_access(
     }
 
     None
+}
+
+/// Report a rejected request to the event handler (never includes the token).
+async fn reject_event(cfg: &StreamableHttpRuntimeConfig, client_addr: SocketAddr, reason: &str) {
+    if let Some(handler) = &cfg.event_handler {
+        handler
+            .on_mcp_event(&McpEvent::RequestRejected {
+                client_addr: client_addr.ip().to_string(),
+                reason: reason.to_string(),
+            })
+            .await;
+    }
 }
 
 /// `BearerAuthContext::action` reported to authorizers for the SSE `GET`.
@@ -771,7 +823,9 @@ async fn streamable_http_get_handler(
         addr,
         SSE_SUBSCRIBE_ACTION.to_string(),
         None,
-    ) {
+    )
+    .await
+    {
         return rejection;
     }
 
@@ -807,10 +861,12 @@ fn sse_event_stream(
         tokio_stream::wrappers::BroadcastStream::new(rx).then(|msg| async move {
             match msg {
                 Ok(sse_msg) => Ok(sse_msg.format()),
-                Err(_) => Ok(format!(
-                    "event: warning\ndata: {}\n\n",
-                    json!({"message": "SSE stream closed"})
-                )),
+                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(missed)) => {
+                    Ok(format!(
+                        "event: warning\ndata: {}\n\n",
+                        json!({"message": "SSE subscriber lagged; events were dropped", "missed": missed})
+                    ))
+                }
             }
         }),
     )
@@ -988,63 +1044,6 @@ fn authorize(
         .is_some_and(|auth| auth.authorize_bearer_token(provided, &context))
 }
 
-fn validate_origin(config: &StreamableHttpRuntimeConfig, headers: &HeaderMap) -> bool {
-    if config.skip_origin_validation {
-        return true;
-    }
-
-    let Some(origin) = headers.get("Origin").and_then(|v| v.to_str().ok()) else {
-        return true;
-    };
-
-    origin_is_loopback(origin)
-}
-
-/// True when `origin` is an `http(s)` origin whose host is exactly
-/// `localhost`, `127.0.0.1` or `[::1]`, with an optional numeric port.
-///
-/// A browser `Origin` is `scheme "://" host [":" port]` with no userinfo,
-/// path, query or fragment, so anything else is rejected. Matching the host
-/// exactly (not as a string prefix) keeps `http://localhost.evil.com` and
-/// `http://127.0.0.1.evil.com` out.
-fn origin_is_loopback(origin: &str) -> bool {
-    let Some(authority) = origin
-        .strip_prefix("http://")
-        .or_else(|| origin.strip_prefix("https://"))
-    else {
-        return false;
-    };
-
-    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        match rest.split_once(']') {
-            Some((inner, tail)) => (
-                &authority[..inner.len() + 2],
-                match tail {
-                    "" => None,
-                    t => match t.strip_prefix(':') {
-                        Some(p) => Some(p),
-                        None => return false,
-                    },
-                },
-            ),
-            None => return false,
-        }
-    } else {
-        match authority.split_once(':') {
-            Some((h, p)) => (h, Some(p)),
-            None => (authority, None),
-        }
-    };
-
-    if let Some(port) = port {
-        if port.parse::<u16>().is_err() || !port.bytes().all(|b| b.is_ascii_digit()) {
-            return false;
-        }
-    }
-
-    host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "[::1]"
-}
-
 fn negotiate_protocol_version(server_protocol_version: &str) -> &str {
     if SUPPORTED_MCP_PROTOCOL_VERSIONS.contains(&server_protocol_version) {
         server_protocol_version
@@ -1197,7 +1196,7 @@ fn server_error_from(
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         -32603,
-        error.to_string(),
+        crate::http::internal_error_message("jsonrpc", &error),
         None,
     )
 }
@@ -1230,7 +1229,7 @@ fn tool_protocol_error_from(
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             -32603,
-            error.to_string(),
+            crate::http::internal_error_message("tools/call", &error),
             None,
         )
     }

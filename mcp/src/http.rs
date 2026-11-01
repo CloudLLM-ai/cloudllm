@@ -40,8 +40,7 @@ use axum::Router;
 /// - `Rpc` — the JSON-RPC 2.0 error object used by streamable-HTTP transports.
 pub const BEARER_TOKEN_REQUIRED_MESSAGE: &str =
     "This MCP endpoint requires a Bearer token in the `Authorization: Bearer <token>` header. \
-     Either supply a valid token, or set the server's `MENTISDB_BEARER_TOKEN_ACCESS=false` to \
-     disable bearer-token enforcement for the daemon.";
+     Supply a valid token, or ask the server operator for one.";
 
 /// Build a flat JSON body returned for bearer-token rejections on legacy
 /// (`/tools/list`, `/tools/execute`, `/resources/list`, `/resources/read`)
@@ -52,8 +51,161 @@ fn bearer_token_required_body() -> serde_json::Value {
         "error": "Unauthorized",
         "message": BEARER_TOKEN_REQUIRED_MESSAGE,
         "error_description": BEARER_TOKEN_REQUIRED_MESSAGE,
-        "hint": "Send `Authorization: Bearer <token>` with a token issued by `mentisdb bearertoken create --alias <name>`.",
+        "hint": "Send `Authorization: Bearer <token>` with a token issued by the server operator.",
     })
+}
+
+/// Browser-facing request checks shared by both HTTP transports.
+///
+/// Neither check affects non-browser clients (they send no `Origin`, and a
+/// loopback bind is only reachable from the local machine anyway); both exist
+/// to stop a web page in the operator's browser from driving the server:
+///
+/// - **Origin**: a present `Origin` header must be a loopback origin unless
+///   [`with_skip_origin_validation`](Self::with_skip_origin_validation) is set.
+/// - **Host** (DNS-rebinding defence): when the server is bound to a loopback
+///   address the `Host` header must name `localhost`, `127.0.0.1` or `[::1]`
+///   (any port), unless an explicit allow-list is configured with
+///   [`with_allowed_hosts`](Self::with_allowed_hosts), which then replaces the
+///   default. A non-loopback bind with no allow-list performs no Host check.
+///   Put your public host name(s) in the list when running behind a reverse
+///   proxy on a loopback bind.
+#[derive(Debug, Clone, Default)]
+pub struct RequestGuard {
+    allowed_hosts: Vec<String>,
+    skip_origin_validation: bool,
+}
+
+impl RequestGuard {
+    /// Default guard: loopback Origin check, loopback Host default on loopback binds.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Accept only these `Host` values (host names or IPs, port ignored,
+    /// case-insensitive, IPv6 as `[::1]`). An empty list restores the default.
+    pub fn with_allowed_hosts<I, S>(mut self, hosts: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.allowed_hosts = hosts
+            .into_iter()
+            .filter_map(|h| normalize_host(h.as_ref()))
+            .collect();
+        self
+    }
+
+    /// Skip the `Origin` check (for LAN deployments whose browser clients live
+    /// on other origins).
+    pub fn with_skip_origin_validation(mut self, skip: bool) -> Self {
+        self.skip_origin_validation = skip;
+        self
+    }
+
+    /// True when a request with this `Host` header may proceed.
+    ///
+    /// A missing header is accepted (HTTP/1.0 clients; browsers always send it).
+    #[cfg(feature = "server")]
+    pub(crate) fn host_allowed(&self, bind: SocketAddr, headers: &axum::http::HeaderMap) -> bool {
+        let Some(raw) = headers.get("host") else {
+            return true;
+        };
+        let Some(host) = raw.to_str().ok().and_then(normalize_host) else {
+            return false;
+        };
+        if !self.allowed_hosts.is_empty() {
+            return self.allowed_hosts.contains(&host);
+        }
+        !bind.ip().is_loopback() || matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]")
+    }
+
+    /// True when a request with this `Origin` header may proceed.
+    #[cfg(feature = "server")]
+    pub(crate) fn origin_allowed(&self, headers: &axum::http::HeaderMap) -> bool {
+        if self.skip_origin_validation {
+            return true;
+        }
+        match headers.get("origin") {
+            None => true,
+            Some(v) => v.to_str().is_ok_and(origin_is_loopback),
+        }
+    }
+}
+
+/// Lower-case the host of a `host[:port]` authority (IPv6 keeps its brackets).
+/// Returns `None` for anything that is not a plain authority.
+fn normalize_host(authority: &str) -> Option<String> {
+    let authority = authority.trim();
+    if authority.is_empty() || authority.contains(['/', '@', '?', '#', ' ']) {
+        return None;
+    }
+    let (host, port) = if authority.starts_with('[') {
+        let end = authority.find(']')?;
+        let tail = &authority[end + 1..];
+        let port = match tail {
+            "" => None,
+            t => Some(t.strip_prefix(':')?),
+        };
+        (&authority[..=end], port)
+    } else {
+        match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+    if host.is_empty() || host == "[]" {
+        return None;
+    }
+    if let Some(p) = port {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) || p.parse::<u16>().is_err() {
+            return None;
+        }
+    }
+    Some(host.to_ascii_lowercase())
+}
+
+/// True when `origin` is an `http(s)` origin whose host is exactly
+/// `localhost`, `127.0.0.1` or `[::1]`, with an optional numeric port.
+///
+/// A browser `Origin` is `scheme "://" host [":" port]` with no userinfo,
+/// path, query or fragment, so anything else is rejected. Matching the host
+/// exactly (not as a string prefix) keeps `http://localhost.evil.com` and
+/// `http://127.0.0.1.evil.com` out.
+pub(crate) fn origin_is_loopback(origin: &str) -> bool {
+    let Some(authority) = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    matches!(
+        normalize_host(authority).as_deref(),
+        Some("localhost" | "127.0.0.1" | "[::1]")
+    )
+}
+
+/// Generate a short opaque id to correlate a generic 5xx response with the
+/// server-side log line that carries the real error.
+pub(crate) fn new_request_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    format!(
+        "req-{:x}-{:x}",
+        nanos,
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+/// Log the real error server-side and return the generic body text for a 5xx.
+pub(crate) fn internal_error_message(context: &str, error: &dyn std::fmt::Display) -> String {
+    let id = new_request_id();
+    eprintln!("[cloudllm_mcp] internal error ({context}) request_id={id}: {error}");
+    format!("Internal server error (request id {id})")
 }
 
 /// Configuration for an HTTP MCP server
@@ -228,6 +380,20 @@ pub trait HttpServerAdapter: Send + Sync {
         protocol: Arc<dyn ToolProtocol>,
     ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>>;
 
+    /// Start the server with an explicit Origin / Host policy.
+    ///
+    /// The default implementation ignores `guard` and calls
+    /// [`start`](Self::start), so existing adapters keep compiling; override it
+    /// to honour the policy (the built-in Axum adapter does).
+    async fn start_with_guard(
+        &self,
+        config: HttpServerConfig,
+        protocol: Arc<dyn ToolProtocol>,
+        _guard: RequestGuard,
+    ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>> {
+        self.start(config, protocol).await
+    }
+
     /// Get the name of this adapter (for logging/debugging)
     fn name(&self) -> &str {
         "unknown"
@@ -246,6 +412,19 @@ pub trait HttpServerAdapter: Send + Sync {
 /// but still compose extra routes of its own, such as a `/health` endpoint.
 #[cfg(feature = "server")]
 pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -> Router {
+    axum_router_with_guard(config, protocol, &RequestGuard::new())
+}
+
+/// Like [`axum_router`], with explicit Origin / Host policy (see [`RequestGuard`]).
+///
+/// Every route first applies the IP filter, then the Host and Origin checks,
+/// then authentication.
+#[cfg(feature = "server")]
+pub fn axum_router_with_guard(
+    config: &HttpServerConfig,
+    protocol: Arc<dyn ToolProtocol>,
+    guard: &RequestGuard,
+) -> Router {
     use crate::builder_utils::static_token_matches;
     use crate::events::McpEvent;
     use axum::{
@@ -295,6 +474,29 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
             .is_some_and(|auth| auth.authorize_bearer_token(provided, &context))
     }
 
+    /// Host / Origin rejection, shared by all four routes.
+    fn guard_rejection(
+        guard: &RequestGuard,
+        bind: SocketAddr,
+        headers: &HeaderMap,
+    ) -> Option<axum::response::Response> {
+        let message = if !guard.host_allowed(bind, headers) {
+            "Forbidden host"
+        } else if !guard.origin_allowed(headers) {
+            "Forbidden origin"
+        } else {
+            return None;
+        };
+        Some((StatusCode::FORBIDDEN, Json(json!({"error": message}))).into_response())
+    }
+
+    let guard = Arc::new(guard.clone());
+    let bind_addr = config.addr;
+    let guard_list = guard.clone();
+    let guard_exec = guard.clone();
+    let guard_res_list = guard.clone();
+    let guard_res_read = guard.clone();
+
     let bearer_token = Arc::new(config.bearer_token.clone());
     let bearer_authorizer = Arc::new(config.bearer_authorizer.clone());
     let ip_filter = Arc::new(config.ip_filter.clone());
@@ -328,6 +530,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                     let token = token_list.clone();
                     let authz = authz_list.clone();
                     let allowed = ips_list.clone();
+                    let guard = guard_list.clone();
                     let proto = protocol_list.clone();
                     let eh = eh_list.clone();
                     async move {
@@ -345,6 +548,10 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 Json(json!({"error": "Access denied"})),
                             )
                                 .into_response();
+                        }
+
+                        if let Some(rejection) = guard_rejection(&guard, bind_addr, &headers) {
+                            return rejection;
                         }
 
                         if !check_auth(
@@ -385,7 +592,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                             }
                             Err(e) => (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({"error": e.to_string()})),
+                                Json(json!({"error": internal_error_message("tools/list", &e)})),
                             )
                                 .into_response(),
                         }
@@ -402,6 +609,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                     let token = token_exec.clone();
                     let authz = authz_exec.clone();
                     let allowed = ips_exec.clone();
+                    let guard = guard_exec.clone();
                     let proto = protocol_exec.clone();
                     let eh = eh_exec.clone();
                     async move {
@@ -419,6 +627,10 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 Json(json!({"error": "Access denied"})),
                             )
                                 .into_response();
+                        }
+
+                        if let Some(rejection) = guard_rejection(&guard, bind_addr, &headers) {
+                            return rejection;
                         }
 
                         if !check_auth(
@@ -496,6 +708,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                     let token = token_res_list.clone();
                     let authz = authz_res_list.clone();
                     let allowed = ips_res_list.clone();
+                    let guard = guard_res_list.clone();
                     let proto = protocol_res_list.clone();
                     async move {
                         if !allowed.is_allowed(addr.ip()) {
@@ -504,6 +717,10 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 Json(json!({"error": "Access denied"})),
                             )
                                 .into_response();
+                        }
+
+                        if let Some(rejection) = guard_rejection(&guard, bind_addr, &headers) {
+                            return rejection;
                         }
 
                         if !check_auth(
@@ -536,7 +753,9 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                             }
                             Err(e) => (
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({"error": e.to_string()})),
+                                Json(
+                                    json!({"error": internal_error_message("resources/list", &e)}),
+                                ),
                             )
                                 .into_response(),
                         }
@@ -553,6 +772,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                     let token = token_res_read.clone();
                     let authz = authz_res_read.clone();
                     let allowed = ips_res_read.clone();
+                    let guard = guard_res_read.clone();
                     let proto = protocol_res_read.clone();
                     async move {
                         if !allowed.is_allowed(addr.ip()) {
@@ -561,6 +781,10 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
                                 Json(json!({"error": "Access denied"})),
                             )
                                 .into_response();
+                        }
+
+                        if let Some(rejection) = guard_rejection(&guard, bind_addr, &headers) {
+                            return rejection;
                         }
 
                         if !check_auth(
@@ -605,6 +829,28 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
         )
 }
 
+/// Print a prominent startup warning when no authentication is configured.
+///
+/// An open server is a supported operator choice (the streamable transport
+/// behaves the same way), but it must never be an accident: without a bearer
+/// token or authorizer every client that can reach the socket may run tools.
+pub fn warn_if_unauthenticated(config: &HttpServerConfig) {
+    if config.bearer_token.is_some() || config.bearer_authorizer.is_some() {
+        return;
+    }
+    let exposure = if config.addr.ip().is_loopback() {
+        "reachable by every local process and, via a browser, by web pages \
+         (Origin/Host checks apply)"
+    } else {
+        "reachable by every host that can connect to this address"
+    };
+    eprintln!(
+        "[cloudllm_mcp] WARNING: MCP server on {} has NO authentication configured; \
+         tools are {}. Configure a bearer token or authorizer.",
+        config.addr, exposure
+    );
+}
+
 /// Default Axum-based HTTP server adapter
 ///
 /// Provides a full MCP-compatible HTTP server using the Axum framework.
@@ -620,10 +866,21 @@ impl HttpServerAdapter for AxumHttpAdapter {
         config: HttpServerConfig,
         protocol: Arc<dyn ToolProtocol>,
     ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>> {
+        self.start_with_guard(config, protocol, RequestGuard::new())
+            .await
+    }
+
+    async fn start_with_guard(
+        &self,
+        config: HttpServerConfig,
+        protocol: Arc<dyn ToolProtocol>,
+        guard: RequestGuard,
+    ) -> Result<HttpServerInstance, Box<dyn Error + Send + Sync>> {
         use crate::events::McpEvent;
         use tokio::net::TcpListener;
-        let app =
-            axum_router(&config, protocol).into_make_service_with_connect_info::<SocketAddr>();
+        warn_if_unauthenticated(&config);
+        let app = axum_router_with_guard(&config, protocol, &guard)
+            .into_make_service_with_connect_info::<SocketAddr>();
 
         // Bind and start server
         let listener = TcpListener::bind(config.addr).await?;
