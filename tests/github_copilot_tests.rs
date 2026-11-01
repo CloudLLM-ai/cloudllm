@@ -2,8 +2,11 @@
 //! local HTTP server that stands in for github.com, api.github.com and the
 //! Copilot API.
 
-use cloudllm::clients::github_copilot::{CopilotAuthError, GitHubDeviceFlow};
+use cloudllm::clients::github_copilot::{
+    CopilotAuthError, CopilotIdentity, CopilotTokenProvider, GitHubDeviceFlow, GitHubOAuthToken,
+};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -186,5 +189,101 @@ async fn device_flow_reports_http_failures() {
             assert_eq!(body, "upstream down");
         }
         other => panic!("expected HttpStatus, got {:?}", other),
+    }
+}
+
+/// A session-token answer that expires `seconds_from_now` from now and points
+/// at `api`.
+fn session_token_reply(token: &str, seconds_from_now: u64, api: &str) -> Reply {
+    let expires_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock after 1970")
+        .as_secs()
+        + seconds_from_now;
+    (
+        200,
+        format!(
+            r#"{{"token":"{token}","expires_at":{expires_at},"refresh_in":1500,"endpoints":{{"api":"{api}"}}}}"#
+        ),
+    )
+}
+
+/// Verifies that the GitHub token goes to the token endpoint with the
+/// identity headers, and that a fresh session token is reused rather than
+/// traded for again.
+#[tokio::test]
+async fn session_token_is_exchanged_once_and_cached() {
+    let server = MockServer::start(vec![session_token_reply(
+        "tid=one",
+        1800,
+        "https://api.individual.githubcopilot.com",
+    )])
+    .await;
+
+    let provider = CopilotTokenProvider::from_github_token(GitHubOAuthToken::new("gho_abc"))
+        .with_github_api_base_url(&server.base_url)
+        .with_identity(CopilotIdentity::default().with_integration_id("cloudllm-test"));
+
+    let first = provider.session_token().await.expect("first trade");
+    let second = provider.session_token().await.expect("cached token");
+
+    assert_eq!(first.secret(), "tid=one");
+    assert_eq!(first, second);
+    assert_eq!(
+        first.api_base_url(),
+        "https://api.individual.githubcopilot.com"
+    );
+    let requests = server.requests();
+    assert_eq!(requests.len(), 1, "the second call must hit the cache");
+    let head = &requests[0].head;
+    assert!(head.starts_with("get /copilot_internal/v2/token "));
+    assert!(head.contains("authorization: token gho_abc"));
+    assert!(head.contains("editor-version: cloudllm/"));
+    assert!(head.contains("copilot-integration-id: cloudllm-test"));
+}
+
+/// Verifies that a token inside the refresh margin is traded for a new one,
+/// and that `invalidate` forces a trade even for a fresh token.
+#[tokio::test]
+async fn session_token_is_refreshed_near_expiry_and_after_invalidate() {
+    let server = MockServer::start(vec![
+        session_token_reply("tid=short", 30, "https://a"),
+        session_token_reply("tid=long", 1800, "https://b"),
+        session_token_reply("tid=after-invalidate", 1800, "https://c"),
+    ])
+    .await;
+
+    let provider = CopilotTokenProvider::from_github_token(GitHubOAuthToken::new("gho"))
+        .with_github_api_base_url(&server.base_url)
+        .with_refresh_margin(Duration::from_secs(60));
+
+    assert_eq!(
+        provider.session_token().await.unwrap().secret(),
+        "tid=short"
+    );
+    assert_eq!(provider.session_token().await.unwrap().secret(), "tid=long");
+    assert_eq!(provider.session_token().await.unwrap().secret(), "tid=long");
+    provider.invalidate().await;
+    assert_eq!(
+        provider.session_token().await.unwrap().secret(),
+        "tid=after-invalidate"
+    );
+    assert_eq!(server.requests().len(), 3);
+}
+
+/// Verifies that GitHub refusing the trade (no Copilot seat) is reported as
+/// `CopilotNotAvailable`, not as a generic HTTP error.
+#[tokio::test]
+async fn session_token_refusal_is_copilot_not_available() {
+    let server = MockServer::start(vec![(403, r#"{"message":"no seat"}"#.to_owned())]).await;
+
+    let provider = CopilotTokenProvider::from_github_token(GitHubOAuthToken::new("gho"))
+        .with_github_api_base_url(&server.base_url);
+    match provider.session_token().await {
+        Err(CopilotAuthError::CopilotNotAvailable { status, body }) => {
+            assert_eq!(status, 403);
+            assert!(body.contains("no seat"));
+        }
+        other => panic!("expected CopilotNotAvailable, got {:?}", other),
     }
 }

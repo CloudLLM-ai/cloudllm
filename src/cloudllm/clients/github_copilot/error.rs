@@ -89,6 +89,15 @@ impl CopilotAuthError {
             body: quote_body(body),
         }
     }
+
+    /// Build a [`CopilotAuthError::CopilotNotAvailable`], quoting at most 512
+    /// bytes of `body`.
+    pub(crate) fn copilot_not_available(status: u16, body: &str) -> Self {
+        Self::CopilotNotAvailable {
+            status,
+            body: quote_body(body),
+        }
+    }
 }
 
 /// Cut `body` to [`MAX_QUOTED_BODY`] bytes on a character boundary.
