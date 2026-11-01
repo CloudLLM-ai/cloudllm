@@ -47,7 +47,9 @@ tower = { version = "0.5.3", optional = true }
 uuid = { version = "1.24.0", features = ["v4"] }
 # 0.10+ is the current binary-storage MentisDB line. 0.4 was the last
 # pre-modern series cloudllm targeted; Jsonl is legacy-only upstream.
-mentisdb = "0.10.5"
+# 0.10.10 is the latest 0.10.x; it adds only additive API (webhook CIDR policy)
+# on top of 0.10.5 and carries the 0.10.9 security fixes.
+mentisdb = "0.10.10"
 mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.3.6", features = ["server"] }
 
 [dev-dependencies]

@@ -126,6 +126,9 @@
     removed the unused `sha2` dependency from `cloudllm`. Added NIST
     known-answer tests (`mcp/tests/sha2_digest_vectors.rs`) so a future digest
     upgrade cannot silently change the bytes the auth check compares.
+  - chore(deps): `mentisdb` floor 0.10.5 → 0.10.10 (latest 0.10.x; upstream
+    changes since 0.10.5 are additive plus the 0.10.9 security fixes, and
+    cloudllm's MentisDB tests pass unchanged).
 
 0.15.18 SEP/27/2026
   - feat(models): update the OpenRouter catalog with Meta Muse Spark 1.3, Qwen
