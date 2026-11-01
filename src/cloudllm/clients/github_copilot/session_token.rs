@@ -14,7 +14,7 @@
 //! [`CopilotTokenProvider`] does the trade, caches the result, and trades again
 //! shortly before the session token expires, so callers just ask it for a
 //! token on every request. One provider can serve any number of
-//! `CopilotClient`s at once; put it in an [`Arc`](std::sync::Arc).
+//! [`CopilotClient`](super::CopilotClient)s at once; put it in an [`Arc`](std::sync::Arc).
 //!
 //! # Example
 //!
@@ -398,7 +398,7 @@ impl CopilotTokenProvider {
     /// Forget the cached session token so the next
     /// [`CopilotTokenProvider::session_token`] trades for a new one.
     ///
-    /// `CopilotClient` calls this when the Copilot API
+    /// [`CopilotClient`](super::CopilotClient) calls this when the Copilot API
     /// answers 401, which happens when GitHub revokes a session token early.
     pub async fn invalidate(&self) {
         *self.cached.lock().await = None;

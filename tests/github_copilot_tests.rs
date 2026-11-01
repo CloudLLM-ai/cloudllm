@@ -2,9 +2,12 @@
 //! local HTTP server that stands in for github.com, api.github.com and the
 //! Copilot API.
 
+use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use cloudllm::clients::github_copilot::{
-    CopilotAuthError, CopilotIdentity, CopilotTokenProvider, GitHubDeviceFlow, GitHubOAuthToken,
+    CopilotAuthError, CopilotClient, CopilotIdentity, CopilotTokenProvider, GitHubDeviceFlow,
+    GitHubOAuthToken,
 };
+use futures_util::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -32,8 +35,16 @@ struct MockServer {
 impl MockServer {
     /// Start a server that plays `script` in order, one reply per request.
     async fn start(script: Vec<Reply>) -> Self {
+        Self::start_with(|_| script).await
+    }
+
+    /// Start a server whose script is built from its own base URL, for
+    /// replies that must point back at the server (a session token naming
+    /// this server as the Copilot API host, say).
+    async fn start_with(script: impl FnOnce(&str) -> Vec<Reply>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let base_url = format!("http://{}", listener.local_addr().expect("address"));
+        let script = script(&base_url);
         let requests = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&requests);
         let task = tokio::spawn(async move {
@@ -286,4 +297,178 @@ async fn session_token_refusal_is_copilot_not_available() {
         }
         other => panic!("expected CopilotNotAvailable, got {:?}", other),
     }
+}
+
+fn user(text: &str) -> Message {
+    Message {
+        role: Role::User,
+        content: Arc::from(text),
+        tool_calls: vec![],
+    }
+}
+
+fn chat_reply(text: &str) -> Reply {
+    (
+        200,
+        format!(
+            r#"{{"choices":[{{"message":{{"role":"assistant","content":"{text}"}}}}],"usage":{{"prompt_tokens":7,"completion_tokens":2}}}}"#
+        ),
+    )
+}
+
+/// Verifies a chat round trip: the session token is traded for, then sent as
+/// the bearer token to the API host the trade named, with the identity
+/// headers and the model ID; the reply and usage come back.
+#[tokio::test]
+async fn copilot_client_chats_through_the_session_host() {
+    // The token endpoint points the account back at the same mock server.
+    let server = MockServer::start_with(|base| {
+        vec![
+            session_token_reply("tid=chat", 1800, base),
+            chat_reply("hello from copilot"),
+        ]
+    })
+    .await;
+
+    let provider = Arc::new(
+        CopilotTokenProvider::from_github_token(GitHubOAuthToken::new("gho"))
+            .with_github_api_base_url(&server.base_url)
+            .with_identity(CopilotIdentity::default().with_integration_id("cloudllm-test")),
+    );
+    let client = CopilotClient::new(provider, "gpt-4.1");
+    let reply = client
+        .send_message(&[user("hi")], None)
+        .await
+        .expect("chat should succeed");
+
+    assert_eq!(reply.content.as_ref(), "hello from copilot");
+    let usage = client.get_last_usage().await.expect("usage recorded");
+    assert_eq!((usage.input_tokens, usage.output_tokens), (7, 2));
+    let requests = server.requests();
+    assert_eq!(requests.len(), 2);
+    let chat = &requests[1];
+    assert!(chat.head.starts_with("post /chat/completions "));
+    assert!(chat.head.contains("authorization: bearer tid=chat"));
+    assert!(chat.head.contains("copilot-integration-id: cloudllm-test"));
+    assert!(chat.head.contains("editor-version: cloudllm/"));
+    assert!(chat.body.contains(r#""model":"gpt-4.1""#));
+}
+
+/// Verifies that a 401 from the Copilot API discards the session token,
+/// trades for a new one, and retries the request once with it.
+#[tokio::test]
+async fn copilot_client_refreshes_the_token_after_a_401() {
+    let server = MockServer::start_with(|base| {
+        vec![
+            session_token_reply("tid=stale", 1800, base),
+            (401, r#"{"error":"token expired"}"#.to_owned()),
+            session_token_reply("tid=fresh", 1800, base),
+            chat_reply("retried"),
+        ]
+    })
+    .await;
+
+    let provider = Arc::new(
+        CopilotTokenProvider::from_github_token(GitHubOAuthToken::new("gho"))
+            .with_github_api_base_url(&server.base_url),
+    );
+    let client = CopilotClient::new(provider, "gpt-4.1");
+    let reply = client
+        .send_message(&[user("hi")], None)
+        .await
+        .expect("the retry should succeed");
+
+    assert_eq!(reply.content.as_ref(), "retried");
+    let requests = server.requests();
+    assert_eq!(requests.len(), 4);
+    assert!(requests[1].head.contains("authorization: bearer tid=stale"));
+    assert!(requests[2]
+        .head
+        .starts_with("get /copilot_internal/v2/token "));
+    assert!(requests[3].head.contains("authorization: bearer tid=fresh"));
+}
+
+/// Verifies that a refused trade surfaces as `CopilotNotAvailable` through
+/// the `ClientWrapper` error.
+#[tokio::test]
+async fn copilot_client_reports_a_missing_copilot_seat() {
+    let server = MockServer::start(vec![(404, "Not Found".to_owned())]).await;
+
+    let provider = Arc::new(
+        CopilotTokenProvider::from_github_token(GitHubOAuthToken::new("gho"))
+            .with_github_api_base_url(&server.base_url),
+    );
+    let client = CopilotClient::new(provider, "gpt-4.1");
+    let error = match client.send_message(&[user("hi")], None).await {
+        Ok(_) => panic!("no seat must fail"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error.downcast_ref::<CopilotAuthError>(),
+        Some(CopilotAuthError::CopilotNotAvailable { status: 404, .. })
+    ));
+}
+
+/// Verifies that streaming sends the identity headers and yields the SSE
+/// deltas in order.
+#[tokio::test]
+async fn copilot_client_streams_tokens() {
+    let events = concat!(
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let server = MockServer::start(vec![(200, events.to_owned())]).await;
+    let provider = Arc::new(
+        CopilotTokenProvider::with_static_token("tid=s", &server.base_url)
+            .with_identity(CopilotIdentity::default().with_header("X-Initiator", "user")),
+    );
+    let client = CopilotClient::new(provider, "claude-sonnet-4");
+
+    let messages = [user("hi")];
+    let mut stream = client
+        .send_message_stream(&messages, None)
+        .await
+        .expect("stream opens")
+        .expect("Copilot streams");
+    let mut text = String::new();
+    while let Some(chunk) = stream.next().await {
+        text.push_str(&chunk.expect("chunk").content);
+    }
+
+    assert_eq!(text, "Hello");
+    let request = &server.requests()[0];
+    assert!(request.head.contains("authorization: bearer tid=s"));
+    assert!(request.head.contains("x-initiator: user"));
+    assert!(request.body.contains(r#""stream":true"#));
+}
+
+/// Verifies that the model list is read from `GET /models` on the session
+/// host.
+#[tokio::test]
+async fn list_models_reads_the_catalogue() {
+    let server = MockServer::start(vec![(
+        200,
+        r#"{"data":[
+            {"id":"gpt-4.1","vendor":"Azure OpenAI","capabilities":{"type":"chat","supports":{"tool_calls":true}}},
+            {"id":"text-embedding-3-small","capabilities":{"type":"embeddings"}}
+        ],"object":"list"}"#
+            .to_owned(),
+    )])
+    .await;
+    let provider = Arc::new(CopilotTokenProvider::with_static_token(
+        "tid=m",
+        &server.base_url,
+    ));
+    let client = CopilotClient::new(provider, "gpt-4.1");
+
+    let models = client.list_models().await.expect("model list");
+    let chat: Vec<&str> = models
+        .iter()
+        .filter(|model| model.is_chat())
+        .map(|model| model.id.as_str())
+        .collect();
+    assert_eq!(chat, ["gpt-4.1"]);
+    assert!(models[0].supports_tool_calls());
+    assert!(server.requests()[0].head.starts_with("get /models "));
 }

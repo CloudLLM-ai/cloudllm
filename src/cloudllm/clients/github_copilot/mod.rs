@@ -12,16 +12,27 @@
 //! ([`CopilotTokenProvider`]), which also names the API host for the account.
 //! The provider caches the session token and trades again before it expires.
 //!
+//! [`CopilotClient`] then speaks Copilot's OpenAI-compatible Chat Completions
+//! API as an ordinary [`ClientWrapper`](crate::client_wrapper::ClientWrapper),
+//! so it works anywhere another CloudLLM client does: in an
+//! [`LLMSession`](crate::LLMSession), an [`Agent`](crate::Agent), or an
+//! orchestration.
+//!
 //! # Modules
 //!
+//! - [`client`]: [`CopilotClient`] and [`list_models`].
 //! - [`device_flow`]: the GitHub OAuth device-flow login.
 //! - [`session_token`]: session tokens and the [`CopilotIdentity`] headers.
 //! - [`error`]: [`CopilotAuthError`], shared by every step.
 
+pub mod client;
 pub mod device_flow;
 pub mod error;
 pub mod session_token;
 
+pub use client::{
+    list_models, CopilotClient, CopilotModel, CopilotModelCapabilities, CopilotModelSupports,
+};
 pub use device_flow::{
     DeviceCode, GitHubDeviceFlow, GitHubOAuthToken, PollOutcome, DEFAULT_SCOPE,
     GITHUB_DEFAULT_BASE_URL,
