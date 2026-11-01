@@ -34,6 +34,6 @@ pub use server::UnifiedMcpServer;
 #[cfg(feature = "server")]
 pub use streamable_http::{
     streamable_http_router, streamable_http_router_with_sse, SseBroadcaster, SseEventHandler,
-    SseMessage, StreamableHttpConfig, CURRENT_MCP_PROTOCOL_VERSION,
+    SseMessage, SsePayloadMode, StreamableHttpConfig, CURRENT_MCP_PROTOCOL_VERSION,
     SUPPORTED_MCP_PROTOCOL_VERSIONS,
 };

@@ -12,7 +12,7 @@ use axum::http::{Method, Request, StatusCode};
 use mcp::events::{McpEvent, McpEventHandler};
 use mcp::http::HttpServerConfig;
 use mcp::streamable_http::{
-    streamable_http_router_with_sse, SseBroadcaster, SseEventHandler, SseMessage,
+    streamable_http_router_with_sse, SseBroadcaster, SseEventHandler, SseMessage, SsePayloadMode,
     StreamableHttpConfig, CURRENT_MCP_PROTOCOL_VERSION,
 };
 use mcp::{IpFilter, ToolMetadata, ToolProtocol, ToolResult};
@@ -89,6 +89,26 @@ fn make_router_with_sse() -> (axum::Router, SseBroadcaster) {
             event_handler: None,
         },
         &config,
+        Arc::new(EchoProtocol),
+        Some(broadcaster.clone()),
+    );
+    (router, broadcaster)
+}
+
+/// Router whose broadcaster opts in to full payloads (arguments, results and
+/// error text), for tests that assert on payload contents. The default mode
+/// is metadata-only; see `security_tests.rs`.
+fn make_router_with_full_sse() -> (axum::Router, SseBroadcaster) {
+    let broadcaster = SseBroadcaster::new(256).with_payload_mode(SsePayloadMode::Full);
+    let router = streamable_http_router_with_sse(
+        &HttpServerConfig {
+            addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            bearer_token: None,
+            bearer_authorizer: None,
+            ip_filter: IpFilter::new(),
+            event_handler: None,
+        },
+        &StreamableHttpConfig::new("test-server", "0.1.0"),
         Arc::new(EchoProtocol),
         Some(broadcaster.clone()),
     );
@@ -558,7 +578,7 @@ async fn test_sse_stream_receives_multiple_messages() {
 
 #[tokio::test]
 async fn test_sse_stream_mcp_event_from_post_request() {
-    let (router, broadcaster) = make_router_with_sse();
+    let (router, broadcaster) = make_router_with_full_sse();
     let mut rx = broadcaster.subscribe();
 
     let body = json!({
@@ -581,7 +601,7 @@ async fn test_sse_stream_mcp_event_from_post_request() {
 
 #[tokio::test]
 async fn test_sse_stream_error_event_from_failed_request() {
-    let (router, broadcaster) = make_router_with_sse();
+    let (router, broadcaster) = make_router_with_full_sse();
     let mut rx = broadcaster.subscribe();
 
     let body = json!({
@@ -634,7 +654,7 @@ async fn test_sse_stream_tool_call_event() {
 
 #[tokio::test]
 async fn test_sse_stream_initialize_event() {
-    let (router, broadcaster) = make_router_with_sse();
+    let (router, broadcaster) = make_router_with_full_sse();
     let mut rx = broadcaster.subscribe();
 
     let body = json!({

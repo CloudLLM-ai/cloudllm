@@ -140,3 +140,109 @@ async fn sse_get_respects_ip_filter() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+// ── SSE payload minimisation ────────────────────────────────────────────────
+
+use mcp::streamable_http::SsePayloadMode;
+use mcp::McpEvent;
+use serde_json::json;
+use std::time::Duration;
+
+const SECRET: &str = "sk_live_super_secret_value";
+
+async fn post_tool_call(router: &axum::Router) {
+    let mut req = Request::builder()
+        .method(Method::POST)
+        .uri("/")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "echo", "arguments": {"api_key": SECRET}}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(addr()));
+    let resp = router.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+fn router_with(broadcaster: SseBroadcaster) -> axum::Router {
+    streamable_http_router_with_sse(
+        &HttpServerConfig {
+            addr: addr(),
+            bearer_token: None,
+            bearer_authorizer: None,
+            ip_filter: IpFilter::new(),
+            event_handler: None,
+        },
+        &StreamableHttpConfig::new("t", "0.0.1"),
+        Arc::new(Echo),
+        Some(broadcaster),
+    )
+}
+
+async fn next_text(rx: &mut tokio::sync::broadcast::Receiver<mcp::SseMessage>) -> String {
+    let msg = tokio::time::timeout(Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timeout")
+        .expect("message");
+    msg.data.to_string()
+}
+
+#[tokio::test]
+async fn sse_default_does_not_broadcast_tool_results() {
+    let b = SseBroadcaster::new(16);
+    assert_eq!(b.payload_mode(), SsePayloadMode::Minimal);
+    let mut rx = b.subscribe();
+    post_tool_call(&router_with(b)).await;
+    let text = next_text(&mut rx).await;
+    assert!(!text.contains(SECRET), "tool result leaked to SSE: {text}");
+    assert!(text.contains("tools/call"));
+}
+
+#[tokio::test]
+async fn sse_default_does_not_broadcast_tool_parameters_or_errors() {
+    let b = SseBroadcaster::new(16);
+    let mut rx = b.subscribe();
+    b.broadcast_mcp_event(&McpEvent::ToolCallReceived {
+        client_addr: "1.2.3.4".into(),
+        tool_name: "echo".into(),
+        parameters: json!({"api_key": SECRET}),
+    });
+    b.broadcast_mcp_event(&McpEvent::ToolCallCompleted {
+        client_addr: "1.2.3.4".into(),
+        tool_name: "echo".into(),
+        success: false,
+        error: Some(format!("boom {SECRET}")),
+        duration_ms: 1,
+    });
+    b.broadcast_mcp_event(&McpEvent::ToolError {
+        source: "1.2.3.4".into(),
+        tool_name: "echo".into(),
+        error: format!("boom {SECRET}"),
+        duration_ms: 1,
+    });
+    b.broadcast_mcp_event(&McpEvent::RemoteToolCallStarted {
+        endpoint: "http://x".into(),
+        tool_name: "echo".into(),
+        parameters: json!({"api_key": SECRET}),
+    });
+    for _ in 0..4 {
+        let text = next_text(&mut rx).await;
+        assert!(!text.contains(SECRET), "leaked: {text}");
+        assert!(
+            text.contains("tool_name"),
+            "tool name must still be reported"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sse_full_mode_is_an_explicit_opt_in() {
+    let b = SseBroadcaster::new(16).with_payload_mode(SsePayloadMode::Full);
+    let mut rx = b.subscribe();
+    post_tool_call(&router_with(b)).await;
+    assert!(next_text(&mut rx).await.contains(SECRET));
+}

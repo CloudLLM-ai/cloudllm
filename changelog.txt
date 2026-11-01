@@ -1,4 +1,16 @@
 0.16.0 UNRELEASED
+  - security(cloudllm_mcp)!: SSE events no longer carry tool arguments, tool
+    results or error text by default. `SseBroadcaster` broadcast every
+    caller's `tools/call` result and every `McpEvent::ToolCallReceived`
+    `parameters` to every subscriber, so one subscriber (or a token scoped to
+    one tenant) could read another caller's data, including secrets a tool
+    returned. New `SsePayloadMode` (`Minimal`, the default, and `Full`),
+    `SseBroadcaster::with_payload_mode()`, `SseEventHandler::with_payload_mode()`.
+    Minimal events keep method / tool name, success flag, timing, client
+    address and error code. MIGRATION: consumers that read `result`,
+    `parameters` or `error.message` from the stream must opt in with
+    `SsePayloadMode::Full`, and only when every subscriber may see every
+    caller's data. Part of the planned 0.4.0 release.
   - security(cloudllm_mcp): CRITICAL, the streamable-HTTP `GET` SSE endpoint
     was never authenticated. With an `SseBroadcaster` configured, any client
     that could reach the port could subscribe and read every broadcast event

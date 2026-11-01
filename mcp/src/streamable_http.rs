@@ -158,17 +158,54 @@ impl SseMessage {
     }
 }
 
+/// How much of a tool call an [`SseBroadcaster`] puts on the event stream.
+///
+/// Every subscriber sees every event, regardless of which caller (or which
+/// scoped token) produced it, so raw tool arguments, tool results and error
+/// text must not be broadcast unless the operator explicitly accepts that
+/// every authorized subscriber may read them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SsePayloadMode {
+    /// Metadata only: method / tool name, status, timing, client address and
+    /// error code. Tool arguments, tool results and error messages are
+    /// omitted. This is the default.
+    #[default]
+    Minimal,
+    /// Include tool arguments, results and error messages in events. Opt in
+    /// only when every subscriber is trusted with every caller's data.
+    Full,
+}
+
 /// Broadcast channel wrapping McpEvent for SSE streaming.
 #[derive(Clone)]
 pub struct SseBroadcaster {
     sender: broadcast::Sender<SseMessage>,
+    payload_mode: SsePayloadMode,
 }
 
 impl SseBroadcaster {
     /// Create a new broadcaster with the given buffer size.
+    ///
+    /// Events carry metadata only ([`SsePayloadMode::Minimal`]); see
+    /// [`with_payload_mode`](Self::with_payload_mode).
     pub fn new(buffer_size: usize) -> Self {
         let (sender, _) = broadcast::channel(buffer_size);
-        Self { sender }
+        Self {
+            sender,
+            payload_mode: SsePayloadMode::Minimal,
+        }
+    }
+
+    /// Choose how much tool-call data is broadcast. Defaults to
+    /// [`SsePayloadMode::Minimal`].
+    pub fn with_payload_mode(mut self, mode: SsePayloadMode) -> Self {
+        self.payload_mode = mode;
+        self
+    }
+
+    /// The configured payload mode.
+    pub fn payload_mode(&self) -> SsePayloadMode {
+        self.payload_mode
     }
 
     /// Subscribe to the event stream.
@@ -303,7 +340,56 @@ impl SseBroadcaster {
                 "duration_ms": duration_ms
             }),
         };
+        let data = self.minimize(data);
         self.send(SseMessage::with_event("mcp_event", data));
+    }
+
+    /// Strip tool arguments and free-form error text unless `Full` mode.
+    fn minimize(&self, mut data: Value) -> Value {
+        if self.payload_mode == SsePayloadMode::Minimal {
+            if let Some(object) = data.as_object_mut() {
+                object.remove("parameters");
+                object.remove("error");
+            }
+        }
+        data
+    }
+
+    /// Broadcast the outcome of a successful JSON-RPC request.
+    fn broadcast_jsonrpc_result(&self, method: &str, result: &Value, addr: &SocketAddr) {
+        let event_name = match method {
+            "initialize" => "initialized",
+            "ping" => "ping",
+            "tools/list" => "tools_listed",
+            "tools/call" => "tool_called",
+            "resources/list" => "resources_listed",
+            "resources/read" => "resource_read",
+            _ => method,
+        };
+        let mut data = json!({
+            "method": method,
+            "client_addr": addr.to_string(),
+        });
+        if self.payload_mode == SsePayloadMode::Full {
+            data["result"] = result.clone();
+        }
+        self.send(SseMessage::with_event(event_name, data));
+    }
+
+    /// Broadcast the outcome of a failed JSON-RPC request.
+    fn broadcast_jsonrpc_error(&self, method: &str, code: i32, message: &str, addr: &SocketAddr) {
+        let mut error = json!({ "code": code });
+        if self.payload_mode == SsePayloadMode::Full {
+            error["message"] = json!(message);
+        }
+        self.send(SseMessage::with_event(
+            "error",
+            json!({
+                "method": method,
+                "error": error,
+                "client_addr": addr.to_string(),
+            }),
+        ));
     }
 }
 
@@ -315,8 +401,17 @@ pub struct SseEventHandler {
 
 impl SseEventHandler {
     /// Create a new SSE event handler with a broadcaster of the given size.
+    ///
+    /// Events carry metadata only; use
+    /// [`with_payload_mode`](Self::with_payload_mode) to broadcast arguments
+    /// and results as well.
     pub fn new(buffer_size: usize) -> (Self, SseBroadcaster) {
-        let broadcaster = SseBroadcaster::new(buffer_size);
+        Self::with_payload_mode(buffer_size, SsePayloadMode::Minimal)
+    }
+
+    /// Like [`new`](Self::new) with an explicit [`SsePayloadMode`].
+    pub fn with_payload_mode(buffer_size: usize, mode: SsePayloadMode) -> (Self, SseBroadcaster) {
+        let broadcaster = SseBroadcaster::new(buffer_size).with_payload_mode(mode);
         (
             Self {
                 broadcaster: broadcaster.clone(),
@@ -594,13 +689,13 @@ async fn streamable_http_post_handler(
     match handle_jsonrpc_request(&state, method, params).await {
         Ok(result) => {
             if let Some(ref broadcaster) = state.sse_broadcaster {
-                broadcast_jsonrpc_result(broadcaster, method, &result, &addr);
+                broadcaster.broadcast_jsonrpc_result(method, &result, &addr);
             }
             json_success_response(id, result)
         }
         Err((status, code, error_message, data)) => {
             if let Some(ref broadcaster) = state.sse_broadcaster {
-                broadcast_jsonrpc_error(broadcaster, method, code, &error_message, &addr);
+                broadcaster.broadcast_jsonrpc_error(method, code, &error_message, &addr);
             }
             json_error_response(status, Some(id), code, error_message, data)
         }
@@ -711,51 +806,6 @@ fn sse_event_stream(
             }
         }),
     )
-}
-
-fn broadcast_jsonrpc_result(
-    broadcaster: &SseBroadcaster,
-    method: &str,
-    result: &Value,
-    addr: &SocketAddr,
-) {
-    let event_name = match method {
-        "initialize" => "initialized",
-        "ping" => "ping",
-        "tools/list" => "tools_listed",
-        "tools/call" => "tool_called",
-        "resources/list" => "resources_listed",
-        "resources/read" => "resource_read",
-        _ => method,
-    };
-    broadcaster.send(SseMessage::with_event(
-        event_name,
-        json!({
-            "method": method,
-            "result": result,
-            "client_addr": addr.to_string(),
-        }),
-    ));
-}
-
-fn broadcast_jsonrpc_error(
-    broadcaster: &SseBroadcaster,
-    method: &str,
-    code: i32,
-    message: &str,
-    addr: &SocketAddr,
-) {
-    broadcaster.send(SseMessage::with_event(
-        "error",
-        json!({
-            "method": method,
-            "error": {
-                "code": code,
-                "message": message,
-            },
-            "client_addr": addr.to_string(),
-        }),
-    ));
 }
 
 async fn streamable_http_delete_handler(
