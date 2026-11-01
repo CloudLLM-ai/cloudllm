@@ -540,36 +540,14 @@ async fn streamable_http_post_handler(
     headers: HeaderMap,
     Json(message): Json<JsonRpcRequest>,
 ) -> Response {
-    if !authorize(
-        &state.http_config,
+    if let Some(rejection) = check_access(
+        &state,
         &headers,
-        BearerAuthContext {
-            client_addr: addr,
-            route: state.transport.endpoint_path.clone(),
-            action: message.method.clone().unwrap_or_default(),
-            payload: message.params.clone(),
-        },
+        addr,
+        message.method.clone().unwrap_or_default(),
+        message.params.clone(),
     ) {
-        return json_error_response(
-            StatusCode::UNAUTHORIZED,
-            None,
-            -32001,
-            crate::http::BEARER_TOKEN_REQUIRED_MESSAGE.to_string(),
-            Some(json!({
-                "error_description": crate::http::BEARER_TOKEN_REQUIRED_MESSAGE,
-                "hint": "Send `Authorization: Bearer <token>` with a token issued by the server's bearer-token CLI.",
-            })),
-        );
-    }
-
-    if !validate_origin(&state.http_config, &headers) {
-        return json_error_response(
-            StatusCode::FORBIDDEN,
-            None,
-            -32002,
-            "Forbidden origin".to_string(),
-            None,
-        );
+        return rejection;
     }
 
     if let Some(protocol_version) = headers
@@ -629,11 +607,71 @@ async fn streamable_http_post_handler(
     }
 }
 
+/// Authenticate (IP filter + bearer) and validate the Origin of a request.
+///
+/// Every route that can reveal data or run a tool goes through this single
+/// function so the POST and GET paths cannot drift apart again. Returns
+/// `Some(response)` to reject the request, `None` to let it proceed.
+fn check_access(
+    state: &StreamableHttpState,
+    headers: &HeaderMap,
+    client_addr: SocketAddr,
+    action: String,
+    payload: Option<Value>,
+) -> Option<Response> {
+    if !authorize(
+        &state.http_config,
+        headers,
+        BearerAuthContext {
+            client_addr,
+            route: state.transport.endpoint_path.clone(),
+            action,
+            payload,
+        },
+    ) {
+        return Some(json_error_response(
+            StatusCode::UNAUTHORIZED,
+            None,
+            -32001,
+            crate::http::BEARER_TOKEN_REQUIRED_MESSAGE.to_string(),
+            Some(json!({
+                "error_description": crate::http::BEARER_TOKEN_REQUIRED_MESSAGE,
+                "hint": "Send `Authorization: Bearer <token>` with a token issued by the server's bearer-token CLI.",
+            })),
+        ));
+    }
+
+    if !validate_origin(&state.http_config, headers) {
+        return Some(json_error_response(
+            StatusCode::FORBIDDEN,
+            None,
+            -32002,
+            "Forbidden origin".to_string(),
+            None,
+        ));
+    }
+
+    None
+}
+
+/// `BearerAuthContext::action` reported to authorizers for the SSE `GET`.
+pub const SSE_SUBSCRIBE_ACTION: &str = "events/subscribe";
+
 async fn streamable_http_get_handler(
     State(state): State<Arc<StreamableHttpState>>,
-    ConnectInfo(_addr): ConnectInfo<SocketAddr>,
-    _headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
 ) -> Response {
+    if let Some(rejection) = check_access(
+        &state,
+        &headers,
+        addr,
+        SSE_SUBSCRIBE_ACTION.to_string(),
+        None,
+    ) {
+        return rejection;
+    }
+
     let Some(broadcaster) = state.sse_broadcaster.clone() else {
         return (
             StatusCode::METHOD_NOT_ALLOWED,

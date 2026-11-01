@@ -1,4 +1,15 @@
 0.16.0 UNRELEASED
+  - security(cloudllm_mcp): CRITICAL, the streamable-HTTP `GET` SSE endpoint
+    was never authenticated. With an `SseBroadcaster` configured, any client
+    that could reach the port could subscribe and read every broadcast event
+    (other callers' tool traffic), even when a bearer token, authorizer or IP
+    filter was configured for `POST`. `GET` now goes through the same IP
+    filter, bearer authorization and Origin validation as `POST` (one shared
+    `check_access`), and authorizers see it as action `events/subscribe`
+    (`SSE_SUBSCRIBE_ACTION`) with no payload. Behaviour change: a dynamic
+    `BearerTokenAuthorizer` that only whitelists known actions must now allow
+    `events/subscribe` for tokens that may subscribe. Upgrade immediately;
+    servers that exposed the stream should rotate any secret a tool returned.
   - fix(cloudllm_mcp)!: `resources/list` now returns spec-compliant MCP
     `Resource` objects (PR #56, Austin Faulkner-Pearce). `ResourceMetadata`
     gains the spec-required `name` (defaults to the URI in `new()`; override
