@@ -32,7 +32,6 @@ openai-rust2 = ">=1.7.6, <2"
 async-trait = "0.1.91"
 log = "0.4.33"
 env_logger = "0.11.11"
-lazy_static = "1.5.0"
 # Stay on reqwest 0.12.x — openai-rust2 exposes reqwest 0.12 Client types for the
 # shared pool. Do NOT bump to 0.13 until openai-rust2 does (type incompatibility).
 reqwest = { version = "0.12.28", features = ["json", "stream"] }

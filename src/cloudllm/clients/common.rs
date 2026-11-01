@@ -88,32 +88,30 @@
 use crate::client_wrapper::{
     Message, MessageChunk, NativeToolCall, Role, TokenUsage, ToolDefinition,
 };
-use lazy_static::lazy_static;
 use openai_rust::chat;
 use openai_rust::chat::{
     GrokTool, OpenAIResponsesArguments, OpenAITool, ResponsesArguments, ResponsesMessage,
 };
 use openai_rust2 as openai_rust;
 use std::error::Error;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-lazy_static! {
-    /// Shared HTTP client with persistent connection pooling.
-    ///
-    /// The single client instance keeps TLS sessions and DNS lookups warm which significantly
-    /// reduces latency when many concurrent requests are issued to upstream providers.
-    static ref SHARED_HTTP_CLIENT: reqwest::Client = {
-        reqwest::ClientBuilder::new()
-            .pool_idle_timeout(Some(Duration::from_secs(90)))
-            .pool_max_idle_per_host(10)
-            .tcp_keepalive(Some(Duration::from_secs(60)))
-            .timeout(Duration::from_secs(300))
-            .connect_timeout(Duration::from_secs(30))
-            .build()
-            .expect("Failed to build shared HTTP client")
-    };
-}
+/// Shared HTTP client with persistent connection pooling.
+///
+/// The single client instance keeps TLS sessions and DNS lookups warm which significantly
+/// reduces latency when many concurrent requests are issued to upstream providers.
+static SHARED_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::ClientBuilder::new()
+        .pool_idle_timeout(Some(Duration::from_secs(90)))
+        .pool_max_idle_per_host(10)
+        .tcp_keepalive(Some(Duration::from_secs(60)))
+        .timeout(Duration::from_secs(300))
+        .connect_timeout(Duration::from_secs(30))
+        .build()
+        .expect("Failed to build shared HTTP client")
+});
 
 /// Borrow the lazily initialised shared [`reqwest::Client`].
 ///
