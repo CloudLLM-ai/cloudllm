@@ -422,7 +422,7 @@ impl SseParser {
         if self.data_lines.is_empty() {
             None
         } else {
-            Some(self.data_lines.drain(..).collect::<Vec<_>>().join("\n"))
+            Some(std::mem::take(&mut self.data_lines).join("\n"))
         }
     }
 }
