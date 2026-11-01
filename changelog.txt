@@ -121,6 +121,11 @@
   - chore(deps): dropped `lazy_static`; the shared HTTP client uses
     `std::sync::LazyLock` (stable since Rust 1.80; the dependency tree already
     needs 1.90, via `roaring`).
+  - chore(deps): `sha2` 0.10 → 0.11.1 in `cloudllm_mcp` (the only user: the
+    constant-time bearer-token comparison, source-compatible, no code change);
+    removed the unused `sha2` dependency from `cloudllm`. Added NIST
+    known-answer tests (`mcp/tests/sha2_digest_vectors.rs`) so a future digest
+    upgrade cannot silently change the bytes the auth check compares.
 
 0.15.18 SEP/27/2026
   - feat(models): update the OpenRouter catalog with Meta Muse Spark 1.3, Qwen

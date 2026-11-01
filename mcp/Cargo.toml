@@ -25,8 +25,7 @@ futures = "0.3.33"
 reqwest = { version = "0.12.28", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-# sha2 0.11 is a breaking digest-crate bump; stay on 0.10.
-sha2 = "0.10"
+sha2 = "0.11.1"
 subtle = "2.6.1"
 tokio = { version = "1.53.1", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
