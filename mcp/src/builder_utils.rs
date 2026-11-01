@@ -137,6 +137,21 @@ impl Default for IpFilter {
     }
 }
 
+/// Compare a presented bearer token with the configured static secret.
+///
+/// Compares SHA-256 digests with `subtle::ConstantTimeEq` so neither content
+/// nor length leaks through timing. An empty configured secret never matches
+/// (fail closed): `with_bearer_token("")` must lock the server, not open it
+/// to any client that sends an empty token.
+pub(crate) fn static_token_matches(expected: &str, provided: &str) -> bool {
+    if expected.is_empty() || provided.is_empty() {
+        return false;
+    }
+    let expected_hash = Sha256::digest(expected.as_bytes());
+    let provided_hash = Sha256::digest(provided.as_bytes());
+    expected_hash.ct_eq(&provided_hash).into()
+}
+
 /// Authentication configuration for MCP server
 #[derive(Debug, Clone)]
 pub enum AuthConfig {
@@ -181,11 +196,7 @@ impl AuthConfig {
             AuthConfig::None => true,
             AuthConfig::Bearer(token) => {
                 if let Some(token_part) = header.strip_prefix("Bearer ") {
-                    // subtle::ConstantTimeEq on SHA-256 digests prevents timing oracle attacks.
-                    // The optimizer cannot short-circuit ct_eq() the way it can with `==`.
-                    let expected_hash = Sha256::digest(token.as_bytes());
-                    let provided_hash = Sha256::digest(token_part.as_bytes());
-                    expected_hash.ct_eq(&provided_hash).into()
+                    static_token_matches(token, token_part)
                 } else {
                     false
                 }

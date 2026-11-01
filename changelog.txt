@@ -1,4 +1,10 @@
 0.16.0 UNRELEASED
+  - security(cloudllm_mcp): a configured static bearer token that is the empty
+    string (for example `with_bearer_token("")` fed from an unset variable)
+    accepted a client presenting an empty token. An empty secret now never
+    matches, so such a server rejects everyone instead of trusting anyone.
+    The three copies of the digest comparison (streamable HTTP, legacy routes,
+    `AuthConfig::validate`) now share one constant-time helper.
   - security(cloudllm_mcp): `SseMessage::format()` wrote the `event:` and
     `id:` values verbatim, so a CR or LF in either could end the field and
     forge extra fields or whole events on the stream. Line breaks are now

@@ -6,7 +6,7 @@
 //! This implementation currently uses single-response JSON for compatibility
 //! with standard MCP clients such as Codex and Claude Code.
 
-use crate::builder_utils::IpFilter;
+use crate::builder_utils::{static_token_matches, IpFilter};
 use crate::events::{McpEvent, McpEventHandler};
 use crate::http::{BearerAuthContext, BearerTokenAuthorizer};
 use crate::protocol::{ToolError, ToolProtocol};
@@ -18,12 +18,10 @@ use axum::{Json, Router};
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 
@@ -979,9 +977,7 @@ fn authorize(
     };
 
     if let Some(expected) = config.bearer_token.as_deref() {
-        let expected_hash = Sha256::digest(expected.as_bytes());
-        let provided_hash = Sha256::digest(provided.as_bytes());
-        if bool::from(expected_hash.ct_eq(&provided_hash)) {
+        if static_token_matches(expected, provided) {
             return true;
         }
     }

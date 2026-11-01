@@ -246,14 +246,13 @@ pub trait HttpServerAdapter: Send + Sync {
 /// but still compose extra routes of its own, such as a `/health` endpoint.
 #[cfg(feature = "server")]
 pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -> Router {
+    use crate::builder_utils::static_token_matches;
     use crate::events::McpEvent;
     use axum::{
         extract::ConnectInfo, http::HeaderMap, http::StatusCode, response::IntoResponse,
         routing::post, Json, Router,
     };
     use serde_json::json;
-    use sha2::{Digest, Sha256};
-    use subtle::ConstantTimeEq;
 
     fn bearer_from_headers(headers: &HeaderMap) -> Option<&str> {
         headers
@@ -286,9 +285,7 @@ pub fn axum_router(config: &HttpServerConfig, protocol: Arc<dyn ToolProtocol>) -
         };
 
         if let Some(expected) = expected_token.as_deref() {
-            let expected_hash = Sha256::digest(expected.as_bytes());
-            let provided_hash = Sha256::digest(provided.as_bytes());
-            if bool::from(expected_hash.ct_eq(&provided_hash)) {
+            if static_token_matches(expected, provided) {
                 return true;
             }
         }
