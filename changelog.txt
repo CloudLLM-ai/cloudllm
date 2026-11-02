@@ -1,24 +1,58 @@
 0.16.0 UNRELEASED
-  - feat(clients): GitHub Copilot provider (#54), `cloudllm::clients::github_copilot`.
-    `GitHubDeviceFlow` signs a user in with GitHub's OAuth device flow (honours
-    the poll interval and `slow_down`, reports expired / declined logins as
-    typed errors). `CopilotTokenProvider` trades the GitHub token for Copilot's
-    short-lived session token at `/copilot_internal/v2/token`, uses the API
-    host it names, caches it and trades again before expiry. `CopilotClient`
-    is a `ClientWrapper` over Copilot's Chat Completions API (chat, native
-    tools, streaming, usage) that retries once with a fresh token on 401.
-    `list_models()` reads the account's model catalogue. `CopilotIdentity` sets
-    the `Editor-Version` / `Copilot-Integration-Id` headers.
-    `GitHubDeviceFlow::cloudllm()` signs in through CloudLLM's own OAuth app
-    (`CLOUDLLM_GITHUB_CLIENT_ID`); `GitHubDeviceFlow::new(client_id)` takes
-    any other. KNOWN LIMITATION: Copilot only issues session tokens to OAuth
-    apps GitHub has approved for it, and the CloudLLM app is not approved
-    yet. A live test signs in, then gets HTTP 403 from the Copilot token
-    endpoint (`CopilotNotAvailable`). Use the client ID of an approved app
-    you are entitled to use. New example: `github_copilot_chat`.
-  - feat(clients): `common::send_with_native_tools_and_headers`, the blocking
-    Chat Completions helper with extra per-request headers;
-    `send_with_native_tools` now delegates to it.
+  Release: cloudllm 0.16.0 and cloudllm_mcp 0.4.0 (breaking; see MIGRATION notes).
+  Security fixes first, by severity; upgrade cloudllm_mcp servers immediately.
+  - security(cloudllm_mcp): CRITICAL, the streamable-HTTP `GET` SSE endpoint
+    was never authenticated. With an `SseBroadcaster` configured, any client
+    that could reach the port could subscribe and read every broadcast event
+    (other callers' tool traffic), even when a bearer token, authorizer or IP
+    filter was configured for `POST`. `GET` now goes through the same IP
+    filter, bearer authorization and Origin validation as `POST` (one shared
+    `check_access`), and authorizers see it as action `events/subscribe`
+    (`SSE_SUBSCRIBE_ACTION`) with no payload. Behaviour change: a dynamic
+    `BearerTokenAuthorizer` that only whitelists known actions must now allow
+    `events/subscribe` for tokens that may subscribe. Upgrade immediately;
+    servers that exposed the stream should rotate any secret a tool returned.
+  - security(cloudllm_mcp)!: SSE events no longer carry tool arguments, tool
+    results or error text by default. `SseBroadcaster` broadcast every
+    caller's `tools/call` result and every `McpEvent::ToolCallReceived`
+    `parameters` to every subscriber, so one subscriber (or a token scoped to
+    one tenant) could read another caller's data, including secrets a tool
+    returned. New `SsePayloadMode` (`Minimal`, the default, and `Full`),
+    `SseBroadcaster::with_payload_mode()`, `SseEventHandler::with_payload_mode()`.
+    Minimal events keep method / tool name, success flag, timing, client
+    address and error code. MIGRATION: consumers that read `result`,
+    `parameters` or `error.message` from the stream must opt in with
+    `SsePayloadMode::Full`, and only when every subscriber may see every
+    caller's data. Part of the planned 0.4.0 release.
+  - security(cloudllm): the Gemini image endpoint put the API key in the URL
+    (`?key=...`), so any reqwest error, proxy log or debug line that printed
+    the URL leaked the secret. The key is now sent in the `x-goog-api-key`
+    header.
+  - security(cloudllm): the LLM clients (OpenAI, Grok, Gemini images,
+    OpenRouter, native-tools path), the SSE error path and `HttpToolProtocol`
+    read provider responses with `Response::text()`/`json()`, which buffer
+    without bound, so a malicious or misconfigured endpoint (custom
+    `base_url`, remote tool server) could exhaust memory. Bodies are now
+    capped (64 MiB for completions/images, 16 MiB for tool-server JSON, 64 KiB
+    for error text quoted in messages) via the new
+    `clients::common::{read_body_text, read_error_body, BodyReadError}`.
+    Not yet covered: the GitHub Copilot auth endpoints.
+  - security(cloudllm_mcp): `McpClientProtocol` buffered whole response bodies
+    with no limit, so a malicious or compromised MCP server could exhaust the
+    client's memory. Bodies are now capped (default 10 MiB, checked against
+    `Content-Length` and while streaming); change it with the new
+    `with_max_response_bytes()`. Responses above the cap fail with a
+    `ToolError::ProtocolError`.
+  - security(cloudllm_mcp): `McpClientProtocol` followed HTTP redirects, so a
+    server could redirect a tool-call POST (arguments in the body) to a host
+    the operator never configured, including internal addresses. Redirects are
+    no longer followed; a 3xx is an error. Point the client at the final URL.
+  - security(cloudllm_mcp): the streamable-HTTP Origin check was a string
+    prefix match, so `http://localhost.evil.com` and `http://127.0.0.1.evil.com`
+    passed as loopback. A page on an attacker-controlled domain could reach a
+    loopback MCP server from the victim's browser. The Origin is now parsed and
+    its host compared exactly (`localhost`, `127.0.0.1`, `[::1]`, any numeric
+    port, http or https); userinfo, paths and non-numeric ports are rejected.
   - security(cloudllm_mcp): the legacy HTTP routes (`/tools/list`,
     `/tools/execute`, `/resources/list`, `/resources/read`) performed no
     `Origin` validation, so a web page in the operator's browser could call an
@@ -46,22 +80,6 @@
     other internals. Untyped internal errors now return a generic message
     with a request id and the real error is written to stderr under the same
     id; typed `ToolError` messages are unchanged.
-  - fix(cloudllm_mcp): the generic 401 body named MentisDB environment
-    variables and CLI commands; it is now product-neutral. Streamable
-    authentication, Host and Origin failures now emit
-    `McpEvent::RequestRejected` to the configured event handler. A lagging
-    SSE subscriber is told that events were dropped (with a count) instead of
-    "SSE stream closed".
-  - security(cloudllm_mcp): `McpClientProtocol` buffered whole response bodies
-    with no limit, so a malicious or compromised MCP server could exhaust the
-    client's memory. Bodies are now capped (default 10 MiB, checked against
-    `Content-Length` and while streaming); change it with the new
-    `with_max_response_bytes()`. Responses above the cap fail with a
-    `ToolError::ProtocolError`.
-  - security(cloudllm_mcp): `McpClientProtocol` followed HTTP redirects, so a
-    server could redirect a tool-call POST (arguments in the body) to a host
-    the operator never configured, including internal addresses. Redirects are
-    no longer followed; a 3xx is an error. Point the client at the final URL.
   - security(cloudllm_mcp): a configured static bearer token that is the empty
     string (for example `with_bearer_token("")` fed from an unset variable)
     accepted a client presenting an empty token. An empty secret now never
@@ -72,35 +90,11 @@
     `id:` values verbatim, so a CR or LF in either could end the field and
     forge extra fields or whole events on the stream. Line breaks are now
     stripped from both (the `data:` JSON was already single-line).
-  - security(cloudllm_mcp): the streamable-HTTP Origin check was a string
-    prefix match, so `http://localhost.evil.com` and `http://127.0.0.1.evil.com`
-    passed as loopback. A page on an attacker-controlled domain could reach a
-    loopback MCP server from the victim's browser. The Origin is now parsed and
-    its host compared exactly (`localhost`, `127.0.0.1`, `[::1]`, any numeric
-    port, http or https); userinfo, paths and non-numeric ports are rejected.
-  - security(cloudllm_mcp)!: SSE events no longer carry tool arguments, tool
-    results or error text by default. `SseBroadcaster` broadcast every
-    caller's `tools/call` result and every `McpEvent::ToolCallReceived`
-    `parameters` to every subscriber, so one subscriber (or a token scoped to
-    one tenant) could read another caller's data, including secrets a tool
-    returned. New `SsePayloadMode` (`Minimal`, the default, and `Full`),
-    `SseBroadcaster::with_payload_mode()`, `SseEventHandler::with_payload_mode()`.
-    Minimal events keep method / tool name, success flag, timing, client
-    address and error code. MIGRATION: consumers that read `result`,
-    `parameters` or `error.message` from the stream must opt in with
-    `SsePayloadMode::Full`, and only when every subscriber may see every
-    caller's data. Part of the planned 0.4.0 release.
-  - security(cloudllm_mcp): CRITICAL, the streamable-HTTP `GET` SSE endpoint
-    was never authenticated. With an `SseBroadcaster` configured, any client
-    that could reach the port could subscribe and read every broadcast event
-    (other callers' tool traffic), even when a bearer token, authorizer or IP
-    filter was configured for `POST`. `GET` now goes through the same IP
-    filter, bearer authorization and Origin validation as `POST` (one shared
-    `check_access`), and authorizers see it as action `events/subscribe`
-    (`SSE_SUBSCRIBE_ACTION`) with no payload. Behaviour change: a dynamic
-    `BearerTokenAuthorizer` that only whitelists known actions must now allow
-    `events/subscribe` for tokens that may subscribe. Upgrade immediately;
-    servers that exposed the stream should rotate any secret a tool returned.
+  - security(cloudllm): a streaming endpoint sending an endless line or an event
+    with endless `data:` lines grew the SSE buffer without bound. The stream
+    now aborts with an error past `MAX_SSE_BUFFERED_BYTES` (16 MiB);
+    `SseParser::buffered_len()` exposes the size.
+
   - fix(cloudllm_mcp)!: `resources/list` now returns spec-compliant MCP
     `Resource` objects (PR #56, Austin Faulkner-Pearce). `ResourceMetadata`
     gains the spec-required `name` (defaults to the URI in `new()`; override
@@ -118,6 +112,42 @@
     with a struct literal or destructures it exhaustively must be updated
     (`new()` and the builders are unchanged). Wire: `mime_type` → `mimeType`.
     Release as `cloudllm_mcp` 0.4.0.
+  - fix(cloudllm_mcp): the generic 401 body named MentisDB environment
+    variables and CLI commands; it is now product-neutral. Streamable
+    authentication, Host and Origin failures now emit
+    `McpEvent::RequestRejected` to the configured event handler. A lagging
+    SSE subscriber is told that events were dropped (with a count) instead of
+    "SSE stream closed".
+  - feat(clients): GitHub Copilot provider (#54), `cloudllm::clients::github_copilot`.
+    `GitHubDeviceFlow` signs a user in with GitHub's OAuth device flow (honours
+    the poll interval and `slow_down`, reports expired / declined logins as
+    typed errors). `CopilotTokenProvider` trades the GitHub token for Copilot's
+    short-lived session token at `/copilot_internal/v2/token`, uses the API
+    host it names, caches it and trades again before expiry. `CopilotClient`
+    is a `ClientWrapper` over Copilot's Chat Completions API (chat, native
+    tools, streaming, usage) that retries once with a fresh token on 401.
+    `list_models()` reads the account's model catalogue. `CopilotIdentity` sets
+    the `Editor-Version` / `Copilot-Integration-Id` headers.
+    `GitHubDeviceFlow::cloudllm()` signs in through CloudLLM's own OAuth app
+    (`CLOUDLLM_GITHUB_CLIENT_ID`); `GitHubDeviceFlow::new(client_id)` takes
+    any other. KNOWN LIMITATION: Copilot only issues session tokens to OAuth
+    apps GitHub has approved for it, and the CloudLLM app is not approved
+    yet. A live test signs in, then gets HTTP 403 from the Copilot token
+    endpoint (`CopilotNotAvailable`). Use the client ID of an approved app
+    you are entitled to use. New example: `github_copilot_chat`.
+  - feat(clients): `common::send_with_native_tools_and_headers`, the blocking
+    Chat Completions helper with extra per-request headers;
+    `send_with_native_tools` now delegates to it.
+  - perf(cloudllm): `SseParser::push` was quadratic: it re-scanned the whole
+    buffer for a newline and shifted the remainder after every line. It now
+    consumes all complete lines with one compaction and remembers how much of
+    the unterminated tail it already scanned. Release build, M-series: one 8 MiB
+    chunk of ~100-byte events 12.0 s -> 9.7 ms; 4 MiB line with no newline in
+    1 KiB chunks 2.5 s -> 1.6 ms; 512-byte chunks 12.6 -> 9.0 ms.
+  - fix(cloudllm_mcp): the remaining `eprintln!` diagnostics (tool-listing
+    failures, the 5xx request-id lines, the "no authentication configured"
+    startup warning) now go through the `log` facade (`warn!`/`error!`), so
+    embedding applications control and route them; added the `log` dependency.
   - chore(deps): dropped `lazy_static`; the shared HTTP client uses
     `std::sync::LazyLock` (stable since Rust 1.80; the dependency tree already
     needs 1.90, via `roaring`).
@@ -129,33 +159,6 @@
   - chore(deps): `mentisdb` floor 0.10.5 → 0.10.10 (latest 0.10.x; upstream
     changes since 0.10.5 are additive plus the 0.10.9 security fixes, and
     cloudllm's MentisDB tests pass unchanged).
-  - fix(cloudllm_mcp): the remaining `eprintln!` diagnostics (tool-listing
-    failures, the 5xx request-id lines, the "no authentication configured"
-    startup warning) now go through the `log` facade (`warn!`/`error!`), so
-    embedding applications control and route them; added the `log` dependency.
-  - security(cloudllm): the LLM clients (OpenAI, Grok, Gemini images,
-    OpenRouter, native-tools path), the SSE error path and `HttpToolProtocol`
-    read provider responses with `Response::text()`/`json()`, which buffer
-    without bound, so a malicious or misconfigured endpoint (custom
-    `base_url`, remote tool server) could exhaust memory. Bodies are now
-    capped (64 MiB for completions/images, 16 MiB for tool-server JSON, 64 KiB
-    for error text quoted in messages) via the new
-    `clients::common::{read_body_text, read_error_body, BodyReadError}`.
-    Not yet covered: the GitHub Copilot auth endpoints.
-  - security(cloudllm): the Gemini image endpoint put the API key in the URL
-    (`?key=...`), so any reqwest error, proxy log or debug line that printed
-    the URL leaked the secret. The key is now sent in the `x-goog-api-key`
-    header.
-  - perf(cloudllm): `SseParser::push` was quadratic: it re-scanned the whole
-    buffer for a newline and shifted the remainder after every line. It now
-    consumes all complete lines with one compaction and remembers how much of
-    the unterminated tail it already scanned. Release build, M-series: one 8 MiB
-    chunk of ~100-byte events 12.0 s -> 9.7 ms; 4 MiB line with no newline in
-    1 KiB chunks 2.5 s -> 1.6 ms; 512-byte chunks 12.6 -> 9.0 ms.
-  - security(cloudllm): a streaming endpoint sending an endless line or an event
-    with endless `data:` lines grew the SSE buffer without bound. The stream
-    now aborts with an error past `MAX_SSE_BUFFERED_BYTES` (16 MiB);
-    `SseParser::buffered_len()` exposes the size.
 
 0.15.18 SEP/27/2026
   - feat(models): update the OpenRouter catalog with Meta Muse Spark 1.3, Qwen
