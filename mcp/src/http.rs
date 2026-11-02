@@ -204,7 +204,7 @@ pub(crate) fn new_request_id() -> String {
 /// Log the real error server-side and return the generic body text for a 5xx.
 pub(crate) fn internal_error_message(context: &str, error: &dyn std::fmt::Display) -> String {
     let id = new_request_id();
-    eprintln!("[cloudllm_mcp] internal error ({context}) request_id={id}: {error}");
+    log::error!("[cloudllm_mcp] internal error ({context}) request_id={id}: {error}");
     format!("Internal server error (request id {id})")
 }
 
@@ -844,10 +844,11 @@ pub fn warn_if_unauthenticated(config: &HttpServerConfig) {
     } else {
         "reachable by every host that can connect to this address"
     };
-    eprintln!(
-        "[cloudllm_mcp] WARNING: MCP server on {} has NO authentication configured; \
+    log::warn!(
+        "[cloudllm_mcp] MCP server on {} has NO authentication configured; \
          tools are {}. Configure a bearer token or authorizer.",
-        config.addr, exposure
+        config.addr,
+        exposure
     );
 }
 
@@ -902,5 +903,50 @@ impl HttpServerAdapter for AxumHttpAdapter {
 
     fn name(&self) -> &str {
         "axum"
+    }
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::internal_error_message;
+    use std::sync::{Mutex, OnceLock};
+
+    static RECORDS: OnceLock<Mutex<Vec<(log::Level, String)>>> = OnceLock::new();
+
+    struct Capture;
+
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            if let Some(records) = RECORDS.get() {
+                records
+                    .lock()
+                    .expect("capture lock")
+                    .push((record.level(), record.args().to_string()));
+            }
+        }
+        fn flush(&self) {}
+    }
+
+    /// The 5xx path must report the real error through the `log` facade at
+    /// error level (not stderr) while the client-facing text carries only the
+    /// request id.
+    #[test]
+    fn test_internal_error_is_logged_not_printed_and_not_leaked() {
+        RECORDS.get_or_init(Default::default);
+        log::set_logger(&Capture).expect("install capture logger");
+        log::set_max_level(log::LevelFilter::Trace);
+
+        let body = internal_error_message("test-ctx", &"secret backend failure");
+
+        assert!(body.starts_with("Internal server error (request id req-"));
+        assert!(!body.contains("secret backend failure"));
+        let records = RECORDS.get().expect("records").lock().expect("lock");
+        let (level, text) = records.last().expect("one record");
+        assert_eq!(*level, log::Level::Error);
+        assert!(text.contains("test-ctx") && text.contains("secret backend failure"));
+        assert!(text.contains("request_id=req-"));
     }
 }

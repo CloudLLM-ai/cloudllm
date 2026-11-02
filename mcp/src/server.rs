@@ -218,7 +218,7 @@ impl ToolProtocol for UnifiedMcpServer {
                 Ok(mut tool_list) => all_tools.append(&mut tool_list),
                 Err(e) => {
                     // Log but continue - we want to return what we can
-                    eprintln!("Error listing tools from protocol: {}", e);
+                    log::warn!("Error listing tools from protocol: {}", e);
                 }
             }
         }
