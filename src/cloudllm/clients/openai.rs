@@ -4,7 +4,7 @@
 //!
 //! - **`send_message`**: returns a `Message` compatible with the higher level [`LLMSession`](crate::LLMSession) API.
 //! - **Automatic usage capture**: the last token accounting is stored in a shared slot.
-//! - **Streaming support**: `send_message_stream` converts streamed responses into [`MessageChunk`] values.
+//! - **Streaming support**: `send_message_stream` converts streamed responses into [`MessageChunk`](crate::client_wrapper::MessageChunk) values.
 //! - **Image generation**: Uses gpt-image-2 for generating images from prompts via the [`ImageGenerationClient`] trait.
 //!
 //! # Example
@@ -360,7 +360,7 @@ impl OpenAIClient {
     }
 
     /// Construct a client targeting a custom OpenAI compatible base URL.
-    /// Note: base_url should not have a trailing slash (e.g., "https://api.openai.com/v1")
+    /// Note: base_url should not have a trailing slash (e.g., `https://api.openai.com/v1`)
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
         let base_url_normalized = base_url.trim_end_matches('/');

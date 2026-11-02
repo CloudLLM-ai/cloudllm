@@ -255,7 +255,7 @@ impl LLMSession {
 
     /// Persist a fully assembled streamed assistant reply and optional usage.
     ///
-    /// Call this after consuming a [`MessageChunkStream`] so subsequent turns
+    /// Call this after consuming a [`MessageChunkStream`](crate::client_wrapper::MessageChunkStream) so subsequent turns
     /// see the generated content. Token counters are updated when `usage` is
     /// `Some`, and the wrapped client's usage slot is written so
     /// [`last_token_usage`](Self::last_token_usage) reflects the streamed call

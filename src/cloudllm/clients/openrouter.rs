@@ -587,7 +587,7 @@ impl ClientWrapper for OpenRouterClient {
     /// Send a chat completion, routing to native tool calling when `tools` is non-empty.
     ///
     /// When `tools` is `Some` and non-empty the request is forwarded to
-    /// [`send_with_native_tools`](crate::clients::common::send_with_native_tools)
+    /// [`send_with_native_tools`]
     /// (OpenRouter advertises native tool-calling support on the models
     /// exposed here).  Otherwise the standard Chat Completions endpoint is
     /// used with the OpenRouter-specific path.

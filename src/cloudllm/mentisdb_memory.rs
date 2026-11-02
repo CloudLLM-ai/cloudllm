@@ -67,7 +67,7 @@ impl MentisDbMemoryProtocol {
 
     /// Update the cache immediately and append if the chain lock is free.
     ///
-    /// Used by sync `write_game_file` closures. Prefer [`put_value`] when async.
+    /// Used by sync `write_game_file` closures. Prefer [`put_value`](Self::put_value) when async.
     pub fn put_value_sync(&self, key: &str, value: &str) {
         self.cache
             .lock()

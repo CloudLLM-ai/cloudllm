@@ -405,7 +405,7 @@ impl GeminiClient {
     }
 
     /// This function is used to create a GeminiClient with a custom base URL.
-    /// Note: base_url should not have a trailing slash (e.g., "https://generativelanguage.googleapis.com/v1beta")
+    /// Note: base_url should not have a trailing slash (e.g., `https://generativelanguage.googleapis.com/v1beta`)
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         use crate::clients::common::get_shared_http_client;
         let base_url_normalized = base_url.trim_end_matches('/');
@@ -445,7 +445,7 @@ impl ClientWrapper for GeminiClient {
     /// Send a synchronous message to the Gemini endpoint.
     ///
     /// When `tools` is `Some` and non-empty the request is forwarded to
-    /// [`send_with_native_tools`](crate::clients::common::send_with_native_tools) using
+    /// [`send_with_native_tools`] using
     /// Gemini's OpenAI-compatible Chat Completions endpoint.  Otherwise the standard
     /// `send_and_track` path is used.
     ///

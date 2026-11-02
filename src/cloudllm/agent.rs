@@ -13,7 +13,7 @@
 //!
 //! - **Agent**: Represents an LLM agent with identity and capabilities
 //! - **LLMSession**: Each agent wraps its own session with rolling history and token tracking
-//! - **Tool Access**: Agents can be granted access to local or remote tools via [`ToolRegistry`](crate::tool_protocol::ToolRegistry)
+//! - **Tool Access**: Agents can be granted access to local or remote tools via [`ToolRegistry`]
 //! - **MentisDb**: Optional persistent, hash-chained memory for findings/decisions
 //! - **ContextStrategy**: Pluggable strategy for handling context window exhaustion
 //! - **EventHandler**: Optional callback for real-time observability of LLM calls, tool usage, and lifecycle events
@@ -22,8 +22,8 @@
 //!
 //! # Event System
 //!
-//! Agents emit [`AgentEvent`](crate::event::AgentEvent)s during their lifecycle. Attach
-//! an [`EventHandler`](crate::event::EventHandler) via [`with_event_handler`](Agent::with_event_handler)
+//! Agents emit [`AgentEvent`]s during their lifecycle. Attach
+//! an [`EventHandler`] via [`with_event_handler`](Agent::with_event_handler)
 //! or [`set_event_handler`](Agent::set_event_handler) to receive real-time notifications
 //! about LLM round-trips, tool calls, thought commits, and more. See the
 //! [`event`](crate::event) module for the full list of events and examples.
@@ -1194,7 +1194,7 @@ impl Agent {
     /// This is the primary method used by orchestration modes. Unlike
     /// [`generate_with_tokens`](Agent::generate_with_tokens) which takes an
     /// external conversation history, this method relies on the session's
-    /// accumulated messages (populated via [`receive_message`] and prior
+    /// accumulated messages (populated via [`receive_message`](Self::receive_message) and prior
     /// `send` calls). The session handles system prompt, history, and
     /// auto-trimming automatically.
     ///

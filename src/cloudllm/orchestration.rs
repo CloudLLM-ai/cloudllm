@@ -38,9 +38,9 @@
 //!
 //! # Event System
 //!
-//! Attach an [`EventHandler`](crate::event::EventHandler) via
+//! Attach an [`EventHandler`] via
 //! [`with_event_handler`](Orchestration::with_event_handler) to receive
-//! real-time [`OrchestrationEvent`](crate::event::OrchestrationEvent)s
+//! real-time [`OrchestrationEvent`]s
 //! (run lifecycle, round boundaries, RALPH task progress) and
 //! [`AgentEvent`](crate::event::AgentEvent)s (LLM calls, tool usage) through
 //! a single callback. The handler is automatically propagated to all agents

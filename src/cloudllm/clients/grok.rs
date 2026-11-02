@@ -213,7 +213,7 @@ impl GrokClient {
     }
 
     /// Construct a client for Grok-compatible endpoints hosted at a custom base URL.
-    /// Note: base_url should not have a trailing slash (e.g., "https://api.x.ai/v1")
+    /// Note: base_url should not have a trailing slash (e.g., `https://api.x.ai/v1`)
     pub fn new_with_base_url(secret_key: &str, model_name: &str, base_url: &str) -> Self {
         let base_url_normalized = base_url.trim_end_matches('/');
         GrokClient {
@@ -252,7 +252,7 @@ impl ClientWrapper for GrokClient {
     /// Send a chat completion, routing to native tool calling when `tools` is non-empty.
     ///
     /// When `tools` is `Some` and non-empty the request is forwarded to
-    /// [`send_with_native_tools`](crate::clients::common::send_with_native_tools).
+    /// [`send_with_native_tools`].
     /// Otherwise the standard Chat Completions endpoint is used.
     ///
     /// # Example
