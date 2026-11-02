@@ -146,6 +146,16 @@
     (`?key=...`), so any reqwest error, proxy log or debug line that printed
     the URL leaked the secret. The key is now sent in the `x-goog-api-key`
     header.
+  - perf(cloudllm): `SseParser::push` was quadratic: it re-scanned the whole
+    buffer for a newline and shifted the remainder after every line. It now
+    consumes all complete lines with one compaction and remembers how much of
+    the unterminated tail it already scanned. Release build, M-series: one 8 MiB
+    chunk of ~100-byte events 12.0 s -> 9.7 ms; 4 MiB line with no newline in
+    1 KiB chunks 2.5 s -> 1.6 ms; 512-byte chunks 12.6 -> 9.0 ms.
+  - security(cloudllm): a streaming endpoint sending an endless line or an event
+    with endless `data:` lines grew the SSE buffer without bound. The stream
+    now aborts with an error past `MAX_SSE_BUFFERED_BYTES` (16 MiB);
+    `SseParser::buffered_len()` exposes the size.
 
 0.15.18 SEP/27/2026
   - feat(models): update the OpenRouter catalog with Meta Muse Spark 1.3, Qwen

@@ -245,3 +245,62 @@ fn stream_options_omitted_for_unknown_providers() {
     apply_stream_body_options(&mut openai, CompatibleProvider::OpenAi);
     assert!(openai.get("stream_options").is_some());
 }
+
+/// Splitting a stream at every possible byte boundary must yield the same
+/// events as feeding it whole (exercises the unterminated-tail bookkeeping
+/// that keeps `push` linear).
+#[test]
+fn test_sse_parser_every_split_point_matches_whole_input() {
+    let input = b"data: one\r\n\r\ndata: two\ndata: three\n\n: comment\ndata: \xc3\xa9\r\n\n";
+    let whole = SseParser::new().push(input);
+    assert_eq!(whole, vec!["one", "two\nthree", "\u{e9}"]);
+    for split in 0..=input.len() {
+        let mut parser = SseParser::new();
+        let mut events = parser.push(&input[..split]);
+        events.extend(parser.push(&input[split..]));
+        assert_eq!(events, whole, "split at {}", split);
+    }
+}
+
+/// Feeding one byte at a time also matches.
+#[test]
+fn test_sse_parser_byte_at_a_time_matches_whole_input() {
+    let input = b"data: a\r\n\r\ndata: b\n\ndata: tail";
+    let mut parser = SseParser::new();
+    let mut events = Vec::new();
+    for b in input.iter() {
+        events.extend(parser.push(std::slice::from_ref(b)));
+    }
+    events.extend(parser.finish());
+    assert_eq!(events, vec!["a", "b", "tail"]);
+}
+
+/// A large single chunk with tens of thousands of events parses completely
+/// (regression: per-line front-drain made this quadratic, ~12 s for 8 MiB).
+#[test]
+fn test_sse_parser_large_chunk_of_many_events() {
+    let one = format!("data: {}\n\n", "x".repeat(90));
+    let input = one.repeat(60_000);
+    let start = std::time::Instant::now();
+    let events = SseParser::new().push(input.as_bytes());
+    assert_eq!(events.len(), 60_000);
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "push should be linear, took {:?}",
+        start.elapsed()
+    );
+}
+
+/// `buffered_len` reports the unterminated tail and the pending event's data
+/// so the stream task can abort an unbounded line or event.
+#[test]
+fn test_sse_parser_buffered_len_tracks_tail_and_event_data() {
+    let mut parser = SseParser::new();
+    assert_eq!(parser.buffered_len(), 0);
+    parser.push(b"data: abc");
+    assert_eq!(parser.buffered_len(), 9);
+    parser.push(b"\n");
+    assert_eq!(parser.buffered_len(), 3);
+    assert_eq!(parser.push(b"\n"), vec!["abc"]);
+    assert_eq!(parser.buffered_len(), 0);
+}

@@ -333,6 +333,13 @@ pub fn open_chat_completions_stream(
                                 return;
                             }
                         }
+                        if parser.buffered_len() > MAX_SSE_BUFFERED_BYTES {
+                            let _ = tx.send(Err(format!(
+                                "stream aborted: SSE event exceeds {} bytes",
+                                MAX_SSE_BUFFERED_BYTES
+                            )));
+                            return;
+                        }
                     }
                     Err(e) => {
                         let _ = tx.send(Err(format!("stream body error: {}", e)));
@@ -354,35 +361,67 @@ pub fn open_chat_completions_stream(
     })
 }
 
+/// Upper bound on bytes a single SSE event (or unterminated line) may buffer
+/// before the stream is aborted (16 MiB). A well-behaved provider sends events
+/// of a few KiB; the cap stops an endless line or an event with endless `data:`
+/// lines from growing memory without bound.
+pub const MAX_SSE_BUFFERED_BYTES: usize = 16 * 1024 * 1024;
+
 /// Incremental SSE event splitter.
 ///
 /// Line-oriented (not "scan for `\n\n`") so `\n`, `\r\n`, and mixed
 /// `\n\r\n` / `\r\n\n` separators all dispatch correctly. Incomplete UTF-8
 /// at a TCP boundary stays in `pending` until a newline arrives.
+///
+/// Each [`push`](Self::push) is linear in the bytes it receives: complete lines
+/// are consumed with a single buffer compaction and the unterminated tail is
+/// never rescanned.
 #[derive(Default)]
 pub struct SseParser {
     pending: Vec<u8>,
+    /// Prefix of `pending` already known to contain no `\n`.
+    scanned: usize,
     data_lines: Vec<String>,
+    data_bytes: usize,
 }
 
 impl SseParser {
     /// Create an empty incremental SSE splitter.
     pub fn new() -> Self {
-        Self {
-            pending: Vec::new(),
-            data_lines: Vec::new(),
-        }
+        Self::default()
+    }
+
+    /// Bytes currently buffered: the unterminated tail plus the `data:` lines
+    /// of the event being assembled. Compare with [`MAX_SSE_BUFFERED_BYTES`].
+    pub fn buffered_len(&self) -> usize {
+        self.pending.len() + self.data_bytes
     }
 
     /// Feed the next TCP/HTTP body fragment and return completed SSE `data` payloads.
     pub fn push(&mut self, bytes: &[u8]) -> Vec<String> {
         self.pending.extend_from_slice(bytes);
+        // Detach the buffer so complete lines can be borrowed from it while
+        // `ingest_line` mutates the rest of the parser.
+        let pending = std::mem::take(&mut self.pending);
         let mut events = Vec::new();
-        while let Some(line) = self.take_line() {
-            if let Some(data) = self.ingest_line(&line) {
+        let mut line_start = 0;
+        let mut search_from = self.scanned;
+        while let Some(rel) = pending[search_from..].iter().position(|&b| b == b'\n') {
+            let line_end = search_from + rel;
+            let mut line = &pending[line_start..line_end];
+            if line.last() == Some(&b'\r') {
+                line = &line[..line.len() - 1];
+            }
+            if let Some(data) = self.ingest_line(&String::from_utf8_lossy(line)) {
                 events.push(data);
             }
+            line_start = line_end + 1;
+            search_from = line_start;
         }
+        let mut pending = pending;
+        pending.drain(..line_start);
+        self.scanned = pending.len();
+        self.pending = pending;
         events
     }
 
@@ -390,6 +429,7 @@ impl SseParser {
     pub fn finish(&mut self) -> Vec<String> {
         if !self.pending.is_empty() {
             let leftover = std::mem::take(&mut self.pending);
+            self.scanned = 0;
             let line = String::from_utf8_lossy(&leftover);
             let line = line.trim_end_matches(['\r', '\n']);
             if !line.is_empty() {
@@ -407,22 +447,14 @@ impl SseParser {
         if let Some(rest) = line.strip_prefix("data:") {
             // SSE spec: strip at most one leading U+0020 after `data:`.
             let rest = rest.strip_prefix(' ').unwrap_or(rest);
+            self.data_bytes += rest.len();
             self.data_lines.push(rest.to_string());
         }
         None
     }
 
-    fn take_line(&mut self) -> Option<String> {
-        let pos = self.pending.iter().position(|&b| b == b'\n')?;
-        let mut line: Vec<u8> = self.pending.drain(..=pos).collect();
-        line.pop(); // drop LF
-        if line.last() == Some(&b'\r') {
-            line.pop();
-        }
-        Some(String::from_utf8_lossy(&line).into_owned())
-    }
-
     fn take_event_data(&mut self) -> Option<String> {
+        self.data_bytes = 0;
         if self.data_lines.is_empty() {
             None
         } else {
