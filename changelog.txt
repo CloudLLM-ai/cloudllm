@@ -142,6 +142,10 @@
     for error text quoted in messages) via the new
     `clients::common::{read_body_text, read_error_body, BodyReadError}`.
     Not yet covered: the GitHub Copilot auth endpoints.
+  - security(cloudllm): the Gemini image endpoint put the API key in the URL
+    (`?key=...`), so any reqwest error, proxy log or debug line that printed
+    the URL leaked the secret. The key is now sent in the `x-goog-api-key`
+    header.
 
 0.15.18 SEP/27/2026
   - feat(models): update the OpenRouter catalog with Meta Muse Spark 1.3, Qwen

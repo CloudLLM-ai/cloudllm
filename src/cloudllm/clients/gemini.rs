@@ -594,14 +594,18 @@ impl ImageGenerationClient for GeminiClient {
         });
 
         // Build the URL for image generation - model field in URL path (uses base_url)
-        let url = format!(
-            "{}/models/{}:generateContent?key={}",
-            self.base_url, model_name, self.api_key
-        );
+        // The key travels in a header, never the URL: reqwest errors print the
+        // request URL, which would leak a `?key=` secret into logs and messages.
+        let url = format!("{}/models/{}:generateContent", self.base_url, model_name);
 
         // Make the request
         let http_client = get_shared_http_client();
-        let response = http_client.post(&url).json(&request_body).send().await?;
+        let response = http_client
+            .post(&url)
+            .header("x-goog-api-key", &self.api_key)
+            .json(&request_body)
+            .send()
+            .await?;
 
         let response_text = crate::clients::common::read_body_text(
             response,
