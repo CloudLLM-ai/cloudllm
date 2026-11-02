@@ -278,7 +278,11 @@ pub fn open_chat_completions_stream(
                     if status.is_success() {
                         break resp;
                     }
-                    let text = resp.text().await.unwrap_or_default();
+                    let text = crate::clients::common::read_error_body(
+                        resp,
+                        crate::clients::common::MAX_ERROR_BODY_BYTES,
+                    )
+                    .await;
                     let err = format!("stream HTTP {} from {}: {}", status, url, text);
                     if attempt < retries && crate::clients::common::is_transient_llm_error(&err) {
                         attempt += 1;

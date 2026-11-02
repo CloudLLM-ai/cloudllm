@@ -133,6 +133,15 @@
     failures, the 5xx request-id lines, the "no authentication configured"
     startup warning) now go through the `log` facade (`warn!`/`error!`), so
     embedding applications control and route them; added the `log` dependency.
+  - security(cloudllm): the LLM clients (OpenAI, Grok, Gemini images,
+    OpenRouter, native-tools path), the SSE error path and `HttpToolProtocol`
+    read provider responses with `Response::text()`/`json()`, which buffer
+    without bound, so a malicious or misconfigured endpoint (custom
+    `base_url`, remote tool server) could exhaust memory. Bodies are now
+    capped (64 MiB for completions/images, 16 MiB for tool-server JSON, 64 KiB
+    for error text quoted in messages) via the new
+    `clients::common::{read_body_text, read_error_body, BodyReadError}`.
+    Not yet covered: the GitHub Copilot auth endpoints.
 
 0.15.18 SEP/27/2026
   - feat(models): update the OpenRouter catalog with Meta Muse Spark 1.3, Qwen

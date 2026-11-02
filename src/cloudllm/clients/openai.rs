@@ -577,7 +577,11 @@ impl ImageGenerationClient for OpenAIClient {
                 Box::<dyn Error + Send + Sync>::from(err_msg)
             })?;
 
-        let response_text = response.text().await?;
+        let response_text = crate::clients::common::read_body_text(
+            response,
+            crate::clients::common::MAX_RESPONSE_BODY_BYTES,
+        )
+        .await?;
 
         if log::log_enabled!(log::Level::Debug) {
             log::debug!("OpenAI image API response: {}", response_text);

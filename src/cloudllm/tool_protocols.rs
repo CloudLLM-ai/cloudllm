@@ -45,6 +45,18 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Cap for a JSON body returned by a remote tool server (16 MiB).
+const MAX_TOOL_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Read and parse a JSON response without buffering more than
+/// [`MAX_TOOL_RESPONSE_BYTES`], so a hostile tool server cannot exhaust memory.
+async fn read_json_capped<T: serde::de::DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<T, Box<dyn Error + Send + Sync>> {
+    let text = crate::clients::common::read_body_text(response, MAX_TOOL_RESPONSE_BYTES).await?;
+    Ok(serde_json::from_str(&text)?)
+}
+
 /// Type alias for synchronous tool functions exposed via the custom adapter.
 pub type ToolFunction =
     Arc<dyn Fn(JsonValue) -> Result<ToolResult, Box<dyn Error + Send + Sync>> + Send + Sync>;
@@ -274,7 +286,7 @@ impl McpClientProtocol {
             ))));
         }
 
-        let body: serde_json::Value = response.json().await?;
+        let body: serde_json::Value = read_json_capped(response).await?;
         // The server wraps tools in {"tools": [...]}
         // Propagate deserialization errors rather than silently replacing the cache with an
         // empty list — a compromised MCP server sending malformed JSON would otherwise
@@ -373,7 +385,7 @@ impl ToolProtocol for McpClientProtocol {
                     return Err(Box::new(ToolError::ExecutionFailed(err_msg)));
                 }
 
-                let body: serde_json::Value = resp.json().await?;
+                let body: serde_json::Value = read_json_capped(resp).await?;
                 // Server wraps result in {"result": {...}}
                 // Propagate deserialization errors so the caller receives an actual Err rather
                 // than a ghost-success ToolResult — a compromised server injecting malformed
@@ -1094,7 +1106,7 @@ impl McpMemoryProtocol {
             ))));
         }
 
-        Ok(response.json().await?)
+        read_json_capped(response).await
     }
 }
 

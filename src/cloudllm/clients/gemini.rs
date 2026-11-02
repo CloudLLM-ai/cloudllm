@@ -603,7 +603,11 @@ impl ImageGenerationClient for GeminiClient {
         let http_client = get_shared_http_client();
         let response = http_client.post(&url).json(&request_body).send().await?;
 
-        let response_text = response.text().await?;
+        let response_text = crate::clients::common::read_body_text(
+            response,
+            crate::clients::common::MAX_RESPONSE_BODY_BYTES,
+        )
+        .await?;
 
         if log::log_enabled!(log::Level::Debug) {
             log::debug!("Gemini image API response: {}", response_text);

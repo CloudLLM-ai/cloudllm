@@ -120,6 +120,104 @@ pub fn get_shared_http_client() -> &'static reqwest::Client {
     &SHARED_HTTP_CLIENT
 }
 
+/// Default cap for a buffered LLM/provider response body (64 MiB).
+///
+/// Large enough for base64-encoded images from the image endpoints, small
+/// enough that a misbehaving or malicious endpoint (for example a custom
+/// `base_url`) cannot exhaust memory by streaming an endless body into
+/// `Response::text()`.
+pub const MAX_RESPONSE_BODY_BYTES: usize = 64 * 1024 * 1024;
+
+/// Cap for error bodies that are only quoted in an error message (64 KiB).
+pub const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// Failure while reading a size-limited HTTP response body.
+#[derive(Debug)]
+pub enum BodyReadError {
+    /// The body (declared by `Content-Length` or counted while streaming)
+    /// exceeded the limit.
+    TooLarge {
+        /// The limit, in bytes, that was exceeded.
+        limit: usize,
+    },
+    /// The transport failed while reading the body.
+    Transport(reqwest::Error),
+}
+
+impl std::fmt::Display for BodyReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooLarge { limit } => {
+                write!(f, "response body exceeds the {} byte limit", limit)
+            }
+            Self::Transport(e) => write!(f, "failed to read response body: {}", e),
+        }
+    }
+}
+
+impl Error for BodyReadError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::TooLarge { .. } => None,
+            Self::Transport(e) => Some(e),
+        }
+    }
+}
+
+/// Read a response body as text, failing if it exceeds `max_bytes`.
+///
+/// Replaces `Response::text()`, which buffers without bound. The declared
+/// `Content-Length` is checked first, and the running total is checked while
+/// streaming, so an oversized body is never fully buffered. Invalid UTF-8 is
+/// replaced lossily, like `Response::text()`.
+///
+/// # Errors
+///
+/// [`BodyReadError::TooLarge`] when the limit is exceeded,
+/// [`BodyReadError::Transport`] when reading fails.
+pub async fn read_body_text(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<String, BodyReadError> {
+    if response
+        .content_length()
+        .is_some_and(|len| len > max_bytes as u64)
+    {
+        return Err(BodyReadError::TooLarge { limit: max_bytes });
+    }
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(BodyReadError::Transport)? {
+        if body.len() + chunk.len() > max_bytes {
+            return Err(BodyReadError::TooLarge { limit: max_bytes });
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// Read at most `max_bytes` of an error body for quoting in an error message.
+///
+/// Never fails: a read error or an oversized body yields the prefix read so
+/// far (marked with an ellipsis when truncated).
+pub async fn read_error_body(mut response: reqwest::Response, max_bytes: usize) -> String {
+    let mut body: Vec<u8> = Vec::new();
+    let mut truncated = false;
+    while let Ok(Some(chunk)) = response.chunk().await {
+        let room = max_bytes.saturating_sub(body.len());
+        if chunk.len() > room {
+            body.extend_from_slice(&chunk[..room]);
+            truncated = true;
+            break;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let mut text = String::from_utf8_lossy(&body).into_owned();
+    if truncated {
+        text.push('…');
+    }
+    text
+}
+
 /// HTTP client for LLM completions that may think or generate for a long time.
 ///
 /// The pooled client used by [`get_shared_http_client`] has a **300s** request
@@ -499,8 +597,7 @@ pub async fn send_with_native_tools_and_headers(
         match send_result {
             Ok(resp) => {
                 let status = resp.status();
-                let text = resp
-                    .text()
+                let text = read_body_text(resp, MAX_RESPONSE_BODY_BYTES)
                     .await
                     .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
                 if status.is_success() {

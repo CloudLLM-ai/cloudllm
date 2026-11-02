@@ -731,7 +731,12 @@ async fn send_message_with_reasoning(
         match result {
             Ok(response) => {
                 let status = response.status();
-                let text = match response.text().await {
+                let text = match crate::clients::common::read_body_text(
+                    response,
+                    crate::clients::common::MAX_RESPONSE_BODY_BYTES,
+                )
+                .await
+                {
                     Ok(text) => text,
                     Err(source) => {
                         let error = format!(
