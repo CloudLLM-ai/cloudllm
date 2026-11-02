@@ -26,8 +26,11 @@
 //! An application that wants users to see its own name instead registers its
 //! own app at <https://github.com/settings/developers> ("New OAuth App", tick
 //! "Enable Device Flow", leave "Expire user access tokens" unticked) and
-//! passes its client ID to [`GitHubDeviceFlow::new`]. Which Copilot models a
-//! token can reach can depend on the app that minted it.
+//! passes its client ID to [`GitHubDeviceFlow::new`].
+//!
+//! Signing in works with any app. Using Copilot afterwards needs an app
+//! GitHub has approved for Copilot, and CloudLLM's app is not approved yet;
+//! see [Which apps may use Copilot](super#which-apps-may-use-copilot).
 //!
 //! # Example
 //!
@@ -74,6 +77,10 @@ pub const DEFAULT_SCOPE: &str = "read:user";
 /// [`GitHubDeviceFlow::cloudllm`] uses it. Users see "CloudLLM" on the GitHub
 /// authorization page and can revoke it at
 /// <https://github.com/settings/applications>.
+///
+/// GitHub has not approved this app for Copilot yet, so its tokens sign in
+/// but cannot obtain a Copilot session token; see
+/// [Which apps may use Copilot](super#which-apps-may-use-copilot).
 pub const CLOUDLLM_GITHUB_CLIENT_ID: &str = "Ov23listqyWr79jQB9dA";
 
 /// The grant type GitHub expects when polling for a device-flow token.
@@ -268,6 +275,12 @@ impl GitHubDeviceFlow {
     /// The easiest way to sign in: nothing to register. Use
     /// [`GitHubDeviceFlow::new`] instead when users should see your
     /// application's name on GitHub.
+    ///
+    /// Copilot does not accept this app yet: the sign-in succeeds, but
+    /// [`CopilotTokenProvider::session_token`](super::CopilotTokenProvider::session_token)
+    /// then fails with
+    /// [`CopilotAuthError::CopilotNotAvailable`].
+    /// See [Which apps may use Copilot](super#which-apps-may-use-copilot).
     ///
     /// # Examples
     ///

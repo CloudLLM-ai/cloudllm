@@ -18,6 +18,21 @@
 //! [`LLMSession`](crate::LLMSession), an [`Agent`](crate::Agent), or an
 //! orchestration.
 //!
+//! # Which apps may use Copilot
+//!
+//! GitHub only issues Copilot session tokens to OAuth apps it has approved for
+//! Copilot. Any app can complete the device-flow sign-in, but for an app
+//! GitHub has not approved, the trade in step two fails with
+//! [`CopilotAuthError::CopilotNotAvailable`] (HTTP 403, with a note about
+//! GitHub's Terms of Service).
+//!
+//! CloudLLM's own app ([`GitHubDeviceFlow::cloudllm`]) is **not approved
+//! yet**: as of November 2026 it signs users in, but Copilot refuses it. To use
+//! Copilot today, pass the client ID of an app GitHub has approved to
+//! [`GitHubDeviceFlow::new`], and the headers GitHub expects for it to
+//! [`CopilotIdentity`]. Only use an app ID and headers you are entitled to
+//! use: posing as another vendor's app breaks GitHub's terms.
+//!
 //! # Modules
 //!
 //! - [`client`]: [`CopilotClient`] and [`list_models`].

@@ -1,6 +1,13 @@
 //! GitHub Copilot example: sign in with the device flow, list the models your
 //! plan includes, and stream a reply.
 //!
+//! Copilot only accepts OAuth apps GitHub has approved for it. CloudLLM's own
+//! app (the default here) signs you in, but is not approved yet, so the
+//! example then stops with a "Copilot refused" message. Set
+//! `GITHUB_COPILOT_CLIENT_ID` (and, if GitHub requires one,
+//! `GITHUB_COPILOT_INTEGRATION_ID`) to an app you are entitled to use that
+//! GitHub has approved.
+//!
 //! On the first run the example signs you in. It prints a code and a URL, you
 //! approve the OAuth app on GitHub, and it prints the token to export so later
 //! runs skip the login.
@@ -24,7 +31,8 @@ use std::sync::Arc;
 
 use cloudllm::client_wrapper::{ClientWrapper, Message, Role};
 use cloudllm::clients::github_copilot::{
-    CopilotClient, CopilotIdentity, CopilotTokenProvider, GitHubDeviceFlow, GitHubOAuthToken,
+    CopilotAuthError, CopilotClient, CopilotIdentity, CopilotTokenProvider, GitHubDeviceFlow,
+    GitHubOAuthToken,
 };
 use futures_util::StreamExt;
 
@@ -66,7 +74,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         CopilotTokenProvider::from_github_token(github_token().await?).with_identity(identity()),
     );
 
-    let models = cloudllm::clients::github_copilot::list_models(&provider).await?;
+    let models = match cloudllm::clients::github_copilot::list_models(&provider).await {
+        Ok(models) => models,
+        Err(CopilotAuthError::CopilotNotAvailable { status, .. }) => {
+            eprintln!(
+                "Copilot refused this sign-in (HTTP {status}). Either the account has no \
+                 Copilot plan, or GitHub has not approved this OAuth app for Copilot \
+                 (CloudLLM's own app is not approved yet). Set GITHUB_COPILOT_CLIENT_ID \
+                 to an approved app you are entitled to use."
+            );
+            std::process::exit(2);
+        }
+        Err(other) => return Err(other.into()),
+    };
     let chat_models: Vec<_> = models.iter().filter(|model| model.is_chat()).collect();
     println!("Chat models on this account:");
     for model in &chat_models {

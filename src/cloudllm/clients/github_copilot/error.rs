@@ -71,7 +71,10 @@ pub enum CopilotAuthError {
     /// from the token endpoint).
     ///
     /// The GitHub token is valid, but the account has no Copilot access, or
-    /// the OAuth app that minted the token may not use Copilot.
+    /// the OAuth app that minted the token may not use Copilot. GitHub answers
+    /// an app it has not approved for Copilot with HTTP 403 and a note about
+    /// its Terms of Service; see
+    /// [Which apps may use Copilot](super#which-apps-may-use-copilot).
     CopilotNotAvailable {
         /// The HTTP status code.
         status: u16,

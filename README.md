@@ -524,12 +524,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`GitHubDeviceFlow::cloudllm()` signs in through CloudLLM's own OAuth app, so
-users see "CloudLLM" on GitHub's authorization page. To show your application's
-name instead, register an OAuth app with device flow enabled and use
-`GitHubDeviceFlow::new(client_id)`. Which models a token can reach depends on
-the plan and can also depend on the app that minted it. Run
-`cargo run --example github_copilot_chat` to try it.
+> **Copilot only accepts OAuth apps GitHub has approved for it.** Any app can
+> complete the sign-in, but Copilot refuses tokens from an app it has not
+> approved (`CopilotAuthError::CopilotNotAvailable`, HTTP 403). CloudLLM's own
+> app, used by `GitHubDeviceFlow::cloudllm()`, **is not approved yet**: it signs
+> users in, then Copilot refuses it. To use Copilot today, pass the client ID
+> of an approved app you are entitled to use to `GitHubDeviceFlow::new(client_id)`,
+> plus whatever headers GitHub expects for it via `CopilotIdentity`.
+
+Which models a token can reach depends on the plan and on the app that minted
+it. Run `cargo run --example github_copilot_chat` to try it.
 
 Every wrapper exposes token accounting via [`ClientWrapper::get_last_usage`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/trait.ClientWrapper.html#method.get_last_usage).
 

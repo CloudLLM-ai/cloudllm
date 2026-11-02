@@ -11,7 +11,11 @@
     the `Editor-Version` / `Copilot-Integration-Id` headers.
     `GitHubDeviceFlow::cloudllm()` signs in through CloudLLM's own OAuth app
     (`CLOUDLLM_GITHUB_CLIENT_ID`); `GitHubDeviceFlow::new(client_id)` takes
-    any other. New example: `github_copilot_chat`.
+    any other. KNOWN LIMITATION: Copilot only issues session tokens to OAuth
+    apps GitHub has approved for it, and the CloudLLM app is not approved
+    yet. A live test signs in, then gets HTTP 403 from the Copilot token
+    endpoint (`CopilotNotAvailable`). Use the client ID of an approved app
+    you are entitled to use. New example: `github_copilot_chat`.
   - feat(clients): `common::send_with_native_tools_and_headers`, the blocking
     Chat Completions helper with extra per-request headers;
     `send_with_native_tools` now delegates to it.
