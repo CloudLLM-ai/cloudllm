@@ -33,7 +33,7 @@ async fn main() {
     // // Instantiate the Gemini client
     // let client = cloudllm::clients::gemini::GeminiClient::new_with_model_enum(
     //     &secret_key,
-    //     cloudllm::clients::gemini::Model::Gemini25Flash,
+    //     cloudllm::clients::gemini::Model::Gemini38Flash,
     // );
 
     // Read the XAI_API_KEY from the environment variable

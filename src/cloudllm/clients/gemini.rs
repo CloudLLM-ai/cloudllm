@@ -17,7 +17,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let key = std::env::var("GEMINI_KEY")?;
-//!     let client = GeminiClient::new_with_model_enum(&key, Model::Gemini25Flash);
+//!     let client = GeminiClient::new_with_model_enum(&key, Model::Gemini38Flash);
 //!     let reply = client
 //!         .send_message(
 //!             &[Message {
@@ -106,11 +106,16 @@ pub struct GeminiClient {
     base_url: String,
 }
 
-/// Gemini model identifiers returned by the public API (Apr 2026 snapshot).
+/// Gemini model identifiers returned by the public API (Nov 2026 snapshot).
 ///
 /// Every variant maps 1:1 to the hyphenated model name that the API expects.  Use
 /// [`model_to_string`] when you need the string literal.
 pub enum Model {
+    /// `gemini-3.8-flash` – current Gemini Flash workhorse (Nov 2026); the model Google
+    /// points new users to.
+    Gemini38Flash,
+    /// `gemini-3.7-flash` – Gemini 3.7 Flash.
+    Gemini37Flash,
     /// `gemini-3.6-flash` – Gemini 3.6 Flash workhorse (Jul 2026); 1M context.
     Gemini36Flash,
     /// `gemini-3.5-flash` – Gemini 3.5 Flash.
@@ -123,7 +128,8 @@ pub enum Model {
     Gemini25Pro,
     /// `gemini-2.5-flash-latest` – latest stable alias for Gemini 2.5 Flash.
     Gemini25FlashLatest,
-    /// `gemini-2.5-flash` – fast, efficient general-purpose model.
+    /// `gemini-2.5-flash` – fast, efficient general-purpose model. Google no longer serves it
+    /// to new users (HTTP 404); prefer [`Model::Gemini38Flash`].
     Gemini25Flash,
     /// `gemini-2.5-flash-lite` – lowest-latency Gemini 2.5 tier.
     Gemini25FlashLite,
@@ -303,6 +309,8 @@ pub enum Model {
 #[allow(deprecated)]
 pub fn model_to_string(model: Model) -> String {
     match model {
+        Model::Gemini38Flash => "gemini-3.8-flash".to_string(),
+        Model::Gemini37Flash => "gemini-3.7-flash".to_string(),
         Model::Gemini36Flash => "gemini-3.6-flash".to_string(),
         Model::Gemini35Flash => "gemini-3.5-flash".to_string(),
         Model::Gemini35FlashLite => "gemini-3.5-flash-lite".to_string(),

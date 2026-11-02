@@ -243,7 +243,7 @@ pub fn new_image_generation_client(
         }
         ImageGenerationProvider::Gemini => {
             let client =
-                clients::gemini::GeminiClient::new_with_model_string(api_key, "gemini-2.5-flash");
+                clients::gemini::GeminiClient::new_with_model_string(api_key, "gemini-3.8-flash");
             Ok(Arc::new(client))
         }
     }

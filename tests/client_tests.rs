@@ -94,8 +94,9 @@ fn test_gemini_client() {
     let Some(secret_key) = required_env_or_skip("GEMINI_API_KEY") else {
         return;
     };
-    let client = GeminiClient::new_with_model_enum(&secret_key, gemini::Model::Gemini25Flash);
-    assert_eq!(client.model, "gemini-2.5-flash");
+    // gemini-2.5-flash returns 404 for new users; the live test uses the current Flash model.
+    let client = GeminiClient::new_with_model_enum(&secret_key, gemini::Model::Gemini38Flash);
+    assert_eq!(client.model, "gemini-3.8-flash");
 
     let mut llm_session: crate::LLMSession = crate::LLMSession::new(
         std::sync::Arc::new(client),

@@ -24,7 +24,7 @@ async fn main() {
     // let secret_key =
     //    env::var("GEMINI_API_KEY").expect("Please set the GEMINI_API_KEY environment variable!");
     // // Instantiate the Gemini client
-    // let client = cloudllm::clients::gemini::GeminiClient::new_with_model_enum(&secret_key, cloudllm::clients::gemini::Model::Gemini25Flash);
+    // let client = cloudllm::clients::gemini::GeminiClient::new_with_model_enum(&secret_key, cloudllm::clients::gemini::Model::Gemini38Flash);
 
     // Read the XAI_API_KEY from the environment variable
     let secret_key =
