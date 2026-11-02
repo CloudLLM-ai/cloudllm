@@ -172,6 +172,7 @@ fn normalize_host(authority: &str) -> Option<String> {
 /// path, query or fragment, so anything else is rejected. Matching the host
 /// exactly (not as a string prefix) keeps `http://localhost.evil.com` and
 /// `http://127.0.0.1.evil.com` out.
+#[cfg(feature = "server")]
 pub(crate) fn origin_is_loopback(origin: &str) -> bool {
     let Some(authority) = origin
         .strip_prefix("http://")
@@ -187,6 +188,7 @@ pub(crate) fn origin_is_loopback(origin: &str) -> bool {
 
 /// Generate a short opaque id to correlate a generic 5xx response with the
 /// server-side log line that carries the real error.
+#[cfg(feature = "server")]
 pub(crate) fn new_request_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -202,6 +204,7 @@ pub(crate) fn new_request_id() -> String {
 }
 
 /// Log the real error server-side and return the generic body text for a 5xx.
+#[cfg(feature = "server")]
 pub(crate) fn internal_error_message(context: &str, error: &dyn std::fmt::Display) -> String {
     let id = new_request_id();
     log::error!("[cloudllm_mcp] internal error ({context}) request_id={id}: {error}");
@@ -906,7 +909,7 @@ impl HttpServerAdapter for AxumHttpAdapter {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server"))]
 mod log_tests {
     use super::internal_error_message;
     use std::sync::{Mutex, OnceLock};
