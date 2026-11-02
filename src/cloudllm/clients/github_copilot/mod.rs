@@ -34,8 +34,8 @@ pub use client::{
     list_models, CopilotClient, CopilotModel, CopilotModelCapabilities, CopilotModelSupports,
 };
 pub use device_flow::{
-    DeviceCode, GitHubDeviceFlow, GitHubOAuthToken, PollOutcome, DEFAULT_SCOPE,
-    GITHUB_DEFAULT_BASE_URL,
+    DeviceCode, GitHubDeviceFlow, GitHubOAuthToken, PollOutcome, CLOUDLLM_GITHUB_CLIENT_ID,
+    DEFAULT_SCOPE, GITHUB_DEFAULT_BASE_URL,
 };
 pub use error::CopilotAuthError;
 pub use session_token::{

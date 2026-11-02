@@ -17,11 +17,17 @@
 //!
 //! # The `client_id`
 //!
-//! Every login names the OAuth app it is for. Register your own at
-//! <https://github.com/settings/developers> ("New OAuth App", then tick
-//! "Enable Device Flow") and pass its client ID to [`GitHubDeviceFlow::new`].
-//! CloudLLM ships no default ID. Which Copilot models a token can reach can
-//! depend on the app that minted it, so the choice stays with you.
+//! Every login names the OAuth app it is for, and the GitHub authorization
+//! page shows the user that app's name. CloudLLM registers one, "CloudLLM",
+//! owned by the CloudLLM-ai organisation: [`GitHubDeviceFlow::cloudllm`] uses
+//! it ([`CLOUDLLM_GITHUB_CLIENT_ID`]). A device-flow client ID is public by
+//! design; there is no client secret.
+//!
+//! An application that wants users to see its own name instead registers its
+//! own app at <https://github.com/settings/developers> ("New OAuth App", tick
+//! "Enable Device Flow", leave "Expire user access tokens" unticked) and
+//! passes its client ID to [`GitHubDeviceFlow::new`]. Which Copilot models a
+//! token can reach can depend on the app that minted it.
 //!
 //! # Example
 //!
@@ -30,7 +36,7 @@
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let flow = GitHubDeviceFlow::new("Iv1.your-oauth-app-id");
+//! let flow = GitHubDeviceFlow::cloudllm();
 //! let token = flow
 //!     .authorize(|code| {
 //!         println!(
@@ -61,6 +67,14 @@ pub const GITHUB_DEFAULT_BASE_URL: &str = "https://github.com";
 /// Copilot needs no repository access; `read:user` is the smallest scope the
 /// Copilot token endpoint accepts.
 pub const DEFAULT_SCOPE: &str = "read:user";
+
+/// The client ID of the "CloudLLM" OAuth app, owned by the CloudLLM-ai
+/// GitHub organisation, with device flow enabled.
+///
+/// [`GitHubDeviceFlow::cloudllm`] uses it. Users see "CloudLLM" on the GitHub
+/// authorization page and can revoke it at
+/// <https://github.com/settings/applications>.
+pub const CLOUDLLM_GITHUB_CLIENT_ID: &str = "Ov23listqyWr79jQB9dA";
 
 /// The grant type GitHub expects when polling for a device-flow token.
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
@@ -246,6 +260,25 @@ impl GitHubDeviceFlow {
             scope: DEFAULT_SCOPE.to_owned(),
             github_base_url: GITHUB_DEFAULT_BASE_URL.to_owned(),
         }
+    }
+
+    /// A login for CloudLLM's own OAuth app ([`CLOUDLLM_GITHUB_CLIENT_ID`]),
+    /// asking for [`DEFAULT_SCOPE`] against <https://github.com>.
+    ///
+    /// The easiest way to sign in: nothing to register. Use
+    /// [`GitHubDeviceFlow::new`] instead when users should see your
+    /// application's name on GitHub.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use cloudllm::clients::github_copilot::{GitHubDeviceFlow, CLOUDLLM_GITHUB_CLIENT_ID};
+    ///
+    /// let flow = GitHubDeviceFlow::cloudllm();
+    /// assert_eq!(flow.client_id(), CLOUDLLM_GITHUB_CLIENT_ID);
+    /// ```
+    pub fn cloudllm() -> Self {
+        Self::new(CLOUDLLM_GITHUB_CLIENT_ID)
     }
 
     /// Ask for different scopes, space-separated (for example

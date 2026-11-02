@@ -8,9 +8,10 @@
     is a `ClientWrapper` over Copilot's Chat Completions API (chat, native
     tools, streaming, usage) that retries once with a fresh token on 401.
     `list_models()` reads the account's model catalogue. `CopilotIdentity` sets
-    the `Editor-Version` / `Copilot-Integration-Id` headers. CloudLLM ships no
-    OAuth `client_id` or integration ID; callers supply their own. New
-    example: `github_copilot_chat`.
+    the `Editor-Version` / `Copilot-Integration-Id` headers.
+    `GitHubDeviceFlow::cloudllm()` signs in through CloudLLM's own OAuth app
+    (`CLOUDLLM_GITHUB_CLIENT_ID`); `GitHubDeviceFlow::new(client_id)` takes
+    any other. New example: `github_copilot_chat`.
   - feat(clients): `common::send_with_native_tools_and_headers`, the blocking
     Chat Completions helper with extra per-request headers;
     `send_with_native_tools` now delegates to it.

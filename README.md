@@ -497,14 +497,15 @@ use cloudllm::clients::github_copilot::{
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Sign in once; store token.secret() so later runs can skip this step.
-    let token = GitHubDeviceFlow::new("<your OAuth app client_id>")
+    let token = GitHubDeviceFlow::cloudllm()
         .authorize(|code| println!("Open {} and enter {}", code.verification_uri, code.user_code))
         .await?;
 
     // 2. One provider per account; share it between clients.
     let provider = Arc::new(
         CopilotTokenProvider::from_github_token(token)
-            .with_identity(CopilotIdentity::default().with_integration_id("<your integration id>")),
+            // Optional: the Copilot-Integration-Id GitHub accepts for your integration.
+            .with_identity(CopilotIdentity::default()),
     );
 
     // 3. See what the plan offers, then chat.
@@ -523,10 +524,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-CloudLLM ships no OAuth `client_id` or `Copilot-Integration-Id` of its own.
-Register an OAuth app with device flow enabled and pass its ID. Which models a
-token can reach depends on the plan and can also depend on the app that minted
-it. Run `cargo run --example github_copilot_chat` to try it.
+`GitHubDeviceFlow::cloudllm()` signs in through CloudLLM's own OAuth app, so
+users see "CloudLLM" on GitHub's authorization page. To show your application's
+name instead, register an OAuth app with device flow enabled and use
+`GitHubDeviceFlow::new(client_id)`. Which models a token can reach depends on
+the plan and can also depend on the app that minted it. Run
+`cargo run --example github_copilot_chat` to try it.
 
 Every wrapper exposes token accounting via [`ClientWrapper::get_last_usage`](https://docs.rs/cloudllm/latest/cloudllm/client_wrapper/trait.ClientWrapper.html#method.get_last_usage).
 

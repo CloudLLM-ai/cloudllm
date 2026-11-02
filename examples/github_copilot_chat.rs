@@ -7,8 +7,9 @@
 //!
 //! Run with:
 //! ```bash
-//! # Your OAuth app (https://github.com/settings/developers, "Enable Device Flow").
-//! export GITHUB_COPILOT_CLIENT_ID=Iv1....
+//! # Optional: your own OAuth app instead of CloudLLM's
+//! # (https://github.com/settings/developers, "Enable Device Flow").
+//! export GITHUB_COPILOT_CLIENT_ID=Ov23...
 //! # Optional: the Copilot-Integration-Id GitHub accepts for your integration.
 //! export GITHUB_COPILOT_INTEGRATION_ID=...
 //! # Optional: skip the login with a token from an earlier run.
@@ -33,9 +34,11 @@ async fn github_token() -> Result<GitHubOAuthToken, Box<dyn std::error::Error>> 
     if let Ok(saved) = std::env::var("GITHUB_COPILOT_OAUTH_TOKEN") {
         return Ok(GitHubOAuthToken::new(saved));
     }
-    let client_id = std::env::var("GITHUB_COPILOT_CLIENT_ID")
-        .map_err(|_| "set GITHUB_COPILOT_CLIENT_ID to your OAuth app's client ID")?;
-    let token = GitHubDeviceFlow::new(client_id)
+    let flow = match std::env::var("GITHUB_COPILOT_CLIENT_ID") {
+        Ok(client_id) => GitHubDeviceFlow::new(client_id),
+        Err(_) => GitHubDeviceFlow::cloudllm(),
+    };
+    let token = flow
         .authorize(|code| {
             println!(
                 "Open {} and enter the code {}",
