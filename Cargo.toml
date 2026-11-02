@@ -4,19 +4,23 @@ resolver = "2"
 
 [package]
 name = "cloudllm"
-version = "0.15.18"
+version = "0.16.0"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, multi-agent orchestration, and MentisDB-backed durable memory."
 repository = "https://github.com/CloudLLM-ai/cloudllm"
 license = "MIT"
 documentation = "https://docs.rs/cloudllm/latest/cloudllm/"
-exclude = [
-    "/.task_html_structure.json",
-    "/breakout_game_ralph.html",
-    "/index.html",
-    "/mentisdbs/**",
-    "/pacman_game_ralph_*.html",
+# Allow-list, not a deny-list: only source, tests, examples and docs ship. Notes, agent
+# files, generated images and HTML outputs in the repo root never reach crates.io.
+include = [
+    "/src/**",
+    "/tests/**/*.rs",
+    "/examples/**/*.rs",
+    "/Cargo.toml",
+    "/README.md",
+    "/LICENSE",
+    "/changelog.txt",
 ]
 
 [dependencies]
@@ -24,17 +28,15 @@ tokio = { version = "1.53.1", features = ["full"] }
 
 # This is my own fork of the OpenAI Rust client, which has a few improvements over the original.
 # https://github.com/cloudllm-ai/openai-rust
-# 1.7.6+ is required: body-decode errors include status + truncated body,
-# create_chat retries transient 200-stream / 429 / 5xx failures, and the
-# 0.12.28 reqwest floor stays type-compatible with cloudllm's shared client.
-openai-rust2 = ">=1.7.6, <2"
+# 2.x exposes reqwest 0.13 types (`Client`, `Url`, `Response`); keep the reqwest
+# major below in lockstep with it so the shared client stays type-compatible.
+openai-rust2 = "2.0.0"
 
 async-trait = "0.1.91"
 log = "0.4.33"
 env_logger = "0.11.11"
-# Stay on reqwest 0.12.x — openai-rust2 exposes reqwest 0.12 Client types for the
-# shared pool. Do NOT bump to 0.13 until openai-rust2 does (type incompatibility).
-reqwest = { version = "0.12.28", features = ["json", "stream"] }
+# Same reqwest major as openai-rust2 (its public API uses reqwest types).
+reqwest = { version = "0.13.5", features = ["json", "stream", "form", "query"] }
 futures-util = "0.3.33"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -50,7 +52,7 @@ uuid = { version = "1.24.0", features = ["v4"] }
 # 0.10.10 is the latest 0.10.x; it adds only additive API (webhook CIDR policy)
 # on top of 0.10.5 and carries the 0.10.9 security fixes.
 mentisdb = "0.10.10"
-mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.3.6", features = ["server"] }
+mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.4.0", features = ["server"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

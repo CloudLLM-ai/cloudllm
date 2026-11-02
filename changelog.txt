@@ -112,6 +112,16 @@
     with a struct literal or destructures it exhaustively must be updated
     (`new()` and the builders are unchanged). Wire: `mime_type` → `mimeType`.
     Release as `cloudllm_mcp` 0.4.0.
+  - fix(clients)!: reqwest 0.12 → 0.13 and openai-rust2 1.7 → 2.0 (cloudllm and
+    cloudllm_mcp). openai-rust2 exposes reqwest types in its API, so the two
+    move together. MIGRATION: code that passes its own `reqwest::Client` (or
+    other reqwest types) into cloudllm must use reqwest 0.13. reqwest 0.13's
+    default TLS backend is rustls (aws-lc-rs). `form` and `query` are opt-in
+    reqwest features now; cloudllm enables them.
+  - fix(clients): the Gemini image-generation provider defaulted to
+    `gemini-2.5-flash`, which Google no longer serves to new users (HTTP 404).
+    It now uses `gemini-3.8-flash`; new `gemini::Model::Gemini38Flash` and
+    `Gemini37Flash`. `Gemini25Flash` still works for existing accounts.
   - fix(cloudllm_mcp): the generic 401 body named MentisDB environment
     variables and CLI commands; it is now product-neutral. Streamable
     authentication, Host and Origin failures now emit
@@ -148,6 +158,11 @@
     failures, the 5xx request-id lines, the "no authentication configured"
     startup warning) now go through the `log` facade (`warn!`/`error!`), so
     embedding applications control and route them; added the `log` dependency.
+  - chore(package): the published crate is an allow-list (source, tests,
+    examples, README, LICENSE, changelog); 0.15.x shipped agent notes,
+    generated images and HTML outputs from the repo root (8.9 MiB → small).
+  - fix(cloudllm_mcp): building without the `server` feature no longer warns
+    about server-only helpers.
   - chore(deps): dropped `lazy_static`; the shared HTTP client uses
     `std::sync::LazyLock` (stable since Rust 1.80; the dependency tree already
     needs 1.90, via `roaring`).

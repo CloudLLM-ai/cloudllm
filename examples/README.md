@@ -14,7 +14,7 @@ export CLOUDLLM_STREAM_REASONING=full  # default
 export CLOUDLLM_STREAM_CONTENT=compact # default (avoid dumping 300KB of HTML)
 ```
 
-**Total Examples**: 21 | **Updated**: v0.15.18
+**Total Examples**: 21 | **Updated**: v0.16.0
 
 ## 🎮 Game Building Examples (Showcase Projects)
 
