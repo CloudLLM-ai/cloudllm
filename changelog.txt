@@ -1,4 +1,4 @@
-0.16.0 UNRELEASED
+0.16.0 NOV/02/2026
   Release: cloudllm 0.16.0 and cloudllm_mcp 0.4.0 (breaking; see MIGRATION notes).
   Security fixes first, by severity; upgrade cloudllm_mcp servers immediately.
   - security(cloudllm_mcp): CRITICAL, the streamable-HTTP `GET` SSE endpoint
