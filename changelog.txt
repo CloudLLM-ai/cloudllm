@@ -1,3 +1,18 @@
+UNRELEASED
+  - fix(cloudllm_mcp): the streamable-HTTP `GET` event stream sends an SSE
+    comment line (`: keepalive`) after 15 s with nothing to send (#57). It was
+    a plain broadcast stream that wrote no bytes until an event was
+    published, so HTTP clients and proxies with an idle-body timeout dropped
+    it and reconnected over and over (Claude Code's HTTP MCP client logged
+    hundreds of `SSE stream disconnected: TimeoutError` drops against
+    MentisDB, on 60 s steps), and a reconnect that met a brief network stall
+    could exhaust the client's retries and leave the server disconnected.
+    The idle time counts from the last frame sent, so a busy stream carries
+    no keepalives; spec-compliant SSE parsers ignore comment lines.
+    `StreamableHttpConfig::sse_keepalive` (default `DEFAULT_SSE_KEEPALIVE`,
+    15 s) and `with_sse_keepalive(Option<Duration>)` change or disable it
+    (`None` or zero).
+
 0.16.0 NOV/02/2026
   Release: cloudllm 0.16.0 and cloudllm_mcp 0.4.0 (breaking; see MIGRATION notes).
   Security fixes first, by severity; upgrade cloudllm_mcp servers immediately.
