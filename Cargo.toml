@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "cloudllm"
-version = "0.16.0"
+version = "0.16.1"
 authors = ["Angel Leon <gubatron@gmail.com>"]
 edition = "2018"
 description = "A batteries-included Rust toolkit for building intelligent agents with LLM integration, multi-protocol tool support, multi-agent orchestration, and MentisDB-backed durable memory."
@@ -52,7 +52,7 @@ uuid = { version = "1.24.0", features = ["v4"] }
 # 0.10.10 is the latest 0.10.x; it adds only additive API (webhook CIDR policy)
 # on top of 0.10.5 and carries the 0.10.9 security fixes.
 mentisdb = "0.10.10"
-mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.4.0", features = ["server"] }
+mcp = { package = "cloudllm_mcp", path = "mcp", version = "0.4.1", features = ["server"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

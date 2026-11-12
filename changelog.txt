@@ -1,4 +1,6 @@
-UNRELEASED
+0.16.1 NOV/12/2026
+  Release: cloudllm 0.16.1 and cloudllm_mcp 0.4.1 (no breaking changes).
+  cloudllm 0.16.1 only raises its cloudllm_mcp requirement to 0.4.1.
   - fix(cloudllm_mcp): the streamable-HTTP `GET` event stream sends an SSE
     comment line (`: keepalive`) after 15 s with nothing to send (#57). It was
     a plain broadcast stream that wrote no bytes until an event was
