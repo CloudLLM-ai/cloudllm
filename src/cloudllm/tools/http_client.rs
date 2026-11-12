@@ -777,10 +777,7 @@ fn is_ssrf_ip(ip: IpAddr) -> bool {
             }
             // fe80::/10 — IPv6 link-local
             let segments = v6.segments();
-            if (segments[0] & 0xffc0) == 0xfe80 {
-                return true;
-            }
-            false
+            (segments[0] & 0xffc0) == 0xfe80
         }
     }
 }
