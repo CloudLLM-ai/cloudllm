@@ -33,6 +33,8 @@ tokio-stream = { version = "0.1.19", features = ["sync"] }
 axum = { version = "0.8.9", optional = true }
 
 [dev-dependencies]
+# Paused clock for the SSE keepalive tests: intervals run instantly and exactly.
+tokio = { version = "1.53.1", features = ["full", "test-util"] }
 axum = { version = "0.8.9" }
 http-body-util = "0.1.4"
 tower = { version = "0.5.3" }

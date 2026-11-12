@@ -961,3 +961,54 @@ async fn test_post_resources_list_broadcasts() {
 
     assert_eq!(sse_msg.event, Some("error".to_string()));
 }
+
+/// The next chunk of an SSE body as text, failing if none comes within 5 s.
+async fn next_chunk(body: &mut axum::body::BodyDataStream) -> String {
+    let next = tokio::time::timeout(Duration::from_secs(5), body.next()).await;
+    String::from_utf8(next.expect("a frame").unwrap().unwrap().to_vec()).unwrap()
+}
+
+/// Issue #57: an idle `GET` event stream sends an SSE comment line every
+/// `sse_keepalive`, so clients and proxies with an idle-body timeout keep it,
+/// and an event still arrives as an ordinary frame. Paused clock: the
+/// configured second passes instantly and exactly.
+#[tokio::test(start_paused = true)]
+async fn test_idle_get_stream_sends_keepalive_comments() {
+    let broadcaster = SseBroadcaster::new(16);
+    let config = StreamableHttpConfig::new("test-server", "0.1.0")
+        .with_sse_keepalive(Some(Duration::from_secs(1)));
+    let router = streamable_http_router_with_sse(
+        &HttpServerConfig {
+            addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            bearer_token: None,
+            bearer_authorizer: None,
+            ip_filter: IpFilter::new(),
+            event_handler: None,
+        },
+        &config,
+        Arc::new(EchoProtocol),
+        Some(broadcaster.clone()),
+    );
+    let mut req = Request::builder()
+        .method(Method::GET)
+        .uri("/")
+        .header("accept", "text/event-stream")
+        .body(Body::empty())
+        .unwrap();
+    req.extensions_mut().insert(ConnectInfo(client_addr()));
+    let response = router.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body().into_data_stream();
+
+    let start = tokio::time::Instant::now();
+    assert_eq!(
+        next_chunk(&mut body).await,
+        mcp::streamable_http::SSE_KEEPALIVE_FRAME
+    );
+    assert_eq!(start.elapsed(), Duration::from_secs(1));
+    assert_eq!(next_chunk(&mut body).await, ": keepalive\n\n");
+
+    broadcaster.send(SseMessage::with_event("test_ping", json!({"ping": true})));
+    let frame = next_chunk(&mut body).await;
+    assert!(frame.starts_with("event: test_ping\n"), "{frame:?}");
+}

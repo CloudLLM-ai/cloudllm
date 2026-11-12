@@ -64,7 +64,21 @@ pub struct StreamableHttpConfig {
     /// Empty means the default: loopback names on a loopback bind, no check
     /// otherwise.
     pub allowed_hosts: Vec<String>,
+    /// How long the `GET` event stream may stay silent before the server
+    /// sends an SSE comment line (`: keepalive`), so clients and proxies with
+    /// an idle-body timeout do not drop a stream that simply has no events.
+    /// The time counts from the last frame sent, so a busy stream gets none.
+    /// Spec-compliant SSE parsers ignore comment lines. `None` disables it.
+    /// Default [`DEFAULT_SSE_KEEPALIVE`] (15 s).
+    pub sse_keepalive: Option<std::time::Duration>,
 }
+
+/// Default for [`StreamableHttpConfig::sse_keepalive`]: well under the 30-60 s
+/// idle timeouts common in HTTP clients and reverse proxies.
+pub const DEFAULT_SSE_KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The SSE comment line sent on an idle `GET` stream.
+pub const SSE_KEEPALIVE_FRAME: &str = ": keepalive\n\n";
 
 impl StreamableHttpConfig {
     /// Build a streamable HTTP config with sane defaults.
@@ -78,7 +92,27 @@ impl StreamableHttpConfig {
             instructions: None,
             skip_origin_validation: false,
             allowed_hosts: Vec::new(),
+            sse_keepalive: Some(DEFAULT_SSE_KEEPALIVE),
         }
+    }
+
+    /// Set how long the `GET` event stream may stay idle before a keepalive
+    /// comment is sent (see [`sse_keepalive`](Self::sse_keepalive)); `None`
+    /// turns keepalives off. A zero duration is treated as `None`.
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use mcp::streamable_http::StreamableHttpConfig;
+    ///
+    /// let config = StreamableHttpConfig::new("mentisdb", "0.1.0")
+    ///     .with_sse_keepalive(Some(Duration::from_secs(20)));
+    /// assert_eq!(config.sse_keepalive, Some(Duration::from_secs(20)));
+    /// let off = StreamableHttpConfig::new("mentisdb", "0.1.0").with_sse_keepalive(None);
+    /// assert_eq!(off.sse_keepalive, None);
+    /// ```
+    pub fn with_sse_keepalive(mut self, idle: Option<std::time::Duration>) -> Self {
+        self.sse_keepalive = idle.filter(|d| !d.is_zero());
+        self
     }
 
     /// Override the endpoint path.
@@ -838,7 +872,7 @@ async fn streamable_http_get_handler(
             .into_response();
     };
 
-    let stream = sse_event_stream(broadcaster);
+    let stream = sse_event_stream(broadcaster, state.transport.sse_keepalive);
 
     (
         StatusCode::OK,
@@ -853,23 +887,49 @@ async fn streamable_http_get_handler(
         .into_response()
 }
 
-fn sse_event_stream(
+/// The `GET` event stream: each broadcast event as an SSE frame, a `warning`
+/// event when this subscriber lagged and missed some, and, when `keepalive`
+/// is set, an SSE comment line ([`SSE_KEEPALIVE_FRAME`]) whenever nothing has
+/// been sent for that long. Without the keepalive an idle stream sends no
+/// bytes at all, and clients or proxies with an idle-body timeout drop it and
+/// reconnect over and over (issue #57).
+///
+/// The idle timer restarts after every frame, so a stream that is busy never
+/// carries a keepalive, and the first one on an idle stream comes `keepalive`
+/// after the last event (or after the stream opened).
+pub(crate) fn sse_event_stream(
     broadcaster: SseBroadcaster,
+    keepalive: Option<std::time::Duration>,
 ) -> Pin<Box<dyn Stream<Item = Result<String, std::convert::Infallible>> + Send>> {
-    let rx = broadcaster.subscribe();
-    Box::pin(
-        tokio_stream::wrappers::BroadcastStream::new(rx).then(|msg| async move {
-            match msg {
-                Ok(sse_msg) => Ok(sse_msg.format()),
-                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(missed)) => {
-                    Ok(format!(
-                        "event: warning\ndata: {}\n\n",
-                        json!({"message": "SSE subscriber lagged; events were dropped", "missed": missed})
-                    ))
-                }
+    fn frame(
+        msg: Result<SseMessage, tokio_stream::wrappers::errors::BroadcastStreamRecvError>,
+    ) -> String {
+        match msg {
+            Ok(sse_msg) => sse_msg.format(),
+            Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(missed)) => {
+                format!(
+                    "event: warning\ndata: {}\n\n",
+                    json!({"message": "SSE subscriber lagged; events were dropped", "missed": missed})
+                )
             }
-        }),
-    )
+        }
+    }
+
+    let events = tokio_stream::wrappers::BroadcastStream::new(broadcaster.subscribe());
+    let Some(idle) = keepalive.filter(|d| !d.is_zero()) else {
+        return Box::pin(events.map(|msg| Ok(frame(msg))));
+    };
+    Box::pin(futures::stream::unfold(
+        events,
+        move |mut events| async move {
+            let next = tokio::select! {
+                msg = events.next() => msg.map(frame),
+                () = tokio::time::sleep(idle) => Some(SSE_KEEPALIVE_FRAME.to_string()),
+            };
+            // `None` only when the broadcaster is gone: end the stream.
+            next.map(|text| (Ok(text), events))
+        },
+    ))
 }
 
 async fn streamable_http_delete_handler(
@@ -1232,5 +1292,117 @@ fn tool_protocol_error_from(
             crate::http::internal_error_message("tools/call", &error),
             None,
         )
+    }
+}
+
+#[cfg(test)]
+mod sse_keepalive_tests {
+    //! The `GET` event stream's idle keepalive (issue #57), on a paused clock:
+    //! `tokio::time` advances only when every task is idle, so intervals of
+    //! seconds run instantly and the timings asserted are exact.
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::Instant;
+
+    const IDLE: Duration = Duration::from_secs(15);
+
+    async fn next(
+        stream: &mut Pin<Box<dyn Stream<Item = Result<String, std::convert::Infallible>> + Send>>,
+    ) -> Option<String> {
+        stream.next().await.map(|item| match item {
+            Ok(text) => text,
+            Err(never) => match never {},
+        })
+    }
+
+    /// An idle stream sends a comment line after exactly the idle interval,
+    /// and keeps sending one per interval while it stays idle.
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_stream_sends_a_keepalive_comment_each_interval() {
+        let broadcaster = SseBroadcaster::new(16);
+        let mut stream = sse_event_stream(broadcaster.clone(), Some(IDLE));
+        let start = Instant::now();
+        assert_eq!(
+            next(&mut stream).await.as_deref(),
+            Some(SSE_KEEPALIVE_FRAME)
+        );
+        assert_eq!(start.elapsed(), IDLE);
+        assert_eq!(
+            next(&mut stream).await.as_deref(),
+            Some(SSE_KEEPALIVE_FRAME)
+        );
+        assert_eq!(start.elapsed(), 2 * IDLE);
+        assert!(SSE_KEEPALIVE_FRAME.starts_with(':') && SSE_KEEPALIVE_FRAME.ends_with("\n\n"));
+    }
+
+    /// The timer restarts after every frame: events closer together than the
+    /// interval are never interleaved with keepalives, and the first keepalive
+    /// comes one interval after the last event.
+    #[tokio::test(start_paused = true)]
+    async fn a_busy_stream_carries_no_keepalives() {
+        let broadcaster = SseBroadcaster::new(16);
+        let mut stream = sse_event_stream(broadcaster.clone(), Some(IDLE));
+        let sender = broadcaster.clone();
+        tokio::spawn(async move {
+            for i in 0..4 {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                sender.send(SseMessage::with_event("tick", json!({ "i": i })));
+            }
+        });
+        for i in 0..4 {
+            let frame = next(&mut stream).await.unwrap();
+            assert!(frame.starts_with("event: tick\n"), "frame {i}: {frame:?}");
+        }
+        let last_event = Instant::now();
+        assert_eq!(
+            next(&mut stream).await.as_deref(),
+            Some(SSE_KEEPALIVE_FRAME)
+        );
+        assert_eq!(last_event.elapsed(), IDLE);
+    }
+
+    /// With keepalives off the stream stays silent while idle, as before.
+    #[tokio::test(start_paused = true)]
+    async fn keepalive_off_leaves_an_idle_stream_silent() {
+        let broadcaster = SseBroadcaster::new(16);
+        for off in [None, Some(Duration::ZERO)] {
+            let mut stream = sse_event_stream(broadcaster.clone(), off);
+            let waited = tokio::time::timeout(Duration::from_secs(3600), next(&mut stream)).await;
+            assert!(
+                waited.is_err(),
+                "{off:?}: something was sent on an idle stream"
+            );
+        }
+    }
+
+    /// A subscriber that falls behind still gets the lag warning, with a
+    /// keepalive configured.
+    #[tokio::test(start_paused = true)]
+    async fn a_lagging_subscriber_still_gets_the_warning() {
+        let broadcaster = SseBroadcaster::new(2);
+        let mut stream = sse_event_stream(broadcaster.clone(), Some(IDLE));
+        for i in 0..5 {
+            broadcaster.send(SseMessage::data(json!({ "i": i })));
+        }
+        let frame = next(&mut stream).await.unwrap();
+        assert!(frame.starts_with("event: warning\n"), "{frame:?}");
+        assert!(frame.contains("\"missed\":3"), "{frame:?}");
+    }
+
+    /// The default config keeps idle streams alive at 15 s; the builder
+    /// changes or disables it, and treats zero as off.
+    #[test]
+    fn the_config_defaults_to_fifteen_seconds() {
+        let config = StreamableHttpConfig::new("s", "1");
+        assert_eq!(config.sse_keepalive, Some(DEFAULT_SSE_KEEPALIVE));
+        assert_eq!(DEFAULT_SSE_KEEPALIVE, Duration::from_secs(15));
+        assert_eq!(
+            config
+                .clone()
+                .with_sse_keepalive(Some(Duration::ZERO))
+                .sse_keepalive,
+            None
+        );
+        assert_eq!(config.with_sse_keepalive(None).sse_keepalive, None);
     }
 }
