@@ -1,4 +1,5 @@
-UNRELEASED
+0.16.2 NOV/13/2026
+  Release: cloudllm 0.16.2 (cloudllm_mcp unchanged at 0.4.1; no breaking changes).
   - feat(image generation): `ImageGenerationProvider::OpenRouter` ("openrouter"),
     any OpenRouter image model through Chat Completions (`modalities:
     ["image","text"]`, `image_config.aspect_ratio`). `OpenRouterClient` now
