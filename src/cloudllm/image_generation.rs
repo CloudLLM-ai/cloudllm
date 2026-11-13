@@ -397,6 +397,7 @@ pub struct ImageGenerationResponse {
 /// assert_eq!(get_image_extension_from_base64(b64_unknown), "bin");
 /// ```
 pub fn get_image_extension_from_base64(b64_data: &str) -> &str {
+    let b64_data = strip_data_uri_prefix(b64_data);
     if b64_data.starts_with("iVBORw0KG") {
         "png"
     } else if b64_data.starts_with("/9j/") {
@@ -406,6 +407,27 @@ pub fn get_image_extension_from_base64(b64_data: &str) -> &str {
     } else {
         "bin" // fallback for unknown format
     }
+}
+
+/// The payload of a `data:<mime>;base64,<payload>` URI, or `input` unchanged.
+///
+/// Gemini and OpenRouter return [`ImageData::b64_json`] with the data URI
+/// prefix; [`decode_base64`] and [`get_image_extension_from_base64`] accept
+/// both forms (before 0.16.2 the prefix was decoded as garbage bytes).
+///
+/// ```
+/// use cloudllm::cloudllm::image_generation::strip_data_uri_prefix;
+///
+/// assert_eq!(strip_data_uri_prefix("data:image/png;base64,iVBORw0KG"), "iVBORw0KG");
+/// assert_eq!(strip_data_uri_prefix("iVBORw0KG"), "iVBORw0KG");
+/// ```
+pub fn strip_data_uri_prefix(input: &str) -> &str {
+    if input.starts_with("data:") {
+        if let Some(index) = input.find(";base64,") {
+            return &input[index + ";base64,".len()..];
+        }
+    }
+    input
 }
 
 /// Decode a base64 string to bytes.
@@ -423,6 +445,7 @@ pub fn get_image_extension_from_base64(b64_data: &str) -> &str {
 /// assert_eq!(decoded, b"Hello World");
 /// ```
 pub fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
+    let input = strip_data_uri_prefix(input);
     let bytes = input.as_bytes().iter().fold(Vec::new(), |mut acc, &b| {
         let val = match b {
             b'A'..=b'Z' => b - b'A',

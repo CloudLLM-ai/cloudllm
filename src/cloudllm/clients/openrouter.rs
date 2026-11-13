@@ -90,6 +90,9 @@ use crate::clients::common::{
     get_long_running_http_client, get_shared_http_client, http_retry_attempts,
     is_transient_llm_error, send_and_track, send_with_native_tools,
 };
+use crate::cloudllm::image_generation::{
+    ImageData, ImageGenerationClient, ImageGenerationOptions, ImageGenerationResponse,
+};
 use crate::{ClientWrapper, Message, Role};
 use async_trait::async_trait;
 use openai_rust::chat;
@@ -711,7 +714,7 @@ async fn send_message_with_reasoning(
     messages: &[Message],
 ) -> Result<Message, Box<dyn Error>> {
     let body = build_openrouter_body(
-        client.model_name(),
+        ClientWrapper::model_name(client),
         messages,
         client.reasoning_effort.as_deref().unwrap_or("none"),
     );
@@ -853,5 +856,164 @@ pub fn extract_openrouter_content(body: &serde_json::Value) -> Result<String, St
         )),
         Some(serde_json::Value::String(_)) => Err("OpenRouter returned empty content".to_string()),
         Some(value) => Err(format!("OpenRouter content had unexpected type: {}", value)),
+    }
+}
+
+/// Default OpenRouter model for [`ImageGenerationClient`] when the factory
+/// ([`crate::cloudllm::new_image_generation_client`]) is given no model.
+pub const OPENROUTER_DEFAULT_IMAGE_MODEL: &str = "google/gemini-3.1-flash-lite-image";
+
+/// Build the OpenRouter Chat Completions body that asks an image model
+/// (any slug whose output modalities include `image`) for one image.
+///
+/// OpenRouter has no `/images/generations` endpoint: image models are called
+/// through `/chat/completions` with `modalities: ["image", "text"]`, and the
+/// aspect ratio goes in `image_config`. `usage.include` makes the response
+/// carry the exact cost, which [`ImageGenerationClient::generate_image`] logs.
+pub fn build_openrouter_image_body(
+    model: &str,
+    prompt: &str,
+    aspect_ratio: Option<&str>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": prompt }],
+        "modalities": ["image", "text"],
+        "usage": { "include": true },
+    });
+    if let Some(ratio) = aspect_ratio.map(str::trim).filter(|r| !r.is_empty()) {
+        body["image_config"] = serde_json::json!({ "aspect_ratio": ratio });
+    }
+    body
+}
+
+/// Extract the generated images from an OpenRouter image response.
+///
+/// Images arrive as `choices[0].message.images[].image_url.url`, normally a
+/// `data:image/...;base64,` URI (returned in [`ImageData::b64_json`], prefix
+/// included, the same convention as the Gemini client) and occasionally a
+/// plain `https` URL (returned in [`ImageData::url`]). A response with no
+/// image is an error that quotes the model's text, which is where models
+/// explain a refusal.
+pub fn extract_openrouter_images(body: &serde_json::Value) -> Result<Vec<ImageData>, String> {
+    if let Some(error) = body.get("error") {
+        return Err(format!("OpenRouter image API error: {}", error));
+    }
+    let message = body
+        .get("choices")
+        .and_then(|value| value.as_array())
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .ok_or_else(|| "OpenRouter image response had no choices".to_string())?;
+    let images: Vec<ImageData> = message
+        .get("images")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.pointer("/image_url/url").and_then(|u| u.as_str()))
+                .filter(|url| !url.is_empty())
+                .map(|url| {
+                    if url.starts_with("data:") {
+                        ImageData {
+                            url: None,
+                            b64_json: Some(url.to_string()),
+                        }
+                    } else {
+                        ImageData {
+                            url: Some(url.to_string()),
+                            b64_json: None,
+                        }
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if images.is_empty() {
+        let text: String = message
+            .get("content")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .chars()
+            .take(300)
+            .collect();
+        return Err(format!(
+            "OpenRouter returned no image (finish_reason={}): {}",
+            body.pointer("/choices/0/finish_reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or("?"),
+            text
+        ));
+    }
+    Ok(images)
+}
+
+#[async_trait]
+impl ImageGenerationClient for OpenRouterClient {
+    /// Generate images with the client's model (an OpenRouter image model
+    /// such as `google/gemini-3.1-flash-lite-image`).
+    ///
+    /// Honors `aspect_ratio` and `num_images` (one request per image, at most
+    /// 10). `response_format` and `quality` are ignored: OpenRouter returns
+    /// base64 data URIs and has no quality tiers.
+    async fn generate_image(
+        &self,
+        prompt: &str,
+        options: ImageGenerationOptions,
+    ) -> Result<ImageGenerationResponse, Box<dyn Error + Send + Sync>> {
+        let n = options.num_images.unwrap_or(1).clamp(1, 10);
+        let body =
+            build_openrouter_image_body(&self.model, prompt, options.aspect_ratio.as_deref());
+        let url = format!("{}/chat/completions", self.base_url);
+        let http = get_long_running_http_client();
+        let mut images = Vec::new();
+
+        for _ in 0..n {
+            log::info!(
+                "OpenRouter image request: model={}, prompt_len={}, aspect_ratio={:?}",
+                self.model,
+                prompt.len(),
+                options.aspect_ratio,
+            );
+            let response = http
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&body)
+                .send()
+                .await?;
+            let status = response.status();
+            let text = crate::clients::common::read_body_text(
+                response,
+                crate::clients::common::MAX_RESPONSE_BODY_BYTES,
+            )
+            .await?;
+            if !status.is_success() {
+                let summary: String = text.chars().take(500).collect();
+                return Err(
+                    format!("OpenRouter image API error (HTTP {}): {}", status, summary).into(),
+                );
+            }
+            let json: serde_json::Value = serde_json::from_str(&text)?;
+            log::info!(
+                "OpenRouter image response: model={}, cost={}, image_tokens={}",
+                self.model,
+                json.pointer("/usage/cost")
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "?".to_string()),
+                json.pointer("/usage/completion_tokens_details/image_tokens")
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "?".to_string()),
+            );
+            images.extend(extract_openrouter_images(&json)?);
+        }
+
+        Ok(ImageGenerationResponse {
+            images,
+            revised_prompt: None,
+        })
+    }
+
+    fn model_name(&self) -> &str {
+        &self.model
     }
 }

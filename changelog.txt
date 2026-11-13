@@ -1,3 +1,24 @@
+UNRELEASED
+  - feat(image generation): `ImageGenerationProvider::OpenRouter` ("openrouter"),
+    any OpenRouter image model through Chat Completions (`modalities:
+    ["image","text"]`, `image_config.aspect_ratio`). `OpenRouterClient` now
+    implements `ImageGenerationClient`; the default model is
+    `OPENROUTER_DEFAULT_IMAGE_MODEL` (google/gemini-3.1-flash-lite-image,
+    about USD 0.034 per 1376x768 image) and the new
+    `new_image_generation_client_with_model(provider, key, model)` picks any
+    other slug (the other providers ignore the model, as before). Images come
+    back as data URIs in `ImageData::b64_json`; each response's
+    `usage.cost` is logged. `build_openrouter_image_body` and
+    `extract_openrouter_images` are public and tested offline.
+  - fix(image generation): `decode_base64` and
+    `get_image_extension_from_base64` accept `data:<mime>;base64,` URIs (new
+    `strip_data_uri_prefix`). Gemini's images carry that prefix and were
+    decoded as corrupt bytes and typed "bin".
+  - Note: `OpenRouterClient` now implements both `ClientWrapper` and
+    `ImageGenerationClient`, so `client.model_name()` is ambiguous when both
+    traits are in scope (same as `GrokClient`); call
+    `ClientWrapper::model_name(&client)`.
+
 0.16.1 NOV/12/2026
   Release: cloudllm 0.16.1 and cloudllm_mcp 0.4.1 (no breaking changes).
   cloudllm 0.16.1 only raises its cloudllm_mcp requirement to 0.4.1.

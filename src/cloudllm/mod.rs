@@ -73,6 +73,13 @@ pub enum ImageGenerationProvider {
 
     /// Google's Gemini image generation with advanced aspect ratio control
     Gemini,
+
+    /// Any OpenRouter image model (output modality `image`), e.g.
+    /// `google/gemini-3.1-flash-lite-image`, called through OpenRouter's
+    /// Chat Completions API. Pick the model with
+    /// [`new_image_generation_client_with_model`]; the plain factory uses
+    /// [`clients::openrouter::OPENROUTER_DEFAULT_IMAGE_MODEL`].
+    OpenRouter,
 }
 
 use std::error::Error;
@@ -101,12 +108,14 @@ impl ImageGenerationProvider {
     /// assert_eq!(ImageGenerationProvider::OpenAI.as_str(), "openai");
     /// assert_eq!(ImageGenerationProvider::Grok.as_str(), "grok");
     /// assert_eq!(ImageGenerationProvider::Gemini.as_str(), "gemini");
+    /// assert_eq!(ImageGenerationProvider::OpenRouter.as_str(), "openrouter");
     /// ```
     pub fn as_str(&self) -> &'static str {
         match self {
             ImageGenerationProvider::OpenAI => "openai",
             ImageGenerationProvider::Grok => "grok",
             ImageGenerationProvider::Gemini => "gemini",
+            ImageGenerationProvider::OpenRouter => "openrouter",
         }
     }
 
@@ -124,6 +133,7 @@ impl ImageGenerationProvider {
             ImageGenerationProvider::OpenAI => "OpenAI (gpt-image-2)",
             ImageGenerationProvider::Grok => "Grok Imagine",
             ImageGenerationProvider::Gemini => "Google Gemini",
+            ImageGenerationProvider::OpenRouter => "OpenRouter",
         }
     }
 }
@@ -138,6 +148,7 @@ impl ImageGenerationProvider {
 /// - `"openai"` (case-insensitive) → [`ImageGenerationProvider::OpenAI`]
 /// - `"grok"` (case-insensitive) → [`ImageGenerationProvider::Grok`]
 /// - `"gemini"` (case-insensitive) → [`ImageGenerationProvider::Gemini`]
+/// - `"openrouter"` (case-insensitive) → [`ImageGenerationProvider::OpenRouter`]
 ///
 /// # Examples
 ///
@@ -164,8 +175,9 @@ impl FromStr for ImageGenerationProvider {
             "openai" => Ok(ImageGenerationProvider::OpenAI),
             "grok" => Ok(ImageGenerationProvider::Grok),
             "gemini" => Ok(ImageGenerationProvider::Gemini),
+            "openrouter" => Ok(ImageGenerationProvider::OpenRouter),
             _ => Err(ImageGenerationProviderError(format!(
-                "Unknown image generation provider '{}'. Supported providers: openai, grok, gemini",
+                "Unknown image generation provider '{}'. Supported providers: openai, grok, gemini, openrouter",
                 s
             ))),
         }
@@ -246,6 +258,49 @@ pub fn new_image_generation_client(
                 clients::gemini::GeminiClient::new_with_model_string(api_key, "gemini-3.8-flash");
             Ok(Arc::new(client))
         }
+        ImageGenerationProvider::OpenRouter => new_image_generation_client_with_model(
+            provider,
+            api_key,
+            clients::openrouter::OPENROUTER_DEFAULT_IMAGE_MODEL,
+        ),
+    }
+}
+
+/// Create an image generation client for an explicit model.
+///
+/// For [`ImageGenerationProvider::OpenRouter`] `model` is the OpenRouter
+/// slug of an image model (e.g. `"google/gemini-3.1-flash-lite-image"`,
+/// `"openai/gpt-5-image-mini"`). The other providers choose their image
+/// model themselves and ignore it, exactly like
+/// [`new_image_generation_client`].
+///
+/// ```rust,no_run
+/// use cloudllm::cloudllm::{ImageGenerationProvider, new_image_generation_client_with_model};
+///
+/// let client = new_image_generation_client_with_model(
+///     ImageGenerationProvider::OpenRouter,
+///     "your-openrouter-key",
+///     "google/gemini-3.1-flash-lite-image",
+/// ).expect("Failed to create OpenRouter image client");
+///
+/// assert_eq!(client.model_name(), "google/gemini-3.1-flash-lite-image");
+/// ```
+pub fn new_image_generation_client_with_model(
+    provider: ImageGenerationProvider,
+    api_key: &str,
+    model: &str,
+) -> Result<Arc<dyn ImageGenerationClient>, String> {
+    match provider {
+        ImageGenerationProvider::OpenRouter => {
+            let model = model.trim();
+            if model.is_empty() {
+                return Err("OpenRouter image generation needs a model slug".to_string());
+            }
+            Ok(Arc::new(
+                clients::openrouter::OpenRouterClient::new_with_model_str(api_key, model),
+            ))
+        }
+        _ => new_image_generation_client(provider, api_key),
     }
 }
 
@@ -257,7 +312,7 @@ pub fn new_image_generation_client(
 ///
 /// # Arguments
 ///
-/// * `provider` - The provider name as a string: "openai", "grok", or "gemini"
+/// * `provider` - The provider name as a string: "openai", "grok", "gemini" or "openrouter"
 /// * `api_key` - The API key for the provider
 ///
 /// # Returns
